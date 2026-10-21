@@ -1,0 +1,128 @@
+@import "tailwindcss";
+
+/* ------------------------------------------------------------------
+   Pulse design tokens
+   Ink teal for structure and primary actions, cool paper background,
+   and a single loud scale — "heat" — reserved for stalled work.
+------------------------------------------------------------------- */
+@theme {
+  --font-sans: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
+  --font-display: "Bricolage Grotesque Variable", "Figtree Variable", ui-sans-serif, sans-serif;
+
+  --color-paper: #f4f6f7;
+  --color-surface: #ffffff;
+  --color-sunken: #eef1f3;
+  --color-line: #e2e7ea;
+  --color-line-strong: #cfd7dc;
+
+  --color-ink: #0f3d47;
+  --color-ink-soft: #1d5663;
+  --color-ink-tint: #e5eff1;
+  --color-text: #13262c;
+  --color-muted: #5b6b72;
+  --color-faint: #8a979d;
+
+  --color-ok: #1e8a5a;
+  --color-ok-tint: #e3f3eb;
+  --color-info: #2f6fb5;
+  --color-info-tint: #e6eff9;
+
+  /* heat scale: escalation levels 1–4 */
+  --color-heat-1: #c98a04;
+  --color-heat-1-tint: #fbf1d9;
+  --color-heat-2: #dc6a1c;
+  --color-heat-2-tint: #fce9db;
+  --color-heat-3: #cf3a2b;
+  --color-heat-3-tint: #fbe3e0;
+  --color-heat-4: #8f1239;
+  --color-heat-4-tint: #f6dfe6;
+
+  --radius-xs: 4px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+
+  --shadow-pop: 0 1px 2px rgb(15 61 71 / 0.06), 0 8px 24px -6px rgb(15 61 71 / 0.16);
+  --shadow-sheet: -12px 0 40px -12px rgb(15 61 71 / 0.22);
+
+  --animate-slide-in: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-fade-in: fade-in 160ms ease-out;
+  --animate-pop-in: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  --animate-pulse-dot: pulse-dot 2.4s ease-in-out infinite;
+}
+
+@keyframes slide-in {
+  from { transform: translateX(24px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes pop-in {
+  from { transform: translateY(6px) scale(0.98); opacity: 0; }
+  to { transform: translateY(0) scale(1); opacity: 1; }
+}
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgb(30 138 90 / 0.45); }
+  50% { box-shadow: 0 0 0 5px rgb(30 138 90 / 0); }
+}
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    text-rendering: optimizeLegibility;
+  }
+  body {
+    background: var(--color-paper);
+    color: var(--color-text);
+    font-family: var(--font-sans);
+    font-feature-settings: "ss01";
+  }
+  ::selection {
+    background: var(--color-ink-tint);
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 2px;
+  }
+  button, [role="button"] {
+    cursor: pointer;
+  }
+  button:disabled {
+    cursor: not-allowed;
+  }
+}
+
+@layer utilities {
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+  .font-display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.015em;
+  }
+  .no-scrollbar {
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+  .thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-line-strong) transparent;
+  }
+  .safe-bottom {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
