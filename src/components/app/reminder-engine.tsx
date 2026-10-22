@@ -85,11 +85,9 @@ export function handleAction(action: string, taskId: string) {
   if (action === "ack") {
     const r = s.acknowledge(taskId);
     if (r.ok) toast.success("Acknowledged", { description: "Reminders slowed down. Start when you're ready." });
-    else toast.error(r.error);
   } else if (action === "snooze") {
     const r = s.snooze(taskId, 30);
     if (r.ok) toast("Snoozed for 30 minutes");
-    else toast.error(r.error);
   } else {
     s.openTask(taskId);
   }

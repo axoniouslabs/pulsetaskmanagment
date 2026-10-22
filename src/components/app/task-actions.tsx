@@ -21,13 +21,16 @@ import {
   CalendarClock,
   Unlock,
   ImagePlus,
+  Loader2,
+  Pencil,
 } from "lucide-react";
 import { format, addHours } from "date-fns";
 import { useApp, useMeId } from "@/lib/store";
 import type { Task } from "@/lib/types";
 import { scopePeople } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
+import { uploadToTask, ACCEPT } from "@/lib/upload";
 import {
   Dialog,
   DialogContent,
@@ -43,8 +46,9 @@ import {
   Textarea,
 } from "@/components/ui/primitives";
 import { Avatar } from "./avatar";
+import { EditTaskForm } from "./edit-task";
 
-export type DialogKind = "block" | "submit" | "reject" | "reassign" | "deadline" | "request" | "cancel" | "ask" | "unblock" | "approve" | null;
+export type DialogKind = "edit" | "block" | "submit" | "reject" | "reassign" | "deadline" | "request" | "cancel" | "ask" | "unblock" | "approve" | null;
 
 const toLocalInput = (iso: string) => format(new Date(iso), "yyyy-MM-dd'T'HH:mm");
 
@@ -101,7 +105,6 @@ export function TaskActions({
             onSelect={() => {
               const res = a.snooze(task.id, m);
               if (res.ok) toast(`Snoozed for ${m} minutes`, { description: "Reminders resume after that." });
-              else toast.error(res.error);
             }}
           >
             <Clock4 /> {m} minutes
@@ -124,6 +127,11 @@ export function TaskActions({
 
   const managerItems = (
     <>
+      {!["approved", "cancelled"].includes(task.status) && (
+        <MenuItem onSelect={() => setDialog("edit")}>
+          <Pencil /> Edit details
+        </MenuItem>
+      )}
       <MenuItem onSelect={() => setDialog("reassign")}>
         <UserRoundCog /> Hand over to someone else
       </MenuItem>
@@ -153,13 +161,13 @@ export function TaskActions({
 
   if (task.status === "draft" && r.canManage) {
     buttons = (
-      <Button size={size} variant="primary" onClick={() => { a.publishDraft(task.id); toast.success("Published", { description: "The assignee has been notified." }); }}>
+      <Button size={size} variant="primary" onClick={() => { if (a.publishDraft(task.id).ok) toast.success("Published", { description: "The assignee has been notified." }); }}>
         <Send /> Publish
       </Button>
     );
   } else if (task.groupClaim && !task.groupClaim.claimed && r.role !== "owner") {
     buttons = (
-      <Button size={size} variant="primary" onClick={() => { a.claimTask(task.id); toast.success("Claimed", { description: "It's yours now. Reminders go to you only." }); }}>
+      <Button size={size} variant="primary" onClick={() => { if (a.claimTask(task.id).ok) toast.success("Claimed", { description: "It's yours now. Reminders go to you only." }); }}>
         <Hand /> Claim
       </Button>
     );
@@ -167,10 +175,10 @@ export function TaskActions({
     if (task.status === "assigned")
       buttons = (
         <>
-          <Button size={size} variant="primary" onClick={() => { a.acknowledge(task.id); toast.success("Acknowledged", { description: "Reminders slowed down. Start when you're ready." }); }}>
+          <Button size={size} variant="primary" onClick={() => { if (a.acknowledge(task.id).ok) toast.success("Acknowledged", { description: "Reminders slowed down. Start when you're ready." }); }}>
             <Check /> Acknowledge
           </Button>
-          <Button size={size} onClick={() => { a.start(task.id); toast.success("Started", { description: "Timer is running." }); }}>
+          <Button size={size} onClick={() => { if (a.start(task.id).ok) toast.success("Started", { description: "Timer is running." }); }}>
             <Play /> Start
           </Button>
           {snoozeMenu}
@@ -183,7 +191,7 @@ export function TaskActions({
     else if (task.status === "acknowledged")
       buttons = (
         <>
-          <Button size={size} variant="primary" onClick={() => { a.start(task.id); toast.success("Started", { description: "Timer is running." }); }}>
+          <Button size={size} variant="primary" onClick={() => { if (a.start(task.id).ok) toast.success("Started", { description: "Timer is running." }); }}>
             <Play /> Start
           </Button>
           <Button size={size} onClick={() => setDialog("block")}>
@@ -199,11 +207,11 @@ export function TaskActions({
             <CircleCheckBig /> {task.requiresApproval ? "Submit for review" : "Mark done"}
           </Button>
           {timing ? (
-            <Button size={size} onClick={() => { a.stopTimer(); toast("Timer paused"); }}>
+            <Button size={size} onClick={() => { if (a.stopTimer().ok) toast("Timer paused"); }}>
               <Pause /> Pause
             </Button>
           ) : (
-            <Button size={size} onClick={() => { a.start(task.id); toast("Timer running"); }}>
+            <Button size={size} onClick={() => { if (a.start(task.id).ok) toast("Timer running"); }}>
               <Play /> Resume
             </Button>
           )}
@@ -289,6 +297,18 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
   const [when, setWhen] = React.useState(() => toLocalInput(addHours(new Date(Math.max(Date.now(), new Date(task.dueAt).getTime())), 24).toISOString()));
   const [person, setPerson] = React.useState(kind === "reassign" ? "" : task.blockedOwnerId ?? task.reviewerId);
   const [proof, setProof] = React.useState<string | null>(null);
+  const [uploading, setUploading] = React.useState(false);
+  const pickProof = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = "";
+    if (!f) return;
+    setUploading(true);
+    setError(null);
+    const r = await uploadToTask(task.id, f, { proof: true });
+    setUploading(false);
+    if (r.ok) setProof(f.name);
+    else setError(r.error);
+  };
   const [error, setError] = React.useState<string | null>(null);
 
   const done = (msg: string, desc?: string) => {
@@ -330,7 +350,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
                 ))}
               </Select>
             </Field>
-            {footer("Mark as blocked", () => { a.block(task.id, text.trim(), person); done("Marked as blocked", `${people.find((p) => p.id === person)?.name.split(" ")[0]} has been told.`); }, { disabled: !text.trim() })}
+            {footer("Mark as blocked", () => { if (a.block(task.id, text.trim(), person).ok) done("Marked as blocked", `${people.find((p) => p.id === person)?.name.split(" ")[0]} has been told.`); }, { disabled: !text.trim() })}
           </DialogContent>
         );
       case "unblock":
@@ -339,7 +359,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             <Field label="What changed? (optional)">
               <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Access given, check your email" />
             </Field>
-            {footer("Clear blocker", () => { a.unblock(task.id, text.trim() || undefined); done("Blocker cleared"); })}
+            {footer("Clear blocker", () => { if (a.unblock(task.id, text.trim() || undefined).ok) done("Blocker cleared"); })}
           </DialogContent>
         );
       case "submit":
@@ -358,12 +378,14 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
                   <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <p className="text-[13.5px] text-text">This task needs a photo or file as proof.</p>
                     <div className="flex gap-2">
-                      <Button size="sm" variant="primary" onClick={() => setProof(`photo-${format(new Date(), "HHmm")}.jpg`)}>
-                        <Camera /> Take photo
-                      </Button>
-                      <Button size="sm" onClick={() => setProof(`upload-${format(new Date(), "HHmm")}.pdf`)}>
+                      <label className={cn(buttonVariants({ variant: "primary", size: "sm" }), "cursor-pointer", uploading && "pointer-events-none opacity-60")}>
+                        {uploading ? <Loader2 className="animate-spin" /> : <Camera />} Take photo
+                        <input type="file" accept="image/*" capture="environment" className="sr-only" onChange={pickProof} disabled={uploading} />
+                      </label>
+                      <label className={cn(buttonVariants({ size: "sm" }), "cursor-pointer", uploading && "pointer-events-none opacity-60")}>
                         <ImagePlus /> Upload
-                      </Button>
+                        <input type="file" accept={ACCEPT} className="sr-only" onChange={pickProof} disabled={uploading} />
+                      </label>
                     </div>
                   </div>
                 )}
@@ -374,10 +396,10 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             </Field>
             {error && <p className="mt-3 text-[13px] text-heat-3">{error}</p>}
             {footer(task.requiresApproval ? "Submit for review" : "Mark done", () => {
-              const res = a.submit(task.id, text.trim(), proof ?? undefined);
+              const res = a.dispatch({ type: "submit", taskId: task.id, note: text.trim() });
               if (!res.ok) return setError(res.error);
               done(task.requiresApproval ? "Submitted for review" : "Marked done", task.requiresApproval ? `${reviewer?.name.split(" ")[0]} has been told.` : undefined);
-            }, { variant: "ok" })}
+            }, { variant: "ok", disabled: uploading })}
           </DialogContent>
         );
       case "approve":
@@ -386,7 +408,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             <Field label="Feedback for later (optional)" hint="Saved on the task and shows in their review history.">
               <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Good, next time add the invoice number in the file name" />
             </Field>
-            {footer("Approve", () => { a.approve(task.id, text.trim() || undefined); done("Approved", "The task is closed."); }, { variant: "ok" })}
+            {footer("Approve", () => { if (a.approve(task.id, text.trim() || undefined).ok) done("Approved", "The task is closed."); }, { variant: "ok" })}
           </DialogContent>
         );
       case "reject":
@@ -401,7 +423,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
                 This task has already been sent back {task.rejections} time{task.rejections > 1 ? "s" : ""}. If the instructions were unclear, consider adding detail to the task.
               </p>
             )}
-            {footer("Send back", () => { a.reject(task.id, text.trim()); done("Sent back", `${assignee?.name.split(" ")[0]} has been told why.`); }, { variant: "dangerSolid", disabled: !text.trim() })}
+            {footer("Send back", () => { if (a.reject(task.id, text.trim()).ok) done("Sent back", `${assignee?.name.split(" ")[0]} has been told why.`); }, { variant: "dangerSolid", disabled: !text.trim() })}
           </DialogContent>
         );
       case "reassign":
@@ -429,7 +451,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             <Field label="Reason" className="mt-4">
               <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Kamran is on a field visit all day" />
             </Field>
-            {footer("Hand over", () => { a.reassign(task.id, person, text.trim() || "No reason given"); done("Handed over", `${people.find((p) => p.id === person)?.name.split(" ")[0]} has been told.`); }, { disabled: !person || person === task.assigneeId })}
+            {footer("Hand over", () => { if (a.reassign(task.id, person, text.trim() || "No reason given").ok) done("Handed over", `${people.find((p) => p.id === person)?.name.split(" ")[0]} has been told.`); }, { disabled: !person || person === task.assigneeId })}
           </DialogContent>
         );
       case "deadline":
@@ -448,18 +470,20 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             </Field>
             {footer(kind === "deadline" ? "Change deadline" : "Send request", () => {
               const iso = new Date(when).toISOString();
-              if (kind === "deadline") { a.changeDeadline(task.id, iso, text.trim() || "No reason given"); done("Deadline changed"); }
-              else { a.requestDeadline(task.id, iso, text.trim()); done("Request sent", `${reviewer?.name.split(" ")[0]} will approve or decline.`); }
+              if (kind === "deadline") { if (a.changeDeadline(task.id, iso, text.trim() || "No reason given").ok) done("Deadline changed"); }
+              else { if (a.requestDeadline(task.id, iso, text.trim()).ok) done("Request sent", `${reviewer?.name.split(" ")[0]} will approve or decline.`); }
             }, { disabled: kind === "request" && !text.trim() })}
           </DialogContent>
         );
+      case "edit":
+        return <EditTaskForm task={task} onClose={onClose} />;
       case "cancel":
         return (
           <DialogContent title="Cancel this task?" description="It stays in the history and reports, marked as cancelled.">
             <Field label="Reason">
               <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. Customer cancelled the order" />
             </Field>
-            {footer("Cancel task", () => { a.cancel(task.id, text.trim()); done("Task cancelled"); }, { variant: "dangerSolid", disabled: !text.trim() })}
+            {footer("Cancel task", () => { if (a.cancel(task.id, text.trim()).ok) done("Task cancelled"); }, { variant: "dangerSolid", disabled: !text.trim() })}
           </DialogContent>
         );
       case "ask":

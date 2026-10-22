@@ -20,6 +20,7 @@ import type {
   ReminderRule,
   Task,
   TaskStatus,
+  TaskTemplate,
 } from "@/lib/types";
 import { headOf, leadOf, membersOf, ownerOf, type World } from "./world";
 
@@ -40,10 +41,33 @@ export interface NewTaskInput {
   tags?: string[];
   recurrence?: Task["recurrence"];
   draft?: boolean;
+  /** tasks that must be done before this one can start */
+  dependsOn?: string[];
+  /** offer it to a team or group; the first to claim it owns it (assigneeId holds it meanwhile) */
+  claim?: { unitType: "team" | "group"; unitId: string };
+}
+
+export interface TaskPatch {
+  title?: string;
+  description?: string;
+  priority?: Priority;
+  estimateHours?: number;
+  projectId?: string | null;
+  tags?: string[];
+  startAt?: string | null;
+  requiresApproval?: boolean;
+  requiresProof?: boolean;
+  requiresResult?: boolean;
+  reminder?: Partial<ReminderRule>;
+  recurrence?: Task["recurrence"] | null;
+  dependsOn?: string[];
 }
 
 export type Command =
   | { type: "createTask"; id: string; input: NewTaskInput }
+  | { type: "editTask"; taskId: string; patch: TaskPatch }
+  | { type: "saveTemplate"; id: string; name: string; input: TaskTemplate["input"] }
+  | { type: "deleteTemplate"; id: string }
   | { type: "publishDraft"; taskId: string }
   | { type: "claimTask"; taskId: string }
   | { type: "acknowledge"; taskId: string }
@@ -62,7 +86,7 @@ export type Command =
   | { type: "toggleSubtask"; taskId: string; subtaskId: string }
   | { type: "addSubtask"; taskId: string; title: string }
   | { type: "addComment"; taskId: string; body: string; kind?: "text" | "voice"; durationSec?: number }
-  | { type: "addAttachment"; taskId: string; name: string; kind: "image" | "file" }
+  | { type: "addAttachment"; taskId: string; name: string; kind: "image" | "file"; fileId?: string; url?: string; sizeKb?: number; contentType?: string; proof?: boolean }
   | { type: "stopTimer" }
   | { type: "markRead"; id: string }
   | { type: "markAllRead" }
@@ -138,6 +162,15 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     w.timers[personId] = undefined;
   };
 
+  /** a task is done: tell the owners of tasks that were waiting only for it */
+  const releaseDependents = (done: Task) => {
+    for (const d of w.tasks) {
+      if (!d.dependsOn?.includes(done.id) || ["approved", "cancelled", "draft"].includes(d.status)) continue;
+      const stillWaiting = d.dependsOn.some((id) => id !== done.id && !["approved", "cancelled"].includes(w.tasks.find((x) => x.id === id)?.status ?? "approved"));
+      if (!stillWaiting) note(d.assigneeId, "unblocked", "You can start now", `"${done.title}" is done, so ${d.title} is ready.`, d.id);
+    }
+  };
+
   const deescalate = (t: Task) => {
     if (t.escalationLevel > 0) log("deescalated", `Back to level 0 after ${first(t.assigneeId)} responded`, t.id, "system");
     set(t, { escalationLevel: 0 as HeatLevel, remindersIgnored: 0 });
@@ -151,6 +184,14 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (!input.title.trim()) fail("Add a title so the assignee knows what to do.");
       if (w.tasks.some((t) => t.id === cmd.id)) fail("This task was already created.");
       const reviewerId = me === input.assigneeId ? leadOf(w, input.assigneeId) ?? headOf(w, input.assigneeId) ?? ownerOf(w) ?? me : me;
+      const deps = (input.dependsOn ?? []).filter((id) => w.tasks.some((x) => x.id === id));
+      let claim: Task["groupClaim"];
+      if (input.claim) {
+        const c = input.claim;
+        const unit = c.unitType === "team" ? w.teams.find((x) => x.id === c.unitId) : w.groups.find((x) => x.id === c.unitId);
+        if (!unit) fail("Pick the team or group to offer this task to.");
+        claim = { unitName: unit!.name, claimed: false, unitType: c.unitType, unitId: c.unitId };
+      }
       const t: Task = {
         id: cmd.id,
         title: input.title.trim(),
@@ -183,13 +224,90 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         snoozesToday: 0,
         loggedMinutes: 0,
         recurrence: input.recurrence,
+        dependsOn: deps.length ? deps : undefined,
+        groupClaim: claim,
       };
       w.tasks.unshift(t);
       if (input.draft) log("created", "Saved as draft", t.id);
-      else {
+      else if (claim) {
+        log("assigned", `Offered to ${claim.unitName}: the first to claim it owns it`, t.id);
+        for (const r of membersOf(w, claim.unitType!, claim.unitId!)) {
+          note(r, "assigned", `Open task for ${claim.unitName}`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}. Claim it if you can take it.`, t.id);
+        }
+      } else {
         log("assigned", `Assigned to ${first(input.assigneeId)}`, t.id);
         note(input.assigneeId, "assigned", `${first(me)} assigned you a task`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
       }
+      if (deps.length) log("created", `Waits for: ${deps.map((d) => `"${w.tasks.find((x) => x.id === d)?.title}"`).join(", ")}`, t.id);
+      break;
+    }
+
+    case "editTask": {
+      const t = task(cmd.taskId);
+      if (["approved", "cancelled"].includes(t.status)) fail("This task is closed and can't be edited.");
+      const p = cmd.patch;
+      const changed: string[] = [];
+      if (p.title !== undefined) {
+        const title = p.title.trim() || fail("The title can't be empty.");
+        if (title !== t.title) changed.push(`title to "${title}"`);
+        t.title = title;
+      }
+      if (p.description !== undefined && p.description.trim() !== t.description) {
+        t.description = p.description.trim();
+        changed.push("instructions");
+      }
+      if (p.priority && p.priority !== t.priority) {
+        changed.push(`priority to ${p.priority}`);
+        t.priority = p.priority;
+      }
+      if (p.estimateHours !== undefined && p.estimateHours !== t.estimateHours) {
+        changed.push(`estimate to ${p.estimateHours}h`);
+        t.estimateHours = p.estimateHours;
+      }
+      if (p.projectId !== undefined) t.projectId = p.projectId || undefined;
+      if (p.tags) t.tags = p.tags;
+      if (p.startAt !== undefined) t.startAt = p.startAt || undefined;
+      if (p.requiresApproval !== undefined) t.requiresApproval = p.requiresApproval;
+      if (p.requiresProof !== undefined) t.requiresProof = p.requiresProof;
+      if (p.requiresResult !== undefined) t.requiresResult = p.requiresResult;
+      if (p.reminder) {
+        t.reminder = { ...t.reminder, ...p.reminder };
+        changed.push("reminder rule");
+      }
+      if (p.recurrence !== undefined) t.recurrence = p.recurrence || undefined;
+      if (p.dependsOn) {
+        const deps = p.dependsOn.filter((id) => id !== t.id && w.tasks.some((x) => x.id === id));
+        // no loops: a task can't (indirectly) wait for itself
+        const waitsOn = (id: string, seen = new Set<string>()): boolean => {
+          if (id === t.id) return true;
+          if (seen.has(id)) return false;
+          seen.add(id);
+          return (w.tasks.find((x) => x.id === id)?.dependsOn ?? []).some((d) => waitsOn(d, seen));
+        };
+        if (deps.some((d) => waitsOn(d))) fail("That would make tasks wait for each other forever.");
+        t.dependsOn = deps.length ? deps : undefined;
+        changed.push("what it waits for");
+      }
+      if (!changed.length && p.description === undefined && p.title === undefined) changed.push("details");
+      log("created", `Edited ${changed.join(", ") || "details"}`, t.id);
+      if (t.assigneeId !== me && changed.length) note(t.assigneeId, "deadline", "A task you own was changed", `${t.title}: ${changed.join(", ")}`, t.id);
+      break;
+    }
+
+    case "saveTemplate": {
+      const name = cmd.name.trim() || fail("Give the template a name.");
+      if (!cmd.input.title.trim()) fail("A template needs a task title.");
+      const existing = w.templates.find((x) => x.id === cmd.id);
+      if (existing) Object.assign(existing, { name, input: cmd.input });
+      else w.templates.push({ id: cmd.id, name, createdById: me, createdAt: nowIso, input: cmd.input });
+      w.templates.sort((a, b) => a.name.localeCompare(b.name));
+      log("created", `Saved the template "${name}"`);
+      break;
+    }
+    case "deleteTemplate": {
+      const tpl = w.templates.find((x) => x.id === cmd.id) ?? fail("That template no longer exists.");
+      w.templates = w.templates.filter((x) => x.id !== cmd.id);
+      log("created", `Deleted the template "${tpl.name}"`);
       break;
     }
 
@@ -230,6 +348,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "start": {
       const t = task(cmd.taskId);
       if (!["assigned", "acknowledged", "in_progress"].includes(t.status)) fail("This task can't be started in its current state.");
+      const waiting = (t.dependsOn ?? []).map((d) => w.tasks.find((x) => x.id === d)).filter((d) => d && !["approved", "cancelled"].includes(d.status));
+      if (waiting.length) fail(`This waits for "${waiting[0]!.title}" to be done first. You can acknowledge it now and start when that's finished.`);
       stopTimerFor(t.assigneeId);
       const resumed = !!t.startedAt;
       set(t, {
@@ -302,6 +422,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         set(t, { status: "approved", submittedAt: nowIso, approvedAt: nowIso, statusChangedAt: nowIso, submissionNote: noteText, escalationLevel: 0 });
         log("submitted", noteText ? `Submitted: ${noteText}` : "Submitted", t.id);
         log("approved", "Auto-approved (routine task)", t.id, "system");
+        releaseDependents(t);
       } else {
         set(t, { status: "submitted", submittedAt: nowIso, statusChangedAt: nowIso, submissionNote: noteText, escalationLevel: 0 });
         log("submitted", noteText ? `Submitted: ${noteText}` : "Submitted for review", t.id);
@@ -316,6 +437,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       set(t, { status: "approved", approvedAt: nowIso, statusChangedAt: nowIso, escalationLevel: 0 });
       log("approved", cmd.note ? `Approved with note: ${cmd.note}` : "Approved", t.id);
       note(t.assigneeId, "approved", `${first(me)} approved your work`, cmd.note ? `${t.title}. "${cmd.note}"` : t.title, t.id);
+      releaseDependents(t);
       break;
     }
 
@@ -427,17 +549,21 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
 
     case "addAttachment": {
       const t = task(cmd.taskId);
+      if (["approved", "cancelled"].includes(t.status)) fail("This task is closed. Files can't be added any more.");
+      const isProof = t.assigneeId === me && (cmd.proof ?? (t.requiresProof && cmd.kind === "image"));
       t.attachments.push({
-        id: ctx.uid("a"),
+        id: cmd.fileId ?? ctx.uid("a"),
         name: cmd.name,
         kind: cmd.kind,
-        sizeKb: 240,
+        sizeKb: cmd.sizeKb ?? 0,
         at: nowIso,
         byId: me,
-        isProof: t.requiresProof && cmd.kind === "image",
+        isProof,
         hue: (cmd.name.length * 37) % 360,
+        url: cmd.url,
+        contentType: cmd.contentType,
       });
-      log("commented", `Attached ${cmd.name}`, t.id);
+      log("commented", `${isProof ? "Added proof" : "Attached"}: ${cmd.name}`, t.id);
       break;
     }
 

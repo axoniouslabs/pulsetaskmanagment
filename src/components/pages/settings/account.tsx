@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { Loader2, LogOut } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
-import { useMe } from "@/lib/store";
+import { useApp, useMe } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/primitives";
 import { signOut } from "@/components/app/account-menu";
@@ -26,6 +26,7 @@ export function AccountSettings() {
     setCurrent("");
     setNext("");
     await fetch("/api/me/password-changed", { method: "POST" }).catch(() => {});
+    void useApp.getState().load();
     toast.success("Password changed", { description: "You've been signed out on your other devices." });
   }
 

@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Bookmark, BookmarkPlus, CalendarDays, Check, Columns3, List, Search, Trash2, X } from "lucide-react";
+import { Bookmark, BookmarkPlus, CalendarDays,
+  ChartGantt, Check, Columns3, List, Search, Trash2, X } from "lucide-react";
 import type { Person, Project, Role } from "@/lib/types";
 import { STATUS_LABEL, PRIORITY_LABEL } from "@/lib/selectors";
 import { cn, plural } from "@/lib/utils";
@@ -108,6 +109,7 @@ export function TasksToolbar({
             { value: "list", label: <><List className="size-4" /> List</> },
             { value: "board", label: <><Columns3 className="size-4" /> Board</> },
             { value: "calendar", label: <><CalendarDays className="size-4" /> Calendar</> },
+            { value: "timeline", label: <><ChartGantt className="size-4" /> Timeline</> },
           ]}
         />
       </div>

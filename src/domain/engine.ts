@@ -121,6 +121,8 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         if (overdue && overdueMin >= s.escalation.l4HoursPastDue * 60) escalate(t, 4, "still not acknowledged long after the deadline");
         else if (overdue) escalate(t, 3, "past the deadline and not acknowledged");
       }
+      // offered to a team and not claimed yet: nobody owns it, so no personal reminders
+      if (t.groupClaim && !t.groupClaim.claimed) continue;
       const windowOpen = t.reminder.window === "always" || working;
       const snoozed = !!t.snoozedUntil && new Date(t.snoozedUntil) > now;
       const intervalOk = minsSince(t.lastReminderAt ?? t.createdAt) >= t.reminder.intervalMin;

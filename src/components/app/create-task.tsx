@@ -23,6 +23,9 @@ const INTERVALS = [
 ];
 
 const toLocal = (d: Date) => format(d, "yyyy-MM-dd'T'HH:mm");
+const hoursUntil = (local: string) => Math.max(1, Math.round((new Date(local).getTime() - Date.now()) / 3600000));
+const hoursFromNow = (h: number) => new Date(Date.now() + h * 3600000);
+const newTemplateId = () => `tpl_${Date.now().toString(36)}${Math.random().toString(16).slice(2, 8)}`;
 
 export function CreateTaskDialog() {
   const open = useApp((s) => s.createOpen);
@@ -61,8 +64,74 @@ function CreateTaskForm() {
   const [estimate, setEstimate] = React.useState("1");
   const [repeat, setRepeat] = React.useState<"" | "daily" | "weekly" | "monthly">("");
   const [touched, setTouched] = React.useState(false);
-
+  const [mode, setMode] = React.useState<"one" | "many" | "unit">("one");
+  const [many, setMany] = React.useState<string[]>([]);
+  const [unit, setUnit] = React.useState("");
+  const [deps, setDeps] = React.useState<string[]>([]);
+  const [tplName, setTplName] = React.useState<string | null>(null);
   const parsed = React.useMemo(() => (quick.trim() ? parseQuickAdd(quick, scope) : null), [quick, scope]);
+
+  // teams and groups this person may offer work to
+  const units = React.useMemo(() => {
+    if (s.role === "employee") return [];
+    const mine = (leadId: string, depId: string) => s.role === "owner" || leadId === meId || s.departments.some((d) => d.id === depId && d.headId === meId);
+    return [
+      ...s.teams.filter((t) => mine(t.leadId, t.departmentId)).map((t) => ({ key: `team:${t.id}`, label: `${t.name} team`, holder: t.leadId })),
+      ...s.groups.filter((g) => s.role === "owner" || g.ownerId === meId).map((g) => ({ key: `group:${g.id}`, label: `${g.name} (group)`, holder: g.ownerId })),
+    ];
+  }, [s.role, s.teams, s.groups, s.departments, meId]);
+  const openTasks = React.useMemo(
+    () => s.tasks.filter((t) => ["assigned", "acknowledged", "in_progress", "blocked", "submitted"].includes(t.status)).slice(0, 200),
+    [s.tasks],
+  );
+
+  const applyTemplate = (id: string) => {
+    const tpl = s.templates.find((t) => t.id === id);
+    if (!tpl) return;
+    const i = tpl.input;
+    setTitle(i.title);
+    setQuick("");
+    setDescription(i.description ?? "");
+    setPriority(i.priority);
+    setEstimate(String(i.estimateHours ?? 1));
+    setApproval(i.requiresApproval ?? s.settings.approvalByDefault);
+    setProof(!!i.requiresProof);
+    setResult(!!i.requiresResult);
+    if (i.reminder?.intervalMin) setIntervalMin(i.reminder.intervalMin);
+    if (i.reminder?.window) setWorkingOnly(i.reminder.window === "working");
+    setChecklist((i.subtasks ?? []).join("\n"));
+    setProjectId(i.projectId ?? "");
+    setRepeat(i.recurrence ?? "");
+    if (i.dueInHours) setDue(toLocal(hoursFromNow(i.dueInHours)));
+    if (i.description || i.subtasks?.length || i.recurrence || i.projectId) setShowMore(true);
+    toast.success(`Filled from "${tpl.name}"`, { description: "Pick who owns it and check the deadline." });
+  };
+
+  const templateInput = () => ({
+    title: title.trim(),
+    description: description.trim() || undefined,
+    priority,
+    estimateHours: Number(estimate) || 1,
+    projectId: projectId || undefined,
+    requiresApproval: approval,
+    requiresProof: proof,
+    requiresResult: result,
+    reminder: { intervalMin: interval, window: workingOnly ? ("working" as const) : ("always" as const) },
+    subtasks: checklist.split(/\n|,/).map((x) => x.trim()).filter(Boolean),
+    tags: parsed?.tags ?? [],
+    recurrence: repeat || undefined,
+    dueInHours: hoursUntil(due),
+  });
+
+  const saveTemplate = () => {
+    const name = (tplName ?? "").trim();
+    if (!name || !title.trim()) return toast.error(!title.trim() ? "Add a title first." : "Give the template a name.");
+    const r = s.dispatch({ type: "saveTemplate", id: newTemplateId(), name, input: templateInput() });
+    if (!r.ok) return toast.error(r.error);
+    setTplName(null);
+    toast.success("Template saved", { description: `"${name}" is ready in New task.` });
+  };
+
 
   const onQuick = (v: string) => {
     setQuick(v);
@@ -87,7 +156,42 @@ function CreateTaskForm() {
 
   const submit = (draft: boolean) => {
     setTouched(true);
-    if (!title.trim() || !assigneeId) return;
+    if (!title.trim()) return;
+    const base = {
+      title,
+      description,
+      priority,
+      dueAt: new Date(due).toISOString(),
+      estimateHours: Number(estimate) || 1,
+      projectId: projectId || undefined,
+      requiresApproval: approval,
+      requiresProof: proof,
+      requiresResult: result,
+      reminder: { intervalMin: interval, window: workingOnly ? ("working" as const) : ("always" as const) },
+      subtasks: checklist.split(/\n|,/).map((x) => x.trim()).filter(Boolean),
+      tags: parsed?.tags ?? [],
+      recurrence: repeat || undefined,
+      dependsOn: deps.length ? deps : undefined,
+      draft,
+    };
+    if (mode === "many") {
+      if (!many.length) return;
+      const ids = many.map((pid) => s.createTask({ ...base, assigneeId: pid })).filter(Boolean);
+      s.closeCreate();
+      toast.success(`Assigned to ${ids.length} people`, { description: "Each person has their own copy and their own reminders." });
+      return;
+    }
+    if (mode === "unit") {
+      const u = units.find((x) => x.key === unit);
+      if (!u) return;
+      const [unitType, unitId] = u.key.split(":") as ["team" | "group", string];
+      const id = s.createTask({ ...base, assigneeId: u.holder, claim: { unitType, unitId } });
+      if (!id) return;
+      s.closeCreate();
+      toast.success(`Offered to ${u.label}`, { description: "Everyone in it is told. The first to claim it owns it.", action: { label: "Open", onClick: () => s.openTask(id) } });
+      return;
+    }
+    if (!assigneeId) return;
     const id = s.createTask({
       title,
       description,
@@ -103,8 +207,10 @@ function CreateTaskForm() {
       subtasks: checklist.split(/\n|,/).map((x) => x.trim()).filter(Boolean),
       tags: parsed?.tags ?? [],
       recurrence: repeat || undefined,
+      dependsOn: deps.length ? deps : undefined,
       draft,
     });
+    if (!id) return;
     s.closeCreate();
     const who = s.people.find((p) => p.id === assigneeId)!;
     toast.success(draft ? "Saved as draft" : who.id === meId ? "Task added" : `Assigned to ${who.name.split(" ")[0]}`, {
@@ -122,6 +228,16 @@ function CreateTaskForm() {
   return (
     <DialogContent title="New task" description="One person owns it. Pulse reminds them until they respond." wide>
       <div className="space-y-5">
+        {s.templates.length > 0 && (
+          <Field label="Start from a template">
+            <Select defaultValue="" onChange={(e) => e.target.value && applyTemplate(e.target.value)}>
+              <option value="">Blank task</option>
+              {s.templates.map((t) => (
+                <option key={t.id} value={t.id}>{t.name}</option>
+              ))}
+            </Select>
+          </Field>
+        )}
         {/* quick add */}
         <div className="rounded-[var(--radius-md)] bg-ink-tint/60 p-3">
           <label className="flex items-center gap-2 text-[12.5px] font-medium text-ink" htmlFor="quick">
@@ -152,7 +268,62 @@ function CreateTaskForm() {
           {touched && !title.trim() && <p className="text-[12.5px] text-heat-3">Add a title so the assignee knows what to do.</p>}
         </Field>
 
+        {s.role !== "employee" && (
+          <Segmented
+            value={mode}
+            onChange={setMode}
+            options={[
+              { value: "one", label: "One person" },
+              { value: "many", label: "Several people" },
+              ...(units.length ? [{ value: "unit" as const, label: "Team, first to claim" }] : []),
+            ]}
+            className="w-full [&>button]:flex-1 [&>button]:justify-center"
+          />
+        )}
+
+        {mode === "many" && (
+          <Field label="Who gets a copy?" hint="Each person gets their own task, reminders and review.">
+            <div className="thin-scrollbar grid max-h-[232px] grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
+              {scope.map((p) => {
+                const on = many.includes(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => setMany((m) => (on ? m.filter((x) => x !== p.id) : [...m, p.id]))}
+                    className={cn("flex items-center gap-2.5 rounded-[var(--radius-md)] border px-2.5 py-2 text-left", on ? "border-ink bg-ink-tint" : "border-line hover:border-ink/30")}
+                    aria-pressed={on}
+                  >
+                    <Avatar person={p} size="md" />
+                    <span className="min-w-0 flex-1 truncate text-[13.5px] font-medium">{p.name}</span>
+                    {on && <CheckCircle2 className="size-4 text-ink" />}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex gap-3 text-[12.5px]">
+              <button type="button" className="font-medium text-ink" onClick={() => setMany(scope.filter((p) => !p.onLeave).map((p) => p.id))}>Everyone available</button>
+              <button type="button" className="text-muted" onClick={() => setMany([])}>Clear</button>
+              <span className="ml-auto text-muted">{many.length} selected</span>
+            </div>
+            {touched && !many.length && <p className="text-[12.5px] text-heat-3">Pick at least one person.</p>}
+          </Field>
+        )}
+
+        {mode === "unit" && (
+          <Field label="Offer it to" hint="Everyone in it is told. Whoever claims it first owns it and gets the reminders.">
+            <Select value={unit} onChange={(e) => setUnit(e.target.value)}>
+              <option value="">Pick a team or group</option>
+              {units.map((u) => (
+                <option key={u.key} value={u.key}>{u.label}</option>
+              ))}
+            </Select>
+            {touched && !unit && <p className="text-[12.5px] text-heat-3">Pick a team or group.</p>}
+          </Field>
+        )}
+
         {/* assignee with load */}
+        {mode === "one" && (
         <Field label="Who owns it?" hint={s.role !== "employee" ? "Today's committed hours are shown so nobody gets an impossible day." : undefined}>
           <div className="thin-scrollbar grid max-h-[232px] grid-cols-1 gap-1.5 overflow-y-auto sm:grid-cols-2">
             {scope.map((p) => {
@@ -191,6 +362,7 @@ function CreateTaskForm() {
             </p>
           )}
         </Field>
+        )}
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field label="Deadline">
@@ -290,6 +462,23 @@ function CreateTaskForm() {
                 </Select>
               </Field>
             </div>
+            <Field label="Waits for" hint="It can be acknowledged now but not started until these are done. The owner is told when it's ready.">
+              <Select value="" onChange={(e) => e.target.value && setDeps((d) => Array.from(new Set([...d, e.target.value])))}>
+                <option value="">Add a task it waits for</option>
+                {openTasks.filter((t) => !deps.includes(t.id)).map((t) => (
+                  <option key={t.id} value={t.id}>{t.title} ({s.people.find((p) => p.id === t.assigneeId)?.name.split(" ")[0]})</option>
+                ))}
+              </Select>
+              {deps.length > 0 && (
+                <div className="flex flex-wrap gap-1.5">
+                  {deps.map((d) => (
+                    <button key={d} type="button" onClick={() => setDeps((x) => x.filter((y) => y !== d))} className="rounded-full bg-sunken px-2.5 py-1 text-[12px] text-text hover:bg-heat-3-tint" aria-label="Remove">
+                      {s.tasks.find((t) => t.id === d)?.title} ×
+                    </button>
+                  ))}
+                </div>
+              )}
+            </Field>
             {repeat && (
               <p className="flex items-center gap-2 text-[12.5px] text-muted">
                 <Repeat className="size-3.5" /> A new copy appears on schedule even if the last one isn't done. Missed copies pile up to a maximum of 3.
@@ -301,12 +490,23 @@ function CreateTaskForm() {
 
       <div className="sticky bottom-0 -mx-5 mt-6 flex flex-col-reverse gap-2 border-t border-line bg-surface px-5 pt-4 sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
         {s.role !== "employee" ? (
-          <Button variant="ghost" onClick={() => submit(true)}>Save as draft</Button>
+          tplName !== null ? (
+            <div className="flex items-center gap-2">
+              <Input autoFocus value={tplName} onChange={(e) => setTplName(e.target.value)} placeholder="Template name" className="h-9 w-44" onKeyDown={(e) => e.key === "Enter" && saveTemplate()} />
+              <Button size="sm" variant="secondary" onClick={saveTemplate}>Save</Button>
+              <Button size="sm" variant="ghost" onClick={() => setTplName(null)}>Cancel</Button>
+            </div>
+          ) : (
+            <div className="flex gap-1">
+              {mode === "one" && <Button variant="ghost" onClick={() => submit(true)}>Save as draft</Button>}
+              <Button variant="ghost" onClick={() => setTplName(title.trim())}>Save as template</Button>
+            </div>
+          )
         ) : (
           <span />
         )}
         <Button variant="primary" size="lg" onClick={() => submit(false)}>
-          {s.role === "employee" ? "Add task" : "Assign task"}
+          {s.role === "employee" ? "Add task" : mode === "many" ? `Assign to ${many.length || ""} ${many.length === 1 ? "person" : "people"}`.replace("  ", " ") : mode === "unit" ? "Offer to the team" : "Assign task"}
         </Button>
       </div>
     </DialogContent>

@@ -1,6 +1,8 @@
 "use client";
 
 import * as React from "react";
+import { uploadToTask, uploadVoiceNote, startRecording, ACCEPT } from "@/lib/upload";
+import { AttachmentThumb } from "./attachment-thumb";
 import { format } from "date-fns";
 import {
   AlertOctagon,
@@ -13,9 +15,8 @@ import {
   CircleDot,
   Clock4,
   Eye,
-  FileText,
+  Loader2,
   Hand,
-  Image as ImageIcon,
   MessageSquare,
   Mic,
   PauseCircle,
@@ -114,10 +115,11 @@ function TaskDetail({ task }: { task: Task }) {
           </Banner>
         )}
         {task.groupClaim && !task.groupClaim.claimed && (
-          <Banner tone="heat-1" icon={Users} title={`Posted to ${task.groupClaim.unitName}, not claimed yet`}>
-            Everyone in the team is being reminded until someone claims it.
+          <Banner tone="heat-1" icon={Users} title={`Offered to ${task.groupClaim.unitName}, not claimed yet`}>
+            Everyone in it has been told. The first person to claim it owns it and gets the reminders.
           </Banner>
         )}
+        <WaitsFor task={task} />
 
         {/* key facts */}
         <dl className="grid grid-cols-2 gap-x-6 gap-y-4 sm:grid-cols-3">
@@ -185,12 +187,13 @@ function TaskDetail({ task }: { task: Task }) {
   );
 }
 
-function Banner({ tone, icon: Icon, title, children }: { tone: "heat-1" | "heat-2" | "heat-3" | "info"; icon: React.ElementType; title: string; children: React.ReactNode }) {
+function Banner({ tone, icon: Icon, title, children }: { tone: "heat-1" | "heat-2" | "heat-3" | "info" | "ok"; icon: React.ElementType; title: string; children: React.ReactNode }) {
   const cls = {
     "heat-1": "bg-heat-1-tint text-heat-1",
     "heat-2": "bg-heat-2-tint text-heat-2",
     "heat-3": "bg-heat-3-tint text-heat-3",
     info: "bg-info-tint text-info",
+    ok: "bg-ok-tint text-ok",
   }[tone];
   return (
     <div className={cn("flex gap-3 rounded-[var(--radius-md)] px-4 py-3", cls)}>
@@ -335,44 +338,91 @@ function Checklist({ task, canEdit }: { task: Task; canEdit: boolean }) {
   );
 }
 
+/* ---------- dependencies ---------- */
+function WaitsFor({ task }: { task: Task }) {
+  const all = useApp((s) => s.tasks);
+  const openTask = useApp((s) => s.openTask);
+  const deps = (task.dependsOn ?? []).map((id) => all.find((t) => t.id === id));
+  const open = deps.filter((d) => !d || !["approved", "cancelled"].includes(d.status));
+  if (!task.dependsOn?.length || ["approved", "cancelled"].includes(task.status)) return null;
+  return (
+    <Banner tone={open.length ? "info" : "ok"} icon={Clock4} title={open.length ? "Waits for other work first" : "Ready: everything it waited for is done"}>
+      <ul className="mt-1 space-y-1">
+        {deps.map((d, i) =>
+          d ? (
+            <li key={d.id}>
+              <button type="button" onClick={() => openTask(d.id)} className="text-left underline-offset-2 hover:underline">
+                {d.title}
+              </button>{" "}
+              <span className="opacity-75">({["approved", "cancelled"].includes(d.status) ? "done" : d.status.replace("_", " ")})</span>
+            </li>
+          ) : (
+            <li key={i}>A task outside your view</li>
+          ),
+        )}
+      </ul>
+    </Banner>
+  );
+}
+
 /* ---------- files & proof ---------- */
 function Files({ task }: { task: Task }) {
-  const add = useApp((s) => s.addAttachment);
   const r = useTaskRole(task);
-  if (!task.attachments.length && !r.isAssignee) return null;
+  const [busy, setBusy] = React.useState(false);
+  const canAdd = (r.isAssignee || r.isReviewer || r.canManage) && !["approved", "cancelled"].includes(task.status);
+  if (!task.attachments.length && !canAdd) return null;
+
+  const onPick = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? []);
+    e.target.value = "";
+    if (!files.length) return;
+    setBusy(true);
+    for (const f of files) {
+      const res = await uploadToTask(task.id, f, { proof: r.isAssignee && task.requiresProof && f.type.startsWith("image/") });
+      if (!res.ok) toast.error(`${f.name}: ${res.error}`);
+      else toast.success("Added", { description: `${f.name}. The time it was added is recorded.` });
+    }
+    setBusy(false);
+  };
+
   return (
     <section>
       <SectionTitle aside={task.requiresProof ? "Proof required to submit" : undefined}>Files and proof</SectionTitle>
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4">
-        {task.attachments.map((a) => (
-          <div key={a.id} className="overflow-hidden rounded-[var(--radius-md)] border border-line">
-            <div
-              className="flex aspect-[4/3] items-center justify-center"
-              style={{ background: a.kind === "image" ? `linear-gradient(135deg, oklch(0.9 0.05 ${a.hue ?? 200}), oklch(0.8 0.07 ${(a.hue ?? 200) + 40}))` : "var(--color-sunken)" }}
-            >
-              {a.kind === "image" ? <ImageIcon className="size-6 text-white/90" /> : <FileText className="size-6 text-muted" />}
+        {task.attachments.map((a) => {
+          const body = (
+            <>
+              <AttachmentThumb a={a} />
+              <div className="px-2.5 py-2">
+                <p className="truncate text-[12.5px] font-medium">{a.name}</p>
+                <p className="text-[11.5px] text-faint">
+                  {a.isProof ? "Proof, " : ""}
+                  {format(new Date(a.at), "d MMM, h:mm a")}
+                </p>
+              </div>
+            </>
+          );
+          return a.url ? (
+            <a key={a.id} href={a.url} target="_blank" rel="noreferrer" className="overflow-hidden rounded-[var(--radius-md)] border border-line hover:border-line-strong">
+              {body}
+            </a>
+          ) : (
+            <div key={a.id} className="overflow-hidden rounded-[var(--radius-md)] border border-line">
+              {body}
             </div>
-            <div className="px-2.5 py-2">
-              <p className="truncate text-[12.5px] font-medium">{a.name}</p>
-              <p className="text-[11.5px] text-faint">
-                {a.isProof ? "Proof, " : ""}
-                {format(new Date(a.at), "h:mm a")}
-              </p>
-            </div>
-          </div>
-        ))}
-        {r.isAssignee && !["approved", "cancelled"].includes(task.status) && (
-          <button
-            type="button"
-            onClick={() => {
-              add(task.id, `photo-${format(new Date(), "HHmmss")}.jpg`, "image");
-              toast.success("Photo added", { description: "Capture time is recorded with it." });
-            }}
-            className="flex aspect-[4/3] flex-col items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-dashed border-line-strong text-[12.5px] text-muted hover:border-ink/40 hover:text-text"
+          );
+        })}
+        {canAdd && (
+          <label
+            className={cn(
+              "flex aspect-[4/3] cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[var(--radius-md)] border border-dashed border-line-strong text-[12.5px] text-muted hover:border-ink/40 hover:text-text",
+              busy && "pointer-events-none opacity-60",
+            )}
           >
-            <Camera className="size-5" />
-            Add photo
-          </button>
+            {busy ? <Loader2 className="size-5 animate-spin" /> : <Camera className="size-5" />}
+            {busy ? "Uploading..." : "Add photo or file"}
+            <input type="file" accept={ACCEPT} multiple className="sr-only" onChange={onPick} disabled={busy} />
+          </label>
         )}
       </div>
     </section>
@@ -386,6 +436,34 @@ function Comments({ task }: { task: Task }) {
   const meId = useMeId();
   const [text, setText] = React.useState("");
   const [recording, setRecording] = React.useState<number | null>(null);
+  const [sending, setSending] = React.useState(false);
+  const recorder = React.useRef<Awaited<ReturnType<typeof startRecording>> | null>(null);
+
+  const startVoice = async () => {
+    try {
+      recorder.current = await startRecording();
+      setRecording(0);
+    } catch {
+      toast.error("Pulse can't use the microphone", { description: "Allow microphone access for this site, then try again." });
+    }
+  };
+  const discardVoice = () => {
+    recorder.current?.cancel();
+    recorder.current = null;
+    setRecording(null);
+  };
+  const sendVoice = async () => {
+    const rec = recorder.current;
+    const secs = Math.max(1, recording ?? 1);
+    recorder.current = null;
+    setRecording(null);
+    if (!rec) return;
+    setSending(true);
+    const blob = await rec.stop();
+    const r = await uploadVoiceNote(task.id, blob, secs);
+    setSending(false);
+    if (!r.ok) toast.error(r.error);
+  };
 
   React.useEffect(() => {
     if (recording === null) return;
@@ -406,7 +484,9 @@ function Comments({ task }: { task: Task }) {
                 <p className="text-[13px]">
                   <span className="font-semibold">{p?.name}</span> <span className="text-faint">{formatWhen(c.at)}</span>
                 </p>
-                {c.kind === "voice" ? (
+                {c.kind === "voice" && c.body.startsWith("/api/files/") ? (
+                  <audio controls preload="none" src={c.body} className="mt-1.5 h-10 w-full max-w-xs" aria-label={`Voice note, ${c.durationSec ?? 0} seconds`} />
+                ) : c.kind === "voice" ? (
                   <div className="mt-1.5 inline-flex items-center gap-3 rounded-full bg-ink-tint px-3 py-1.5">
                     <Play className="size-3.5 fill-ink text-ink" />
                     <span className="flex h-4 items-center gap-[2px]">
@@ -430,17 +510,12 @@ function Comments({ task }: { task: Task }) {
           {recording !== null ? (
             <div className="flex h-11 flex-1 items-center gap-3 rounded-[var(--radius-md)] border border-heat-3/40 bg-heat-3-tint px-3">
               <span className="size-2.5 animate-pulse rounded-full bg-heat-3" />
-              <span className="tabular text-[14px] text-heat-3">Recording 0:{String(recording).padStart(2, "0")}</span>
+              <span className="tabular text-[14px] text-heat-3">
+                Recording {Math.floor(recording / 60)}:{String(recording % 60).padStart(2, "0")}
+              </span>
               <span className="flex-1" />
-              <Button size="sm" variant="ghost" onClick={() => setRecording(null)}>Discard</Button>
-              <Button
-                size="sm"
-                variant="primary"
-                onClick={() => {
-                  add(task.id, "Voice note", "voice", Math.max(1, recording));
-                  setRecording(null);
-                }}
-              >
+              <Button size="sm" variant="ghost" onClick={discardVoice}>Discard</Button>
+              <Button size="sm" variant="primary" onClick={() => void sendVoice()}>
                 <Square className="fill-current" /> Send
               </Button>
             </div>
@@ -460,8 +535,8 @@ function Comments({ task }: { task: Task }) {
                   }
                 }}
               />
-              <Button size="icon" variant="secondary" className="h-11 w-11" aria-label="Record a voice note" onClick={() => setRecording(0)}>
-                <Mic />
+              <Button size="icon" variant="secondary" className="h-11 w-11" aria-label="Record a voice note" disabled={sending} onClick={() => void startVoice()}>
+                {sending ? <Loader2 className="animate-spin" /> : <Mic />}
               </Button>
               <Button
                 size="icon"

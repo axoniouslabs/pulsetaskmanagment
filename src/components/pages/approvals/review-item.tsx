@@ -1,11 +1,12 @@
 "use client";
 
 import * as React from "react";
-import { Clock3, FileText, ImageIcon, RotateCcw } from "lucide-react";
+import { Clock3, RotateCcw } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { HeatLevel, Task } from "@/lib/types";
 import { ago, cn, minutesToLabel } from "@/lib/utils";
 import { Bar, Tip } from "@/components/ui/primitives";
+import { AttachmentThumb } from "@/components/app/attachment-thumb";
 import { Avatar } from "@/components/app/avatar";
 import { Due, HEAT, HeatEdge, PriorityTag, ProjectTag } from "@/components/app/task-bits";
 import { TaskActions } from "@/components/app/task-actions";
@@ -79,26 +80,18 @@ export function ReviewItem({ task, now, slaHours, meId }: { task: Task; now: Dat
               <p className="mb-2 text-[13px] font-medium text-text">Proof</p>
               <div className="thin-scrollbar -mx-1 flex gap-2.5 overflow-x-auto px-1 pb-1">
                 {proofs.map((a) => (
-                  <button
+                  <a
                     key={a.id}
-                    type="button"
-                    onClick={() => openTask(task.id)}
+                    href={a.url ?? undefined}
+                    target="_blank"
+                    rel="noreferrer"
+                    onClick={a.url ? undefined : (e) => (e.preventDefault(), openTask(task.id))}
                     className="w-[120px] shrink-0 overflow-hidden rounded-[var(--radius-md)] border border-line text-left hover:border-line-strong"
                     aria-label={`Open ${a.name}`}
                   >
-                    <span
-                      className="flex aspect-[4/3] items-center justify-center"
-                      style={{
-                        background:
-                          a.kind === "image"
-                            ? `linear-gradient(135deg, oklch(0.9 0.05 ${a.hue ?? 200}), oklch(0.8 0.07 ${(a.hue ?? 200) + 40}))`
-                            : "var(--color-sunken)",
-                      }}
-                    >
-                      {a.kind === "image" ? <ImageIcon className="size-5 text-white/90" /> : <FileText className="size-5 text-muted" />}
-                    </span>
+                    <AttachmentThumb a={a} iconSize="size-5" />
                     <span className="block truncate px-2 py-1.5 text-[12px] font-medium text-text">{a.name}</span>
-                  </button>
+                  </a>
                 ))}
               </div>
             </div>

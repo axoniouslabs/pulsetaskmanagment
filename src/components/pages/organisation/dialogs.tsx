@@ -4,7 +4,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { ChevronRight } from "lucide-react";
 import { useApp } from "@/lib/store";
-import type { Department, Person } from "@/lib/types";
+import type { Department, Person, Team } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Dialog, DialogContent, Field, Input, Select, Textarea } from "@/components/ui/primitives";
@@ -328,5 +328,60 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
 
       <Actions onCancel={onDone} submitLabel="Create group" disabled={!name.trim() || !members.length} />
     </form>
+  );
+}
+
+/* ---------------- change a team lead or department head ---------------- */
+export function LeaderDialog({ target, onOpenChange }: { target: { kind: "head"; unit: Department } | { kind: "lead"; unit: Team } | null; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={!!target} onOpenChange={onOpenChange}>
+      {target && <LeaderForm target={target} onDone={() => onOpenChange(false)} />}
+    </Dialog>
+  );
+}
+
+function LeaderForm({ target, onDone }: { target: { kind: "head"; unit: Department } | { kind: "lead"; unit: Team }; onDone: () => void }) {
+  const everyone = useApp((s) => s.people);
+  const people = React.useMemo(() => everyone.filter((p) => p.active !== false && p.role !== "owner"), [everyone]);
+  const departments = useApp((s) => s.departments);
+  const dispatch = useApp((s) => s.dispatch);
+  const current = target.kind === "head" ? target.unit.headId : target.unit.leadId;
+  const depId = target.kind === "head" ? target.unit.id : target.unit.departmentId;
+  const [pick, setPick] = React.useState(current);
+  const sorted = [...people].sort((a, b) => Number(b.departmentId === depId) - Number(a.departmentId === depId) || a.name.localeCompare(b.name));
+  const chosen = people.find((p) => p.id === pick);
+  return (
+    <DialogContent
+      title={target.kind === "head" ? `Who heads ${target.unit.name}?` : `Who leads ${target.unit.name}?`}
+      description={target.kind === "head" ? "Escalations for this department go to them. If they're an employee, they become a manager." : "Escalations for this team go to them first. They join the team if they aren't in it."}
+    >
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          const r =
+            target.kind === "head"
+              ? dispatch({ type: "setDepartmentHead", departmentId: target.unit.id, personId: pick })
+              : dispatch({ type: "setTeamLead", teamId: target.unit.id, personId: pick });
+          if (!r.ok) return void toast.error(r.error);
+          toast.success("Saved", { description: `${chosen?.name.split(" ")[0]} now ${target.kind === "head" ? "heads" : "leads"} ${target.unit.name}.` });
+          onDone();
+        }}
+      >
+      <Field label="Person">
+        <Select value={pick} onChange={(e) => setPick(e.target.value)}>
+          {sorted.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}, {p.title}
+              {p.departmentId !== depId ? ` (${departments.find((d) => d.id === p.departmentId)?.name ?? "no department"})` : ""}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      {chosen && chosen.departmentId !== depId && (
+        <p className="mt-3 rounded-[var(--radius-sm)] bg-heat-1-tint px-3 py-2 text-[13px] text-text">{chosen.name.split(" ")[0]} will move into this {target.kind === "head" ? "department" : "team"}.</p>
+      )}
+      <Actions onCancel={onDone} submitLabel="Save" disabled={!pick || pick === current} />
+      </form>
+    </DialogContent>
   );
 }

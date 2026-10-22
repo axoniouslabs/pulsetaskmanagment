@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BellRing, Building2, CheckCheck, FlaskConical, KeyRound, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
+import { BellRing, Building2, CheckCheck, FlaskConical, KeyRound, LayoutTemplate, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useScope } from "@/lib/hooks";
 import { cn, plural } from "@/lib/utils";
@@ -14,6 +14,7 @@ import { NotificationMatrix } from "@/components/pages/settings/notifications";
 import { DeviceList } from "@/components/pages/settings/devices";
 import { DemoControls } from "@/components/pages/settings/demo";
 import { AccountSettings } from "@/components/pages/settings/account";
+import { TemplateList } from "@/components/pages/settings/templates";
 import { PushCard } from "@/components/app/push-card";
 
 const SECTIONS = [
@@ -24,6 +25,7 @@ const SECTIONS = [
   { id: "digests", label: "Reports & digests", icon: Newspaper },
   { id: "notifications", label: "My notifications", icon: UserRoundCog },
   { id: "devices", label: "Devices & delivery", icon: Smartphone },
+  { id: "templates", label: "Templates", icon: LayoutTemplate },
   { id: "account", label: "Account", icon: KeyRound },
   { id: "demo", label: "Demo controls", icon: FlaskConical },
 ];
@@ -50,6 +52,11 @@ export default function SettingsPage() {
           <SettingsSection id="devices" title="My devices" description="Every device that receives your reminders.">
             <DeviceList onlyMe />
           </SettingsSection>
+          {role === "manager" && (
+            <SettingsSection id="templates" title="Task templates" description="Saved tasks you can assign again in one step.">
+              <TemplateList />
+            </SettingsSection>
+          )}
           <SettingsSection id="account" title="Account">
             <AccountSettings />
           </SettingsSection>
@@ -184,6 +191,10 @@ export default function SettingsPage() {
             <PushCard />
             <div className="border-t border-line" />
             <DeviceList />
+          </SettingsSection>
+
+          <SettingsSection id="templates" title="Task templates" description="Saved tasks anyone can assign again in one step, from New task.">
+            <TemplateList />
           </SettingsSection>
 
           <SettingsSection id="account" title="Account">

@@ -18,7 +18,7 @@ import { CreateTaskDialog } from "./create-task";
 import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
-import { EngineAlarm } from "./engine-alarm";
+import { EngineAlarm, PasswordNudge } from "./engine-alarm";
 
 /** load what this person may see, and keep it fresh while the app is open */
 function useLiveData() {
@@ -93,6 +93,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <TopBar />
           <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
             <EngineAlarm />
+            <PasswordNudge />
             {children}
           </main>
         </div>

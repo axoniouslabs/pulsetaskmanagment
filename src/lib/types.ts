@@ -159,7 +159,8 @@ export interface Task {
   remindersToday?: number;
   /** tasks that must be done before this one can start */
   dependsOn?: string[];
-  groupClaim?: { unitName: string; claimed: boolean };
+  /** open to a whole team or group: the first person to claim it owns it */
+  groupClaim?: { unitName: string; claimed: boolean; unitType?: "team" | "group"; unitId?: string };
 }
 
 export type ActivityKind =

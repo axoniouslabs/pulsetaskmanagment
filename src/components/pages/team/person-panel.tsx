@@ -11,6 +11,7 @@ import type { Device, Person } from "@/lib/types";
 import { NEXT_UP_SCORE, committedHours, isActive } from "@/lib/selectors";
 import { ago, cn, minutesToLabel, pct, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
+import { StaffActions } from "./staff-dialogs";
 import { Bar, Sheet, SheetClose } from "@/components/ui/primitives";
 import { SectionHeading } from "@/components/app/page-header";
 import { Avatar } from "@/components/app/avatar";
@@ -98,6 +99,12 @@ function PersonDetail({ person: p }: { person: Person }) {
       </div>
 
       <div className="flex-1 space-y-8 px-5 py-6 sm:px-7">
+        {role === "owner" && p.id !== meId && (
+          <section>
+            <SectionHeading title="Account" aside={p.mustChangePassword ? "Still on a temporary password" : p.email} />
+            <StaffActions person={p} />
+          </section>
+        )}
         {/* leave */}
         {canManage && (
           <section

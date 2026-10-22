@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { ListTodo, Plus, SearchX } from "lucide-react";
+import { FileUp, ListTodo, Plus, SearchX } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useNow, useScope } from "@/lib/hooks";
 import { isOpenWork, isOverdue } from "@/lib/selectors";
@@ -12,6 +12,8 @@ import { TasksToolbar } from "@/components/pages/tasks/toolbar";
 import { ListView } from "@/components/pages/tasks/list-view";
 import { BoardView } from "@/components/pages/tasks/board-view";
 import { CalendarView } from "@/components/pages/tasks/calendar-view";
+import { TimelineView } from "@/components/pages/tasks/timeline-view";
+import { ImportDialog } from "@/components/pages/tasks/import-dialog";
 import {
   EMPTY_FILTERS,
   QUICK_CHIPS,
@@ -52,6 +54,7 @@ function TasksScreen() {
   }));
   const [sort, setSort] = React.useState<SortKey>("deadline");
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
+  const [importing, setImporting] = React.useState(false);
   const [customViews, setCustomViews] = React.useState<SavedView[]>(() => (typeof window === "undefined" ? [] : readSavedViews(meId)));
 
   const ctx = React.useMemo(() => ({ role, meId, now }), [role, meId, now]);
@@ -135,11 +138,20 @@ function TasksScreen() {
         title={role === "employee" ? "My tasks" : "Tasks"}
         description={description}
         actions={
-          <Button variant="primary" onClick={() => openCreate()}>
-            <Plus /> New task
-          </Button>
+          <div className="flex gap-2">
+            {role !== "employee" && (
+              <Button onClick={() => setImporting(true)}>
+                <FileUp /> Import
+              </Button>
+            )}
+            <Button variant="primary" onClick={() => openCreate()}>
+              <Plus /> New task
+            </Button>
+          </div>
         }
       />
+
+      <ImportDialog open={importing} onOpenChange={setImporting} />
 
       <TasksToolbar
         role={role}
@@ -213,6 +225,8 @@ function TasksScreen() {
             draftCount={draftCount}
             onShowDrafts={() => setMode("list")}
           />
+        ) : mode === "timeline" ? (
+          <TimelineView tasks={filtered} people={allPeople} now={now} />
         ) : mode === "calendar" ? (
           <CalendarView tasks={filtered} role={role} meId={meId} now={now} />
         ) : (

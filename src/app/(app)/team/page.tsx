@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format } from "date-fns";
-import { Users } from "lucide-react";
+import { UserPlus, Users } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useNow, useQueryParam, useScope } from "@/lib/hooks";
 import { Segmented } from "@/components/ui/primitives";
@@ -11,6 +11,9 @@ import { LoadView } from "@/components/pages/team/load-view";
 import { PeopleView } from "@/components/pages/team/people-view";
 import { PersonPanel } from "@/components/pages/team/person-panel";
 import { upcomingWorkDays } from "@/components/pages/team/shared";
+import { AddPersonDialog, StaffActions } from "@/components/pages/team/staff-dialogs";
+import { Avatar } from "@/components/app/avatar";
+import { Button } from "@/components/ui/button";
 
 type View = "load" | "people";
 
@@ -21,6 +24,9 @@ export default function TeamPage() {
   const attendance = useApp((s) => s.attendance);
   const workDays = useApp((s) => s.settings.workDays);
   const [view, setView] = React.useState<View>("load");
+  const [adding, setAdding] = React.useState(false);
+  const allPeople = useApp((s) => s.people);
+  const former = React.useMemo(() => allPeople.filter((p) => p.active === false), [allPeople]);
 
   // deep link: /team?person=p_xxx opens the panel; after that the viewer's own choice wins
   const linked = useQueryParam("person");
@@ -59,14 +65,21 @@ export default function TeamPage() {
         title="Team"
         description="Who is loaded, who is free, and who needs a hand."
         actions={
-          <Segmented<View>
-            value={view}
-            onChange={setView}
-            options={[
-              { value: "load", label: "Load" },
-              { value: "people", label: "People", count: team.length },
-            ]}
-          />
+          <div className="flex flex-wrap items-center gap-2">
+            {role === "owner" && (
+              <Button variant="primary" onClick={() => setAdding(true)}>
+                <UserPlus /> Add person
+              </Button>
+            )}
+            <Segmented<View>
+              value={view}
+              onChange={setView}
+              options={[
+                { value: "load", label: "Load" },
+                { value: "people", label: "People", count: team.length },
+              ]}
+            />
+          </div>
         }
       />
 
@@ -87,6 +100,25 @@ export default function TeamPage() {
         </>
       )}
 
+      {role === "owner" && former.length > 0 && (
+        <details className="mt-8 rounded-[var(--radius-lg)] border border-line bg-surface">
+          <summary className="cursor-pointer px-4 py-3 text-[14px] font-medium sm:px-5">Deactivated ({former.length})</summary>
+          <ul className="border-t border-line">
+            {former.map((p) => (
+              <li key={p.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-0 sm:px-5">
+                <Avatar person={p} size="md" />
+                <span className="min-w-0 flex-1">
+                  <span className="block text-[14px] font-medium">{p.name}</span>
+                  <span className="block text-[12.5px] text-muted">{p.title}, can&apos;t sign in</span>
+                </span>
+                <StaffActions person={p} />
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+
+      <AddPersonDialog open={adding} onOpenChange={setAdding} />
       <PersonPanel personId={openId} onClose={() => openPerson(null)} />
     </div>
   );

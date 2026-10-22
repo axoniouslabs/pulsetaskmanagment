@@ -7,7 +7,7 @@ import { isActive, isOverdue } from "@/lib/selectors";
 /* filter model                                                        */
 /* ------------------------------------------------------------------ */
 
-export type ViewMode = "list" | "board" | "calendar";
+export type ViewMode = "list" | "board" | "calendar" | "timeline";
 export type SortKey = "deadline" | "priority" | "activity" | "stale";
 export type QuickKey = "overdue" | "blocked" | "unseen" | "review" | "week" | "stuck";
 
@@ -198,7 +198,7 @@ export function readMode(): ViewMode {
   try {
     const fromUrl = new URLSearchParams(window.location.search).get("view");
     const v = fromUrl ?? window.localStorage.getItem(MODE_KEY);
-    return v === "board" || v === "calendar" ? v : "list";
+    return v === "board" || v === "calendar" || v === "timeline" ? v : "list";
   } catch {
     return "list";
   }

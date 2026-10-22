@@ -33,13 +33,14 @@ import { Panel, SectionHeading, EmptyState } from "@/components/app/page-header"
 import { TaskList, TaskRow } from "@/components/app/task-row";
 import { Due, HeatEdge, PriorityTag, ProjectTag } from "@/components/app/task-bits";
 import { TaskActions, TaskDialogs } from "@/components/app/task-actions";
-import { heatOf } from "@/lib/selectors";
+import { heatOf, isOpenToClaim } from "@/lib/selectors";
 
 export default function TodayPage() {
   const now = useNow(15000);
   const { me, meId, allTasks } = useScope();
   const s = useApp();
-  const mine = React.useMemo(() => allTasks.filter((t) => t.assigneeId === meId), [allTasks, meId]);
+  const mine = React.useMemo(() => allTasks.filter((t) => t.assigneeId === meId && !(t.groupClaim && !t.groupClaim.claimed)), [allTasks, meId]);
+  const claimable = allTasks.filter((t) => isOpenToClaim(s, t, meId));
   const toAck = mine.filter((t) => t.status === "assigned").sort((a, b) => NEXT_UP_SCORE(a, now) - NEXT_UP_SCORE(b, now));
   const working = mine.filter((t) => ["acknowledged", "in_progress"].includes(t.status) && (!t.startAt || new Date(t.startAt) <= now));
   const waiting = mine.filter((t) => t.status === "blocked" || t.status === "submitted");
@@ -155,6 +156,17 @@ export default function TodayPage() {
           )}
         </section>
 
+        {claimable.length > 0 && (
+          <section>
+            <SectionHeading title="Open for your team" aside="The first to claim it owns it" />
+            <TaskList>
+              {claimable.map((t) => (
+                <TaskRow key={t.id} task={t} showAssignee={false} />
+              ))}
+            </TaskList>
+          </section>
+        )}
+
         {waiting.length > 0 && (
           <section>
             <SectionHeading title="Waiting on others" aside="Not counted against you" />
@@ -265,10 +277,10 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
   if (task.status === "assigned")
     return (
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { s.acknowledge(task.id); toast.success("Acknowledged", { description: "Reminders slowed down." }); }}>
+        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { if (s.acknowledge(task.id).ok) toast.success("Acknowledged", { description: "Reminders slowed down." }); }}>
           <Check /> Acknowledge
         </Button>
-        <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { s.start(task.id); toast.success("Started", { description: "Timer is running." }); }}>
+        <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { if (s.start(task.id).ok) toast.success("Started", { description: "Timer is running." }); }}>
           <Play /> Start now
         </Button>
       </div>
@@ -276,7 +288,7 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
   if (task.status === "acknowledged" || (task.status === "in_progress" && !running))
     return (
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { s.start(task.id); toast.success(task.startedAt ? "Resumed" : "Started", { description: "Timer is running." }); }}>
+        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { if (s.start(task.id).ok) toast.success(task.startedAt ? "Resumed" : "Started", { description: "Timer is running." }); }}>
           <Play /> {task.startedAt ? "Resume" : "Start"}
         </Button>
         {task.status === "in_progress" && (
@@ -294,7 +306,7 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
       <Button size="lg" className="bg-[#4ade80] text-ink hover:brightness-105" onClick={() => setSubmitOpen(true)}>
         <CircleCheckBig /> {task.requiresApproval ? "Submit for review" : "Mark done"}
       </Button>
-      <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { s.stopTimer(); toast("Timer paused"); }}>
+      <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { if (s.stopTimer().ok) toast("Timer paused"); }}>
         <Pause /> Pause
       </Button>
       <SubmitBridge task={task} open={submitOpen} onClose={() => setSubmitOpen(false)} />

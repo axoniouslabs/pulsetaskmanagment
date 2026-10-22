@@ -18,12 +18,16 @@ export function DepartmentList({
   people,
   onAddTeam,
   onMove,
+  onChangeHead,
+  onChangeLead,
 }: {
   departments: Department[];
   teams: Team[];
   people: Person[];
   onAddTeam: (d: Department) => void;
   onMove: (p: Person) => void;
+  onChangeHead: (d: Department) => void;
+  onChangeLead: (t: Team) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -35,6 +39,8 @@ export function DepartmentList({
           people={people}
           onAddTeam={() => onAddTeam(d)}
           onMove={onMove}
+          onChangeHead={() => onChangeHead(d)}
+          onChangeLead={onChangeLead}
         />
       ))}
       <p className="flex items-start gap-2.5 px-1 text-[13px] leading-snug text-muted">
@@ -51,12 +57,16 @@ function DepartmentPanel({
   people,
   onAddTeam,
   onMove,
+  onChangeHead,
+  onChangeLead,
 }: {
   department: Department;
   teams: Team[];
   people: Person[];
   onAddTeam: () => void;
   onMove: (p: Person) => void;
+  onChangeHead: () => void;
+  onChangeLead: (t: Team) => void;
 }) {
   const head = people.find((p) => p.id === d.headId);
   const members = people.filter((p) => p.departmentId === d.id);
@@ -80,15 +90,20 @@ function DepartmentPanel({
             <span className="tabular text-muted">{plural(members.length, "person", "people")}</span>
           </div>
         </div>
-        <Button size="sm" onClick={onAddTeam} className="self-start">
-          <Plus /> Add team
-        </Button>
+        <div className="flex gap-2 self-start">
+          <Button size="sm" variant="ghost" onClick={onChangeHead}>
+            <UserRound /> Change head
+          </Button>
+          <Button size="sm" onClick={onAddTeam}>
+            <Plus /> Add team
+          </Button>
+        </div>
       </div>
 
       {teams.length ? (
         <ul className="border-t border-line">
           {teams.map((t) => (
-            <TeamRow key={t.id} team={t} people={people} headId={d.headId} onMove={onMove} />
+            <TeamRow key={t.id} team={t} people={people} headId={d.headId} onMove={onMove} onChangeLead={() => onChangeLead(t)} />
           ))}
         </ul>
       ) : (
@@ -98,7 +113,7 @@ function DepartmentPanel({
   );
 }
 
-function TeamRow({ team, people, headId, onMove }: { team: Team; people: Person[]; headId: string; onMove: (p: Person) => void }) {
+function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; people: Person[]; headId: string; onMove: (p: Person) => void; onChangeLead: () => void }) {
   const [open, setOpen] = React.useState(false);
   const lead = people.find((p) => p.id === team.leadId);
   const members = people
@@ -136,6 +151,11 @@ function TeamRow({ team, people, headId, onMove }: { team: Team; people: Person[
 
       {open && (
         <ul id={listId} className="border-t border-line bg-[#fbfcfc] pb-1">
+          <li className="flex justify-end px-4 pt-2 sm:px-5">
+            <Button size="sm" variant="ghost" onClick={onChangeLead}>
+              <UserRound /> Change lead
+            </Button>
+          </li>
           {members.length ? (
             members.map((p) => <MemberRow key={p.id} person={p} isLead={p.id === team.leadId} isHead={p.id === headId} teamName={team.name} onMove={() => onMove(p)} />)
           ) : (

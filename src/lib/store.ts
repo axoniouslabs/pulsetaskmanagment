@@ -190,7 +190,12 @@ export const useApp = create<AppState>()((set, get) => {
     send(cmd);
     return result;
   };
-  const run = (cmd: Command) => dispatch(cmd);
+  /** named actions report a refusal themselves, so a button never pretends it worked */
+  const run = (cmd: Command) => {
+    const r = dispatch(cmd);
+    if (!r.ok) toast.error(r.error, { id: `refused:${r.error}` });
+    return r;
+  };
 
   return {
     ...emptyWorld(),

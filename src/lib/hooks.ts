@@ -12,9 +12,10 @@ export function useScope() {
   const teams = useApp((s) => s.teams);
   const departments = useApp((s) => s.departments);
   const tasks = useApp((s) => s.tasks);
+  const groups = useApp((s) => s.groups);
   const me = React.useMemo(() => people.find((p) => p.id === meId)!, [people, meId]);
   const scopedPeople = React.useMemo(() => scopePeople({ people, teams, departments }, role, meId), [people, teams, departments, role, meId]);
-  const scopedTasks = React.useMemo(() => scopeTasks({ people, teams, departments, tasks }, role, meId), [people, teams, departments, tasks, role, meId]);
+  const scopedTasks = React.useMemo(() => scopeTasks({ people, teams, departments, tasks, groups }, role, meId), [people, teams, departments, tasks, groups, role, meId]);
   return { role, meId, me, people: scopedPeople, tasks: scopedTasks, allPeople: people, allTasks: tasks, teams, departments };
 }
 

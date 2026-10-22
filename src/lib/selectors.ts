@@ -1,6 +1,7 @@
 import { differenceInHours, isToday } from "date-fns";
 import type { HeatLevel, Person, Role, Task, TaskStatus } from "./types";
 import type { AppState } from "./store";
+import { membersOf } from "@/domain/world";
 
 export const ACTIVE: TaskStatus[] = ["assigned", "acknowledged", "in_progress", "blocked", "submitted"];
 
@@ -35,20 +36,24 @@ export const PRIORITY_LABEL = { urgent: "Urgent", high: "High", normal: "Normal"
 
 /** who the current viewer is responsible for */
 export function scopePeople(s: Pick<AppState, "people" | "teams" | "departments">, role: Role, meId: string): Person[] {
-  if (role === "owner") return s.people;
-  if (role === "employee") return s.people.filter((p) => p.id === meId);
-  const me = s.people.find((p) => p.id === meId)!;
+  const people = s.people.filter((p) => p.active !== false);
+  if (role === "owner") return people;
+  if (role === "employee") return people.filter((p) => p.id === meId);
   const headOf = s.departments.find((d) => d.headId === meId);
-  if (headOf) return s.people.filter((p) => p.departmentId === headOf.id);
+  if (headOf) return people.filter((p) => p.departmentId === headOf.id);
   const leads = s.teams.filter((t) => t.leadId === meId).map((t) => t.id);
-  return s.people.filter((p) => leads.includes(p.teamId) || p.id === me.id);
+  return people.filter((p) => leads.includes(p.teamId) || p.id === meId);
 }
 
-export function scopeTasks(s: Pick<AppState, "people" | "teams" | "departments" | "tasks">, role: Role, meId: string): Task[] {
+/** offered to a team or group I belong to, and nobody has claimed it yet */
+export const isOpenToClaim = (s: Pick<AppState, "people" | "teams" | "groups">, t: Task, meId: string) =>
+  !!t.groupClaim && !t.groupClaim.claimed && t.status === "assigned" && !!t.groupClaim.unitType && !!t.groupClaim.unitId && membersOf(s, t.groupClaim.unitType, t.groupClaim.unitId).includes(meId);
+
+export function scopeTasks(s: Pick<AppState, "people" | "teams" | "departments" | "tasks" | "groups">, role: Role, meId: string): Task[] {
   if (role === "owner") return s.tasks;
   const ids = new Set(scopePeople(s, role, meId).map((p) => p.id));
-  if (role === "employee") return s.tasks.filter((t) => t.assigneeId === meId || t.watcherIds.includes(meId));
-  return s.tasks.filter((t) => ids.has(t.assigneeId) || t.reviewerId === meId || t.blockedOwnerId === meId);
+  if (role === "employee") return s.tasks.filter((t) => t.assigneeId === meId || t.watcherIds.includes(meId) || isOpenToClaim(s, t, meId));
+  return s.tasks.filter((t) => ids.has(t.assigneeId) || t.reviewerId === meId || t.blockedOwnerId === meId || isOpenToClaim(s, t, meId));
 }
 
 export interface Attention {

@@ -21,7 +21,8 @@ export function CommandPalette() {
   const teams = useApp((s) => s.teams);
   const departments = useApp((s) => s.departments);
   const people = useApp((s) => s.people);
-  const tasks = React.useMemo(() => scopeTasks({ tasks: allTasks, people, teams, departments }, role, meId), [allTasks, people, teams, departments, role, meId]);
+  const groups = useApp((s) => s.groups);
+  const tasks = React.useMemo(() => scopeTasks({ tasks: allTasks, people, teams, departments, groups }, role, meId), [allTasks, people, teams, departments, groups, role, meId]);
   const openTask = useApp((s) => s.openTask);
   const openCreate = useApp((s) => s.openCreate);
   const checkIn = useApp((s) => s.checkIn);

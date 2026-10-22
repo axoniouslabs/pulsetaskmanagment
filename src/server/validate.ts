@@ -34,6 +34,42 @@ const newTask = z.object({
   tags: z.array(text(40)).max(20).optional(),
   recurrence: z.enum(["daily", "weekly", "monthly"]).optional(),
   draft: z.boolean().optional(),
+  dependsOn: z.array(id).max(20).optional(),
+  claim: z.object({ unitType: z.enum(["team", "group"]), unitId: id }).optional(),
+});
+
+const taskPatch = z
+  .object({
+    title: text(200),
+    description: text(5000),
+    priority: z.enum(["urgent", "high", "normal", "low"]),
+    estimateHours: z.number().min(0).max(500),
+    projectId: z.string().max(80).nullable(),
+    tags: z.array(text(40)).max(20),
+    startAt: iso.nullable(),
+    requiresApproval: z.boolean(),
+    requiresProof: z.boolean(),
+    requiresResult: z.boolean(),
+    reminder,
+    recurrence: z.enum(["daily", "weekly", "monthly"]).nullable(),
+    dependsOn: z.array(id).max(20),
+  })
+  .partial();
+
+const templateInput = z.object({
+  title: text(200).min(1, "A template needs a task title."),
+  description: text(5000).optional(),
+  priority: z.enum(["urgent", "high", "normal", "low"]),
+  estimateHours: z.number().min(0).max(500).optional(),
+  projectId: z.string().max(80).optional(),
+  requiresApproval: z.boolean().optional(),
+  requiresProof: z.boolean().optional(),
+  requiresResult: z.boolean().optional(),
+  reminder: reminder.optional(),
+  subtasks: z.array(text(300)).max(50).optional(),
+  tags: z.array(text(40)).max(20).optional(),
+  recurrence: z.enum(["daily", "weekly", "monthly"]).optional(),
+  dueInHours: z.number().min(0).max(24 * 366).optional(),
 });
 
 const settingsPatch = z
@@ -55,6 +91,9 @@ const settingsPatch = z
 
 const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("createTask"), id, input: newTask }),
+  z.object({ type: z.literal("editTask"), taskId: id, patch: taskPatch }),
+  z.object({ type: z.literal("saveTemplate"), id, name: text(100), input: templateInput }),
+  z.object({ type: z.literal("deleteTemplate"), id }),
   z.object({ type: z.literal("publishDraft"), taskId: id }),
   z.object({ type: z.literal("claimTask"), taskId: id }),
   z.object({ type: z.literal("acknowledge"), taskId: id }),
@@ -73,7 +112,17 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("toggleSubtask"), taskId: id, subtaskId: id }),
   z.object({ type: z.literal("addSubtask"), taskId: id, title: text(300) }),
   z.object({ type: z.literal("addComment"), taskId: id, body: text(4000), kind: z.enum(["text", "voice"]).optional(), durationSec: z.number().int().min(0).max(600).optional() }),
-  z.object({ type: z.literal("addAttachment"), taskId: id, name: text(200), kind: z.enum(["image", "file"]) }),
+  z.object({
+    type: z.literal("addAttachment"),
+    taskId: id,
+    name: text(200),
+    kind: z.enum(["image", "file"]),
+    fileId: id.optional(),
+    url: z.string().max(500).regex(/^\/api\/files\//, "Upload the file first.").optional(),
+    sizeKb: z.number().int().min(0).max(100000).optional(),
+    contentType: text(120).optional(),
+    proof: z.boolean().optional(),
+  }),
   z.object({ type: z.literal("stopTimer") }),
   z.object({ type: z.literal("markRead"), id }),
   z.object({ type: z.literal("markAllRead") }),

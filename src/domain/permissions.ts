@@ -36,8 +36,32 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
   switch (cmd.type) {
     case "createTask": {
       const target = cmd.input.assigneeId;
+      if (cmd.input.claim) {
+        if (me.role === "employee") return deny("Only managers and the owner can offer tasks to a team.");
+        const c = cmd.input.claim;
+        if (c.unitType === "team") {
+          const team = w.teams.find((x) => x.id === c.unitId);
+          if (!team) return deny("Pick the team to offer this task to.");
+          return isOwner || team.leadId === actorId || headsDept(team.departmentId) ? allow : deny("You can offer tasks only to teams you run.");
+        }
+        const g = w.groups.find((x) => x.id === c.unitId);
+        if (!g) return deny("Pick the group to offer this task to.");
+        return isOwner || g.ownerId === actorId ? allow : deny("Only the group's owner can offer tasks to it.");
+      }
       if (target === actorId || isOwner || manages(target)) return allow;
       return deny("You can assign tasks to yourself and to people in your team only.");
+    }
+    case "editTask":
+      return managerOf(cmd.taskId, "edit tasks");
+    case "saveTemplate": {
+      if (me.role === "employee") return deny("Only managers and the owner can save templates.");
+      const existing = w.templates.find((x) => x.id === cmd.id);
+      return !existing || existing.createdById === actorId || isOwner ? allow : deny("Only the person who made this template can change it.");
+    }
+    case "deleteTemplate": {
+      const tpl = w.templates.find((x) => x.id === cmd.id);
+      if (!tpl) return deny("That template no longer exists.");
+      return tpl.createdById === actorId || isOwner ? allow : deny("Only the person who made this template can delete it.");
     }
     case "publishDraft":
     case "reassign":
@@ -48,6 +72,9 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
     case "claimTask": {
       const t = task(cmd.taskId);
       if (!t?.groupClaim) return deny("This task isn't open to claim.");
+      if (t.groupClaim.unitType && t.groupClaim.unitId) {
+        return isOwner || membersOf(w, t.groupClaim.unitType, t.groupClaim.unitId).includes(actorId) ? allow : deny(`Only people in ${t.groupClaim.unitName} can claim this task.`);
+      }
       const lead = w.people.find((p) => p.id === t.assigneeId);
       const sameTeam = lead && (me.teamId === lead.teamId || w.teams.some((tm) => tm.leadId === lead.id && tm.id === me.teamId));
       return sameTeam || isOwner ? allow : deny("Only people in that team can claim this task.");
@@ -65,8 +92,11 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       return assigneeOnly(cmd.taskId, "submit this task");
     case "requestDeadline":
       return assigneeOnly(cmd.taskId, "ask for more time");
-    case "addAttachment":
-      return assigneeOnly(cmd.taskId, "add proof to this task");
+    case "addAttachment": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      return canSeeTask(t) ? allow : deny("You can only add files to tasks you're part of.");
+    }
 
     case "unblock": {
       const t = task(cmd.taskId);
