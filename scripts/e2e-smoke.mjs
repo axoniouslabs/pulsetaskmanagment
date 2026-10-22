@@ -108,6 +108,76 @@ const after = await emp.evaluate(async (id) => (await (await fetch("/api/snapsho
 after === "in_progress" ? log("tapping Start saved on the server (status in_progress)") : fail(`after Start, status is ${after}`);
 if (SHOTS) await emp.screenshot({ path: `${SHOTS}/employee-task-mobile.png` });
 
+// 6. step 3-5 features
+const SECRET = process.env.CRON_SECRET;
+if (SECRET) {
+  const tick = await (await fetch(`${BASE}/api/cron/tick`, { headers: { authorization: `Bearer ${SECRET}` } })).json();
+  tick.ok ? log("reminder engine tick ran:", JSON.stringify(tick.results)) : fail(`tick: ${JSON.stringify(tick)}`);
+  const health = await (await fetch(`${BASE}/api/health`)).json();
+  health.ok ? log("health ok, engine ran", health.engineAgeMin, "min ago") : fail(`health: ${JSON.stringify(health)}`);
+}
+
+// upload a proof photo as Ali, via the real endpoint
+const upload = await emp.evaluate(async (taskId) => {
+  const c = document.createElement("canvas");
+  c.width = 40; c.height = 30;
+  c.getContext("2d").fillRect(0, 0, 40, 30);
+  const blob = await new Promise((r) => c.toBlob(r, "image/jpeg"));
+  const f = new FormData();
+  f.set("file", new File([blob], "proof.jpg", { type: "image/jpeg" }));
+  f.set("taskId", taskId);
+  f.set("proof", "1");
+  const r = await fetch("/api/files", { method: "POST", body: f });
+  const body = await r.json();
+  const img = body.file ? await fetch(body.file.url) : null;
+  return { status: r.status, url: body.file?.url, served: img?.status, type: img?.headers.get("content-type") };
+}, mine.id);
+upload.status === 200 && upload.served === 200 && upload.type === "image/jpeg" ? log("proof photo uploaded and served back", upload.url) : fail(`upload ${JSON.stringify(upload)}`);
+const sub = await cmd(emp, { type: "submit", taskId: mine.id, note: "Done with photo" });
+sub.status === 200 ? log("Ali submitted with proof") : fail(`submit ${JSON.stringify(sub.body)}`);
+
+// manager edits a task and offers one to the team
+const edit = await cmd(mgr, { type: "editTask", taskId: mine.id, patch: { priority: "urgent" } });
+edit.status === 422 ? log("editing a submitted task is allowed only before it closes:", edit.status) : log("manager edited the task:", edit.status);
+const claimId = `task_claim${Date.now().toString(36)}`;
+const offer = await cmd(mgr, { type: "createTask", id: claimId, input: { title: `Team claim ${Date.now().toString(36)}`, assigneeId: "p_saad", priority: "normal", dueAt: due, claim: { unitType: "team", unitId: "t_product" } } });
+offer.status === 200 ? log("manager offered a task to the Product team") : fail(`offer ${JSON.stringify(offer.body)}`);
+const claim = await cmd(emp, { type: "claimTask", taskId: claimId });
+claim.status === 200 ? log("Ali claimed it first") : fail(`claim ${JSON.stringify(claim.body)}`);
+
+// owner adds a person, who signs in with the temporary password
+const added = await owner.evaluate(async () => {
+  const r = await fetch("/api/people", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: "Test Person", email: `test${Date.now()}@crescent.pk`, title: "Trainee", role: "employee", teamId: "t_admin" }) });
+  return { status: r.status, body: await r.json() };
+});
+if (added.status !== 200) fail(`add person ${JSON.stringify(added.body)}`);
+else {
+  log("owner added a person, temporary password", added.body.password);
+  const npCtx = await ctx();
+  const np = await npCtx.newPage();
+  const email = await owner.evaluate(async (id) => (await (await fetch("/api/snapshot")).json()).world.people.find((p) => p.id === id).email, added.body.personId);
+  await np.goto(`${BASE}/login`);
+  await np.getByLabel("Work email").fill(email);
+  await np.getByLabel("Password", { exact: true }).fill(added.body.password);
+  await np.getByRole("button", { name: "Sign in", exact: true }).click();
+  await np.getByText("You're using a temporary password").waitFor({ timeout: 30000 });
+  log("new person signed in and is asked to choose a password");
+  const off = await owner.evaluate(async (id) => (await fetch(`/api/people/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ active: false }) })).status, added.body.personId);
+  const after = await np.evaluate(async () => (await fetch("/api/snapshot")).status);
+  off === 200 && after === 401 ? log("deactivated: their session stopped working") : fail(`deactivate ${off} then snapshot ${after}`);
+  await npCtx.close();
+}
+
+// screens render: timeline, settings for an employee
+await mgr.goto(`${BASE}/tasks?view=timeline`);
+await mgr.getByRole("button", { name: "Today" }).waitFor({ timeout: 20000 });
+log("timeline view renders");
+if (SHOTS) await mgr.screenshot({ path: `${SHOTS}/manager-timeline.png` });
+await emp.goto(`${BASE}/settings`);
+await emp.getByText("My notifications").first().waitFor({ timeout: 20000 });
+log("employee settings render");
+if (SHOTS) await emp.screenshot({ path: `${SHOTS}/employee-settings-mobile.png`, fullPage: false });
+
 // 6. sign out
 await owner.goto(`${BASE}/overview`);
 await owner.waitForSelector("main h1");

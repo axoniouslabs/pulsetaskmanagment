@@ -72,7 +72,7 @@ append-only activity log. Phase 1 is a PWA (Next.js 16, App Router) running on d
 - Selectors `@/lib/selectors`: `isActive, isOpenWork, isOverdue, heatOf, STATUS_LABEL, PRIORITY_LABEL, scopePeople, scopeTasks, attention, committedHours, byId, NEXT_UP_SCORE`.
 
 ## Data (see src/lib/types.ts and src/lib/seed.ts)
-Org "Crescent Traders", 18 people, 4 departments (Sales, Operations, Accounts, Development), 7 teams,
+Org "Crescent Distributors", 20 people, 5 departments (Sales, Operations, Accounts, Development, Admin & HR), 8 teams,
 3 groups, ~35 tasks across every state, 4 weeks of `stats` (DailyStat per person per day) for reports,
 14 days of `attendance`, `leaves`, `channels` + `announcements` (with `ackBy`/`readBy` maps), `questions`,
 `deadlineRequests`, `notifications`, `activity` (newest first), `settings` (working hours, escalation thresholds,

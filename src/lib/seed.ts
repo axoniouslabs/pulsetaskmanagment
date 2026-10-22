@@ -1145,7 +1145,7 @@ export function createSeed(realNow = new Date()): SeedData {
 
   /* ---------------- settings ---------------- */
   const settings: OrgSettings = {
-    name: "Crescent Traders",
+    name: "Crescent Distributors",
     timezone: "Asia/Karachi",
     workDays: [1, 2, 3, 4, 5, 6],
     workStart: "09:00",

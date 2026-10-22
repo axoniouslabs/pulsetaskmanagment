@@ -161,3 +161,13 @@ describe("daily work", () => {
     expect(r2.world.people.find((p) => p.id === "p_ali")!.onLeave).toBe(false);
   });
 });
+
+describe("digest timing", () => {
+  it("skips a digest that's hours late instead of sending it", () => {
+    const w = makeWorld();
+    w.tasks = [task({ id: "t1", assigneeId: "p_kamran", dueAt: pkt("2026-10-21T17:00:00").toISOString() })];
+    const r = runTick(w, { day: "2026-10-21" }, pkt("2026-10-21T15:00:00"), uid);
+    expect(r.digestIds).toHaveLength(0);
+    expect(r.state.morningSent).toBe("2026-10-21");
+  });
+});

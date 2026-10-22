@@ -5,13 +5,19 @@ import * as schema from "./schema";
 
 const globalForDb = globalThis as unknown as { pulsePool?: Pool };
 
+// DATABASE_URL, or the name the Vercel/Neon integration uses
+const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+const local = !url || /localhost|127\.0\.0\.1/.test(url);
+
 const pool =
   globalForDb.pulsePool ??
   new Pool({
-    connectionString: process.env.DATABASE_URL,
+    connectionString: url,
     max: process.env.NODE_ENV === "production" ? 5 : 10,
+    // serverless: let idle connections go quickly so the database isn't kept busy
+    idleTimeoutMillis: process.env.NODE_ENV === "production" ? 10_000 : 30_000,
     // hosted Postgres (Neon, Supabase) needs TLS; local does not
-    ssl: process.env.DATABASE_URL?.includes("localhost") ? undefined : { rejectUnauthorized: false },
+    ssl: local ? undefined : { rejectUnauthorized: false },
   });
 if (process.env.NODE_ENV !== "production") globalForDb.pulsePool = pool;
 

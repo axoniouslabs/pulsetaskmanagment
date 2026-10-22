@@ -40,6 +40,7 @@ export interface TickResult {
 
 const BLOCKED_NUDGE_MIN = 240;
 const DUE_SOON_MIN = 60;
+const DIGEST_GRACE_MIN = 120;
 
 const OPEN = ["assigned", "acknowledged", "in_progress"];
 
@@ -266,7 +267,10 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     const open = w.tasks.filter((t) => ["assigned", "acknowledged", "in_progress", "blocked"].includes(t.status));
     const endOfDay = new Date(now.getTime() + (24 * 60 - l.minutes) * 60000);
 
-    if (l.minutes >= toMinutes(s.digestMorning) && next.morningSent !== l.date) {
+    // a digest is only worth sending close to its time; if the engine was down, skip it
+    const morningDue = l.minutes >= toMinutes(s.digestMorning) && next.morningSent !== l.date;
+    if (morningDue && l.minutes > toMinutes(s.digestMorning) + DIGEST_GRACE_MIN) next.morningSent = l.date;
+    if (morningDue && next.morningSent !== l.date) {
       next.morningSent = l.date;
       for (const p of active) {
         const mine = open.filter((t) => t.assigneeId === p.id);
@@ -285,7 +289,9 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       }
     }
 
-    if (l.minutes >= toMinutes(s.digestEvening) && next.eveningSent !== l.date) {
+    const eveningDue = l.minutes >= toMinutes(s.digestEvening) && next.eveningSent !== l.date;
+    if (eveningDue && l.minutes > toMinutes(s.digestEvening) + DIGEST_GRACE_MIN) next.eveningSent = l.date;
+    if (eveningDue && next.eveningSent !== l.date) {
       next.eveningSent = l.date;
       const doneToday = w.tasks.filter((t) => t.status === "approved" && t.approvedAt && localNow(new Date(t.approvedAt), tz).date === l.date);
       for (const p of active.filter((x) => x.role !== "employee")) {

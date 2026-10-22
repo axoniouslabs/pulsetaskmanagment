@@ -6,7 +6,7 @@ import type { DailyStat } from "@/lib/seed";
 import { scopePeople, scopeTasks } from "@/lib/selectors";
 import { membersOf, emptyWorld, type World } from "@/domain/world";
 import type { EngineState } from "@/domain/engine";
-import { schema, type DB, type Tx } from "./db";
+import { db, schema, type DB, type Tx } from "./db";
 
 type Conn = DB | Tx;
 const S = schema;
@@ -69,6 +69,13 @@ export interface LoadOptions {
   skipNotifications?: boolean;
 }
 
+/** await lazily-built queries one at a time (drizzle queries run when awaited) */
+async function sequential(qs: readonly PromiseLike<unknown>[]) {
+  const out: unknown[] = [];
+  for (const q of qs) out.push(await q);
+  return out;
+}
+
 export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}): Promise<World> {
   const w = emptyWorld();
   w.orgId = orgId;
@@ -77,7 +84,9 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   w.settings = { ...org.settings, name: org.name, timezone: org.timezone };
 
   const since30 = format(subDays(new Date(), 35), "yyyy-MM-dd");
-  const [peopleRows, deviceRows, deps, teams, groups, projects, tasks, channels, anns, questions, drs, att, leaves, timerRows, tpls] = await Promise.all([
+  // one connection can't run queries in parallel, so inside a transaction they go one by one
+  const all = (c === (db as unknown) ? Promise.all.bind(Promise) : sequential) as typeof Promise.all;
+  const [peopleRows, deviceRows, deps, teams, groups, projects, tasks, channels, anns, questions, drs, att, leaves, timerRows, tpls] = await all([
     c.select().from(S.people).where(eq(S.people.orgId, orgId)),
     c.select().from(S.devices).where(eq(S.devices.orgId, orgId)),
     c.select().from(S.departments).where(eq(S.departments.orgId, orgId)),

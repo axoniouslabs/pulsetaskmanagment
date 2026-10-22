@@ -3,7 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // Optimistic check only: no session cookie → login. The real checks (valid
 // session, active person, permissions) run on the server for every request.
-const PUBLIC = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/api\/cron\//, /^\/api\/push\/action$/];
+const PUBLIC = [/^\/login(\/|$)/, /^\/api\/auth\//, /^\/api\/cron\//, /^\/api\/push\/action$/, /^\/api\/health$/];
 
 export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;

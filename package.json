@@ -11,7 +11,10 @@
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --conditions=react-server scripts/seed.ts",
     "test": "vitest run",
-    "test:e2e": "node scripts/e2e-smoke.mjs"
+    "test:e2e": "node scripts/e2e-smoke.mjs",
+    "vercel-build": "node scripts/predeploy.mjs && next build",
+    "typecheck": "tsc --noEmit -p .",
+    "company:create": "tsx --conditions=react-server scripts/create-company.ts"
   },
   "dependencies": {
     "@date-fns/tz": "^1.5.0",
