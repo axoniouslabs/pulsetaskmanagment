@@ -1,38 +1,44 @@
-# Pulse: Team Task Management System (phase 1 frontend)
+# Pulse: Team Task Management System
 
 A task system that follows up by itself. The owner assigns once; Pulse reminds every N minutes until
 the employee acknowledges, escalates silence (employee → team lead → department head → owner), and records
 every step in a history nobody can edit.
 
-This is the **phase 1 PWA frontend running entirely on dummy data** (company "Crescent Traders", 18 people,
-4 departments, ~35 tasks in every state, 4 weeks of report data). The backend (PostgreSQL, API, the 24/7
-reminder worker and real Web Push) plugs in behind the same store actions in phase 1 of the roadmap.
+Phase 1 is a PWA with its own backend: Next.js (App Router) for screens and API, PostgreSQL through
+Drizzle, Better Auth for sign-in, Web Push for reminders. Every action is a command that the server checks
+against the permission rules, applies and saves in one transaction, with the activity log written by the
+same transaction. The log table refuses updates and deletes at the database level.
 
-## Run it
+## Run it locally
+
+Needs Node 20+ (tested on 22) and PostgreSQL 15+.
 
 ```bash
 npm install
-npm run dev        # http://localhost:3000
-# or a production build
-npm run build && npm start
+cp .env.example .env          # then fill BETTER_AUTH_SECRET and SEED_PASSWORD
+npm run db:migrate            # create the tables
+npm run db:seed               # load the demo company with real logins
+npm run dev                   # http://localhost:3000
 ```
 
-Node 20+ (tested on 22). The PWA service worker registers in production builds only.
+`npm run db:seed -- --reset` wipes the demo company and loads it fresh (times move to today).
+`npm run test:e2e` runs the browser smoke test against a running server.
+
+## Demo company
+
+Crescent Distributors: 20 staff in 5 departments (Sales, Operations, Accounts, Development, Admin & HR).
+Everyone has a login, `firstname@crescent.pk` with the `SEED_PASSWORD`. With `DEMO_MODE=1` the sign-in
+page also shows one-tap buttons for the owner (Imran), a manager (Saad) and an employee (Ali), and the
+owner gets **Settings → Demo controls → Reset demo data**.
 
 ## How to demo (5 minutes)
 
-1. Open the app. You are the **Owner (Imran)**: the Overview shows only what has stalled, most urgent first.
-2. Use the person menu at the bottom of the sidebar (top-right avatar on phones) to switch to
-   **Employee (Ali)**. Within ~45 seconds a reminder pops up with **Acknowledge / Snooze 30 / Open**.
-3. Tap **Acknowledge**. Open a task, tap **I'm blocked**, pick a reason. The manager is told instantly.
-4. Switch to **Manager (Saad)**: the blocked task is on his Overview; **Approvals** has Ali's submission
-   with proof photos. Approve it.
-5. Switch back to **Owner** and open **Activity log**: every reminder, acknowledgment and approval is there.
-6. Press **N** for a new task and type `Send invoice to Mariam tomorrow 5pm !high` in the quick-add line.
-7. Turn on notifications on My Day, then switch to another tab: reminders arrive as real system
-   notifications with buttons (Chrome / Edge / Android).
-
-Settings → Demo controls: change reminder speed, send a test reminder, or reset all dummy data.
+1. Sign in as **Owner (Imran)** on a computer: the Overview shows only what has stalled, most urgent first.
+2. In a private window or on a phone, sign in as **Employee (Ali)**.
+3. As the owner or **Manager (Saad)**, press **N** and assign Ali a task, e.g. `Send invoice tomorrow 5pm !high`.
+   It appears on Ali's My day within seconds.
+4. As Ali: Acknowledge, Start, then I'm blocked or Submit with a photo. The manager sees each step.
+5. As the manager: **Approvals** → approve or send back. As the owner: **Activity log** shows every step.
 
 ## Screens
 
@@ -48,7 +54,7 @@ Settings → Demo controls: change reminder speed, send a test reminder, or rese
 | `/time` | All | Attendance today / 2 weeks, timesheet, leave requests and approvals, CSV export |
 | `/reports` | All (scoped) | Completion, on-time, ack time, first-reminder response, rework, escalations, charts, fairness notes, appraisal report, CSV/PDF |
 | `/activity` | All (scoped) | Append-only history with filters and export |
-| `/settings` | Owner | Working hours, holidays, reminder defaults, escalation ladder, digests, notification preferences, devices, demo controls |
+| `/settings` | Owner | Working hours, holidays, reminder defaults, escalation ladder, digests, notification preferences, devices, demo controls (demo only) |
 
 ## Code map
 
@@ -57,12 +63,19 @@ src/app/(app)/<route>/page.tsx   screens (client components)
 src/components/app/              shell, task row, task detail sheet, task actions, create task, reminders
 src/components/pages/<area>/     screen-specific parts
 src/components/ui/               button and primitives (Radix based)
-src/lib/types.ts                 domain model (mirrors the future database)
-src/lib/seed.ts                  dummy company, anchored to working hours
-src/lib/store.ts                 zustand store: every lifecycle action + activity log + notifications
+src/app/login/                   sign-in page (+ one-tap demo sign-in)
+src/app/api/command/             every action: validate → lock org → load → authorize → apply → save
+src/app/api/snapshot/            what the signed-in person may see
+src/domain/commands.ts           the rules for every action (shared by browser and server)
+src/domain/permissions.ts        who may do what, checked on the server
+src/server/db/schema.ts          database tables (Drizzle); migrations in drizzle/
+src/server/repo.ts               load / save / scope the organisation's data
+src/server/auth.ts               Better Auth (email + password, no public sign-up)
+src/server/demo.ts               the demo company loader
+src/lib/types.ts                 domain model
+src/lib/store.ts                 browser cache: instant local update, then the server confirms
 src/lib/selectors.ts             scoping, heat/escalation, red-panel rules, capacity
 public/sw.js                     service worker: offline shell, push, notification buttons
 docs/UI-GUIDE.md                 design system and rules for anyone adding a screen
 ```
 
-When the backend arrives, each store action becomes an API call with the same name and payload.

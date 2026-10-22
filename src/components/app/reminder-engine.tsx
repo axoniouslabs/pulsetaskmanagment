@@ -3,29 +3,38 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { BellRing } from "lucide-react";
-import { useApp, type FiredReminder } from "@/lib/store";
-import { Button } from "@/components/ui/button";
+import { useApp } from "@/lib/store";
+import type { AppNotification } from "@/lib/types";
+
+export interface IncomingReminder {
+  taskId: string;
+  title: string;
+  body: string;
+}
 
 /**
- * Demo stand-in for the server reminder engine.
- * - ticks every N seconds (Settings → Demo)
- * - shows an in-app notification with action buttons when the app is visible
- * - shows a real system notification (Windows toast / Android) when hidden,
- *   if the viewer allowed notifications. Buttons work through the service worker.
+ * Reminders are created on the server. This listens for new ones arriving with
+ * each refresh and shows them: an in-app card while Pulse is open, or a system
+ * notification when it's in the background and the person turned them on.
+ * It also handles the Acknowledge / Snooze buttons on system notifications.
  */
 export function ReminderEngine() {
-  const intervalSec = useApp((s) => s.demo.intervalSec);
-  const engineOn = useApp((s) => s.demo.engineOn);
-
   React.useEffect(() => {
-    if (!engineOn) return;
-    const first = setTimeout(() => fire(), 6000);
-    const t = setInterval(() => fire(), intervalSec * 1000);
-    return () => {
-      clearTimeout(first);
-      clearInterval(t);
-    };
-  }, [intervalSec, engineOn]);
+    let seen: Set<string> | null = null;
+    const unsub = useApp.subscribe((s) => {
+      if (s.status !== "ready" || !s.viewer) return;
+      const mine = s.notifications.filter((n) => n.recipientId === s.viewer!.personId);
+      if (!seen) {
+        seen = new Set(mine.map((n) => n.id));
+        return;
+      }
+      const fresh = mine.filter((n) => !seen!.has(n.id) && !n.read);
+      for (const n of mine) seen.add(n.id);
+      // ids made in this browser are replaced by the server's on refresh; only surface server-made, recent ones
+      for (const n of fresh.filter((x) => Date.now() - new Date(x.at).getTime() < 10 * 60_000).slice(0, 3)) surface(n);
+    });
+    return unsub;
+  }, []);
 
   // actions coming back from system notifications (service worker)
   React.useEffect(() => {
@@ -34,17 +43,39 @@ export function ReminderEngine() {
       if (e.data?.type === "reminder-action") handleAction(e.data.action, e.data.taskId);
     };
     navigator.serviceWorker.addEventListener("message", onMsg);
-    // opened from a notification while the app was closed
-    const params = new URLSearchParams(window.location.search);
-    const taskId = params.get("task");
-    if (taskId) {
-      handleAction(params.get("action") ?? "open", taskId);
-      window.history.replaceState(null, "", window.location.pathname);
-    }
     return () => navigator.serviceWorker.removeEventListener("message", onMsg);
   }, []);
 
+  // opened from a notification while the app was closed: wait for data, then act
+  React.useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const taskId = params.get("task");
+    if (!taskId) return;
+    const action = params.get("action") ?? "open";
+    window.history.replaceState(null, "", window.location.pathname);
+    const run = () => {
+      if (useApp.getState().status !== "ready") return false;
+      handleAction(action, taskId);
+      return true;
+    };
+    if (run()) return;
+    const unsub = useApp.subscribe(() => run() && unsub());
+    return unsub;
+  }, []);
+
   return null;
+}
+
+function surface(n: AppNotification) {
+  const s = useApp.getState();
+  if (s.notifications.find((x) => x.id === n.id)?.read) return;
+  if (document.visibilityState === "hidden") return void showSystem(n);
+  if (n.kind === "reminder" && n.taskId) return showInApp({ taskId: n.taskId, title: n.title, body: n.body });
+  toast(n.title, {
+    description: n.body,
+    duration: 8000,
+    action: n.taskId ? { label: "Open", onClick: () => useApp.getState().openTask(n.taskId!) } : undefined,
+  });
 }
 
 export function handleAction(action: string, taskId: string) {
@@ -52,8 +83,9 @@ export function handleAction(action: string, taskId: string) {
   const task = s.tasks.find((t) => t.id === taskId);
   if (!task) return;
   if (action === "ack") {
-    s.acknowledge(taskId);
-    toast.success("Acknowledged", { description: "Reminders slowed down. Start when you're ready." });
+    const r = s.acknowledge(taskId);
+    if (r.ok) toast.success("Acknowledged", { description: "Reminders slowed down. Start when you're ready." });
+    else toast.error(r.error);
   } else if (action === "snooze") {
     const r = s.snooze(taskId, 30);
     if (r.ok) toast("Snoozed for 30 minutes");
@@ -63,34 +95,24 @@ export function handleAction(action: string, taskId: string) {
   }
 }
 
-function fire() {
+async function showSystem(n: AppNotification) {
   const s = useApp.getState();
-  const fired = s.engineTick();
-  if (!fired) return;
-  const viewing = s.role === "employee";
-  if (!viewing) return;
-  if (document.visibilityState === "hidden") showSystem(fired);
-  else showInApp(fired);
-}
-
-async function showSystem(f: FiredReminder) {
-  const s = useApp.getState();
-  if (!s.demo.systemNotifications || typeof Notification === "undefined" || Notification.permission !== "granted") return;
+  if (!s.local.systemNotifications || typeof Notification === "undefined" || Notification.permission !== "granted") return;
   const reg = await navigator.serviceWorker?.getRegistration();
   if (!reg) return;
-  await reg.showNotification(`Reminder ${f.count}: ${f.title}`, {
-    body: f.body,
-    tag: f.taskId,
+  const actionable = n.kind === "reminder" || n.kind === "assigned";
+  await reg.showNotification(n.title, {
+    body: n.body,
+    tag: n.taskId ?? n.id,
     icon: "/icon-192.png",
     badge: "/badge-72.png",
-    data: { taskId: f.taskId },
-    requireInteraction: false,
+    data: { taskId: n.taskId },
     // action buttons: Chrome, Edge and Android show up to two
-    ...({ actions: [{ action: "ack", title: "Acknowledge" }, { action: "snooze", title: "Snooze 30 min" }] } as object),
+    ...(actionable && n.taskId ? ({ actions: [{ action: "ack", title: "Acknowledge" }, { action: "snooze", title: "Snooze 30 min" }] } as object) : {}),
   } as NotificationOptions);
 }
 
-export function showInApp(f: FiredReminder) {
+export function showInApp(f: IncomingReminder) {
   toast.custom(
     (id) => (
       <div className="w-[min(380px,calc(100vw-24px))] overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface shadow-pop">
@@ -99,7 +121,7 @@ export function showInApp(f: FiredReminder) {
             <BellRing className="size-[18px]" />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="text-[11.5px] text-faint">Pulse, reminder {f.count}, now</p>
+            <p className="text-[11.5px] text-faint">Pulse, now</p>
             <p className="mt-0.5 text-[14px] font-semibold leading-snug text-text">{f.title}</p>
             <p className="mt-0.5 text-[13px] leading-snug text-muted">{f.body}</p>
           </div>
@@ -136,24 +158,5 @@ export function showInApp(f: FiredReminder) {
       </div>
     ),
     { duration: 15000, id: `rem-${f.taskId}` },
-  );
-}
-
-/** used by the "Send a test reminder" button */
-export function TestReminderButton() {
-  return (
-    <Button
-      size="sm"
-      variant="secondary"
-      onClick={() => {
-        const s = useApp.getState();
-        if (s.role !== "employee") s.setRole("employee");
-        const fired = useApp.getState().engineTick();
-        if (fired) showInApp(fired);
-        else toast("Nothing to remind about", { description: "Ali has acknowledged all his tasks. Create a new task for Ali to see the loop again." });
-      }}
-    >
-      <BellRing /> Send a test reminder
-    </Button>
   );
 }

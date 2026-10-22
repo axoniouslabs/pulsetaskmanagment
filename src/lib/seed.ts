@@ -175,6 +175,10 @@ export function createSeed(realNow = new Date()): SeedData {
       onLeave: true,
       backupId: "p_mehwish",
     }),
+    P("p_farah", "Farah Naz", "manager", "Admin & HR Manager", "d_admin", "t_admin", 240),
+    P("p_waqas", "Waqas Ahmed", "employee", "Office Assistant", "d_admin", "t_admin", 80, {
+      devices: [dev("android", "Android phone", now, true, 30)],
+    }),
   ];
 
   const departments: Department[] = [
@@ -182,6 +186,7 @@ export function createSeed(realNow = new Date()): SeedData {
     { id: "d_ops", name: "Operations", headId: "p_sana", description: "Warehouse, stock and deliveries" },
     { id: "d_acc", name: "Accounts", headId: "p_nadia", description: "Billing, payments and tax" },
     { id: "d_dev", name: "Development", headId: "p_saad", description: "Dealer app, website and design" },
+    { id: "d_admin", name: "Admin & HR", headId: "p_farah", description: "Office, hiring, payroll inputs and facilities" },
   ];
 
   const teams: Team[] = [
@@ -192,6 +197,7 @@ export function createSeed(realNow = new Date()): SeedData {
     { id: "t_billing", name: "Billing", departmentId: "d_acc", leadId: "p_omar" },
     { id: "t_product", name: "Product", departmentId: "d_dev", leadId: "p_saad" },
     { id: "t_design", name: "Design", departmentId: "d_dev", leadId: "p_mehwish" },
+    { id: "t_admin", name: "Office", departmentId: "d_admin", leadId: "p_farah" },
   ];
 
   const groups: Group[] = [
@@ -820,6 +826,34 @@ export function createSeed(realNow = new Date()): SeedData {
       estimateHours: 6,
     }),
     T({
+      title: "Collect October attendance sheets for payroll",
+      assigneeId: "p_waqas",
+      reviewerId: "p_farah",
+      priority: "high",
+      status: "acknowledged",
+      createdAt: h(-6),
+      acknowledgedAt: h(-5.5),
+      statusChangedAt: h(-5.5),
+      dueAt: h(26),
+      estimateHours: 2,
+      remindersSent: 1,
+    }),
+    T({
+      title: "Shortlist candidates for the delivery rider post",
+      assigneeId: "p_farah",
+      reviewerId: "p_sana",
+      priority: "normal",
+      status: "in_progress",
+      createdAt: h(-30),
+      acknowledgedAt: h(-29),
+      startedAt: h(-20),
+      statusChangedAt: h(-20),
+      dueAt: h(50),
+      estimateHours: 4,
+      loggedMinutes: 95,
+      subtasks: [sub("Post the job on Rozee.pk", true), sub("Screen CVs"), sub("Book interviews")],
+    }),
+    T({
       title: "Draft: new dealer onboarding checklist",
       assigneeId: "p_hina",
       reviewerId: "p_imran",
@@ -953,6 +987,7 @@ export function createSeed(realNow = new Date()): SeedData {
     { id: "c_ops", name: "Operations", kind: "open", unitType: "department", unitId: "d_ops", description: "Warehouse and dispatch" },
     { id: "c_acc", name: "Accounts", kind: "open", unitType: "department", unitId: "d_acc", description: "Billing and payments" },
     { id: "c_dev", name: "Development", kind: "open", unitType: "department", unitId: "d_dev", description: "Dealer app, website and design" },
+    { id: "c_admin", name: "Admin & HR", kind: "open", unitType: "department", unitId: "d_admin", description: "Office, hiring and payroll" },
     { id: "c_launch", name: "Dealer app v2.3 launch", kind: "open", unitType: "group", unitId: "g_launch", description: "Release squad" },
     { id: "c_devfeed", name: "Development task feed", kind: "task_feed", unitType: "department", unitId: "d_dev", description: "Automatic stream of task events" },
   ];
@@ -1076,7 +1111,7 @@ export function createSeed(realNow = new Date()): SeedData {
   const reliability: Record<string, number> = {
     p_kamran: 0.55, p_faisal: 0.62, p_hamza: 0.7, p_mariam: 0.78, p_ali: 0.9, p_danish: 0.8,
     p_ayesha: 0.92, p_rabia: 0.85, p_zoya: 0.88, p_omar: 0.9, p_zain: 0.82, p_mehwish: 0.93,
-    p_hina: 0.9, p_usman: 0.86, p_sana: 0.88, p_nadia: 0.91, p_saad: 0.87, p_imran: 0.95,
+    p_hina: 0.9, p_usman: 0.86, p_sana: 0.88, p_nadia: 0.91, p_saad: 0.87, p_imran: 0.95, p_farah: 0.9, p_waqas: 0.8,
   };
   for (let d = 27; d >= 0; d--) {
     const day = subDays(today, d);

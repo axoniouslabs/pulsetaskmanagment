@@ -11,7 +11,7 @@ import { isOpenWork } from "@/lib/selectors";
 import { Button } from "@/components/ui/button";
 import { Kbd, Sheet, SheetClose, TooltipProvider } from "@/components/ui/primitives";
 import { HOME, MOBILE_TABS, NAV, type NavItem } from "./nav";
-import { RoleSwitcher } from "./role-switcher";
+import { AccountMenu } from "./account-menu";
 import { NotificationBell } from "./notifications";
 import { TaskDetailSheet } from "./task-detail";
 import { CreateTaskDialog } from "./create-task";
@@ -19,12 +19,27 @@ import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
 
-function useHydrated() {
-  return React.useSyncExternalStore(
-    (cb) => useApp.persist.onFinishHydration(cb),
-    () => useApp.persist.hasHydrated(),
-    () => false,
-  );
+/** load what this person may see, and keep it fresh while the app is open */
+function useLiveData() {
+  const status = useApp((s) => s.status);
+  React.useEffect(() => {
+    const load = () => void useApp.getState().load();
+    load();
+    const tick = setInterval(() => {
+      if (document.visibilityState === "visible") load();
+    }, 15000);
+    const onVisible = () => document.visibilityState === "visible" && load();
+    window.addEventListener("focus", load);
+    window.addEventListener("online", load);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      clearInterval(tick);
+      window.removeEventListener("focus", load);
+      window.removeEventListener("online", load);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, []);
+  return status;
 }
 
 function useBadges() {
@@ -47,7 +62,8 @@ function useBadges() {
 }
 
 export function AppShell({ children }: { children: React.ReactNode }) {
-  const hydrated = useHydrated();
+  const status = useLiveData();
+  const hydrated = status === "ready";
   const role = useApp((s) => s.role);
   const pathname = usePathname();
   const router = useRouter();
@@ -65,6 +81,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  if (status === "error") return <LoadError />;
   if (!hydrated) return <ShellSkeleton />;
 
   return (
@@ -95,6 +112,21 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }}
       />
     </TooltipProvider>
+  );
+}
+
+function LoadError() {
+  return (
+    <div className="flex min-h-dvh flex-col items-center justify-center gap-4 px-6 text-center">
+      <Logo size={40} />
+      <div>
+        <p className="font-display text-[20px] font-semibold">Pulse couldn&apos;t load your work</p>
+        <p className="mt-1 text-[14px] text-muted">Check your internet connection, then try again.</p>
+      </div>
+      <Button variant="primary" onClick={() => window.location.reload()}>
+        Try again
+      </Button>
+    </div>
   );
 }
 
@@ -165,7 +197,7 @@ function Sidebar() {
         ))}
       </nav>
       <div className="border-t border-line p-3">
-        <RoleSwitcher />
+        <AccountMenu />
       </div>
     </aside>
   );
@@ -197,7 +229,7 @@ function TopBar() {
           </button>
           <NotificationBell />
           <div className="ml-1 lg:hidden">
-            <RoleSwitcher compact />
+            <AccountMenu compact />
           </div>
         </div>
       </div>
@@ -261,7 +293,7 @@ function BottomNav() {
           ))}
         </div>
         <div className="border-t border-line p-3">
-          <RoleSwitcher />
+          <AccountMenu />
         </div>
       </Sheet>
     </>

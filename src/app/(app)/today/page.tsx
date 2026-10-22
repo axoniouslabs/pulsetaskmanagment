@@ -403,13 +403,13 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /* ---------- notifications permission ---------- */
 function NotifyPrompt() {
-  const demo = useApp((s) => s.demo);
-  const setDemo = useApp((s) => s.setDemo);
+  const local = useApp((s) => s.local);
+  const setLocal = useApp((s) => s.setLocal);
   const [perm, setPerm] = React.useState<NotificationPermission | "unsupported">(() =>
     typeof Notification === "undefined" ? "unsupported" : Notification.permission,
   );
   const [dismissed, setDismissed] = React.useState(false);
-  if (dismissed || perm === "unsupported" || (perm === "granted" && demo.systemNotifications)) return null;
+  if (dismissed || perm === "unsupported" || (perm === "granted" && local.systemNotifications)) return null;
   return (
     <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-line bg-surface p-4 sm:flex-row sm:items-center">
       <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink-tint text-ink">
@@ -433,8 +433,8 @@ function NotifyPrompt() {
               const p = await Notification.requestPermission();
               setPerm(p);
               if (p === "granted") {
-                setDemo({ systemNotifications: true });
-                toast.success("Notifications on", { description: "Switch to another tab to see a reminder arrive as a system notification." });
+                setLocal({ systemNotifications: true });
+                toast.success("Notifications on", { description: "When Pulse is in the background, new reminders show up as system notifications." });
               }
             }}
           >

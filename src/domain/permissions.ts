@@ -1,0 +1,180 @@
+/**
+ * Who may do what (spec §17), checked on the server for every command.
+ * Hiding a button is a convenience; this is the rule.
+ */
+import type { Task } from "@/lib/types";
+import { scopePeople } from "@/lib/selectors";
+import type { Command } from "./commands";
+import { membersOf, type World } from "./world";
+
+export type Decision = { ok: true } | { ok: false; error: string };
+const allow: Decision = { ok: true };
+const deny = (error: string): Decision => ({ ok: false, error });
+
+export function authorize(w: World, actorId: string, cmd: Command): Decision {
+  const me = w.people.find((p) => p.id === actorId);
+  if (!me || me.active === false) return deny("Your account is not active. Ask the owner to check it.");
+  const isOwner = me.role === "owner";
+  const scope = new Set(scopePeople(w, me.role, actorId).map((p) => p.id));
+  const manages = (personId: string) => isOwner || (me.role === "manager" && scope.has(personId) && personId !== actorId) || false;
+  const headsDept = (depId: string) => isOwner || w.departments.some((d) => d.id === depId && d.headId === actorId);
+
+  const task = (id: string): Task | undefined => w.tasks.find((t) => t.id === id);
+  const canSeeTask = (t: Task) =>
+    isOwner || t.assigneeId === actorId || t.reviewerId === actorId || t.createdById === actorId || t.blockedOwnerId === actorId || t.watcherIds.includes(actorId) || manages(t.assigneeId);
+  const assigneeOnly = (taskId: string, what: string): Decision => {
+    const t = task(taskId);
+    if (!t) return deny("That task no longer exists.");
+    return t.assigneeId === actorId ? allow : deny(`Only ${w.people.find((p) => p.id === t.assigneeId)?.name.split(" ")[0] ?? "the assignee"} can ${what}.`);
+  };
+  const managerOf = (taskId: string, what: string): Decision => {
+    const t = task(taskId);
+    if (!t) return deny("That task no longer exists.");
+    return isOwner || manages(t.assigneeId) || t.createdById === actorId ? allow : deny(`You can't ${what} for someone outside your team.`);
+  };
+
+  switch (cmd.type) {
+    case "createTask": {
+      const target = cmd.input.assigneeId;
+      if (target === actorId || isOwner || manages(target)) return allow;
+      return deny("You can assign tasks to yourself and to people in your team only.");
+    }
+    case "publishDraft":
+    case "reassign":
+    case "changeDeadline":
+    case "cancel":
+      return managerOf(cmd.taskId, cmd.type === "cancel" ? "cancel tasks" : cmd.type === "reassign" ? "hand over tasks" : cmd.type === "changeDeadline" ? "change deadlines" : "publish tasks");
+
+    case "claimTask": {
+      const t = task(cmd.taskId);
+      if (!t?.groupClaim) return deny("This task isn't open to claim.");
+      const lead = w.people.find((p) => p.id === t.assigneeId);
+      const sameTeam = lead && (me.teamId === lead.teamId || w.teams.some((tm) => tm.leadId === lead.id && tm.id === me.teamId));
+      return sameTeam || isOwner ? allow : deny("Only people in that team can claim this task.");
+    }
+
+    case "acknowledge":
+      return assigneeOnly(cmd.taskId, "acknowledge this task");
+    case "start":
+      return assigneeOnly(cmd.taskId, "start this task");
+    case "snooze":
+      return assigneeOnly(cmd.taskId, "snooze its reminders");
+    case "block":
+      return assigneeOnly(cmd.taskId, "mark this task as blocked");
+    case "submit":
+      return assigneeOnly(cmd.taskId, "submit this task");
+    case "requestDeadline":
+      return assigneeOnly(cmd.taskId, "ask for more time");
+    case "addAttachment":
+      return assigneeOnly(cmd.taskId, "add proof to this task");
+
+    case "unblock": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      return t.assigneeId === actorId || t.blockedOwnerId === actorId || t.reviewerId === actorId || manages(t.assigneeId)
+        ? allow
+        : deny("Only the assignee, the person blocking it or their manager can clear this.");
+    }
+
+    case "approve":
+    case "reject": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      if (t.assigneeId === actorId && !isOwner) return deny("You can't review your own work.");
+      return t.reviewerId === actorId || manages(t.assigneeId) ? allow : deny("Only the reviewer or their manager can review this work.");
+    }
+
+    case "decideDeadline": {
+      const r = w.deadlineRequests.find((d) => d.id === cmd.requestId);
+      const t = r && task(r.taskId);
+      if (!t) return deny("That request no longer exists.");
+      return t.reviewerId === actorId || manages(t.assigneeId) ? allow : deny("Only the reviewer or their manager can decide this.");
+    }
+
+    case "toggleSubtask":
+    case "addSubtask": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      return t.assigneeId === actorId || manages(t.assigneeId) || t.createdById === actorId ? allow : deny("Only the assignee or their manager can change the checklist.");
+    }
+
+    case "addComment": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      return canSeeTask(t) ? allow : deny("You can only comment on tasks you're part of.");
+    }
+
+    case "stopTimer":
+    case "markRead":
+    case "markAllRead":
+    case "readAnnouncement":
+    case "checkIn":
+    case "checkOut":
+    case "requestLeave":
+    case "setPref":
+    case "setDayOrder":
+      return allow; // these only ever touch the actor's own records
+
+    case "askQuestion":
+      return cmd.toId !== actorId ? allow : deny("Pick someone else to ask.");
+    case "answerQuestion": {
+      const q = w.questions.find((x) => x.id === cmd.id);
+      if (!q) return deny("That question no longer exists.");
+      return q.toId === actorId || isOwner ? allow : deny("Only the person who was asked can answer.");
+    }
+
+    case "postAnnouncement": {
+      const ch = w.channels.find((c) => c.id === cmd.channelId);
+      if (!ch) return deny("That channel no longer exists.");
+      if (ch.kind === "task_feed") return deny("Task feeds are written by Pulse only.");
+      if (isOwner) return allow;
+      if (ch.unitType === "org") return deny("Only the owner posts company notices.");
+      const runs =
+        (ch.unitType === "department" && w.departments.some((d) => d.id === ch.unitId && d.headId === actorId)) ||
+        (ch.unitType === "team" && w.teams.some((t) => t.id === ch.unitId && t.leadId === actorId)) ||
+        (ch.unitType === "group" && w.groups.some((g) => g.id === ch.unitId && g.ownerId === actorId));
+      if (runs) return allow;
+      if (ch.kind === "open" && membersOf(w, ch.unitType, ch.unitId).includes(actorId) && me.role !== "employee") return allow;
+      return deny("Only the head of this unit can post notices here.");
+    }
+    case "ackAnnouncement": {
+      const a = w.announcements.find((x) => x.id === cmd.id);
+      const ch = a && w.channels.find((c) => c.id === a.channelId);
+      if (!ch) return deny("That notice no longer exists.");
+      return isOwner || membersOf(w, ch.unitType, ch.unitId).includes(actorId) ? allow : deny("This notice isn't for you.");
+    }
+
+    case "decideLeave": {
+      const l = w.leaves.find((x) => x.id === cmd.id);
+      if (!l) return deny("That request no longer exists.");
+      return manages(l.personId) ? allow : deny("Only their manager or the owner can decide leave.");
+    }
+    case "setOnLeave":
+      return cmd.personId === actorId || manages(cmd.personId) ? allow : deny("Only their manager or the owner can mark leave.");
+
+    case "updateSettings":
+    case "addHoliday":
+    case "removeHoliday":
+    case "addDepartment":
+    case "setDepartmentHead":
+      return isOwner ? allow : deny("Only the owner can change company settings.");
+
+    case "addTeam":
+      return headsDept(cmd.departmentId) ? allow : deny("Only the owner or the head of this department can add teams.");
+    case "setTeamLead": {
+      const team = w.teams.find((t) => t.id === cmd.teamId);
+      return team && headsDept(team.departmentId) ? allow : deny("Only the owner or the head of this department can choose team leads.");
+    }
+    case "movePerson": {
+      const team = w.teams.find((t) => t.id === cmd.teamId);
+      const p = w.people.find((x) => x.id === cmd.personId);
+      if (!team || !p) return deny("Pick a person and a team.");
+      return isOwner || (headsDept(team.departmentId) && headsDept(p.departmentId)) ? allow : deny("Only the owner can move people between departments.");
+    }
+    case "addGroup":
+      return me.role !== "employee" ? allow : deny("Only managers and the owner can create groups.");
+
+    default:
+      return deny("This action isn't allowed.");
+  }
+}

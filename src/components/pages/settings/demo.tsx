@@ -2,53 +2,40 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { RotateCcw } from "lucide-react";
+import { Loader2, RotateCcw } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, Switch } from "@/components/ui/primitives";
-import { TestReminderButton } from "@/components/app/reminder-engine";
-import { Chips, SettingRow } from "./parts";
+import { Dialog, DialogContent } from "@/components/ui/primitives";
+import { SettingRow } from "./parts";
 
-const steps = (sec: number) => [
-  { title: "Switch to Employee", body: "Use the role switcher at the bottom of the sidebar, or top right on a phone. You are now Ali Raza." },
-  { title: "Wait for a reminder", body: `One arrives every ${sec < 60 ? `${sec} seconds` : `${sec / 60} min`} for Ali's most urgent unacknowledged task, or send one now with the button above.` },
-  { title: "Tap Acknowledge", body: "Reminders stop for that task and the owner's view updates at once." },
-  { title: "Switch to Owner and see it in the history", body: "Open the Activity log: every reminder and the acknowledgment are recorded there." },
+const STEPS = [
+  { title: "Open Pulse twice", body: "Sign in as Ali (employee) on your phone and as Saad (manager) or Imran (owner) on a computer. Use a private window if both are on one computer." },
+  { title: "Assign Ali a task", body: "As the manager, press New task, pick Ali and save. It lands on Ali's My day within seconds." },
+  { title: "Acknowledge, start, submit", body: "As Ali, work through the task. Each step shows up for the manager and is written to the activity log." },
+  { title: "Review it", body: "As the manager, open Approvals and approve or send it back. Nobody can edit or delete the history." },
 ];
 
 export function DemoControls() {
-  const demo = useApp((s) => s.demo);
-  const setDemo = useApp((s) => s.setDemo);
-  const resetDemo = useApp((s) => s.resetDemo);
   const [confirm, setConfirm] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+
+  async function reset() {
+    setBusy(true);
+    const res = await fetch("/api/demo/reset", { method: "POST" }).catch(() => null);
+    setBusy(false);
+    setConfirm(false);
+    if (!res?.ok) {
+      const body = (await res?.json().catch(() => ({}))) as { error?: string } | undefined;
+      toast.error(body?.error ?? "The reset didn't finish. Try again.");
+      return;
+    }
+    await useApp.getState().load();
+    toast.success("Demo data reset", { description: "Everything is back to the starting story, with times moved to today." });
+  }
 
   return (
     <>
-      <SettingRow htmlFor="demo-engine" label="Reminder engine" hint="Fires simulated reminders to Ali while this tab is open. The real engine runs on the server.">
-        <Switch
-          id="demo-engine"
-          checked={demo.engineOn}
-          onCheckedChange={(v) => {
-            setDemo({ engineOn: v });
-            toast.success(v ? "Reminder engine on" : "Reminder engine off", { id: "settings-saved", duration: 1600 });
-          }}
-        />
-      </SettingRow>
-      <SettingRow label="Demo reminder interval" hint="Real reminders follow the interval set above. The demo speeds it up so you can watch the loop.">
-        <Chips
-          label="Demo reminder interval"
-          value={demo.intervalSec}
-          onChange={(v) => {
-            setDemo({ intervalSec: v });
-            toast.success("Saved", { id: "settings-saved", duration: 1600 });
-          }}
-          options={[15, 30, 45, 60, 120].map((n) => ({ value: n, label: n < 60 ? `${n}s` : `${n / 60} min` }))}
-        />
-      </SettingRow>
-      <SettingRow label="Try it now" hint="Switches to Employee and delivers the next reminder straight away.">
-        <TestReminderButton />
-      </SettingRow>
-      <SettingRow label="Reset demo data" hint="Puts every task, person and message back to the starting story. Your role and demo settings stay.">
+      <SettingRow label="Reset demo data" hint="Puts every task, person and message back to the starting story, for everyone using the demo. Logins stay the same.">
         <Button variant="danger" size="sm" onClick={() => setConfirm(true)}>
           <RotateCcw /> Reset demo data
         </Button>
@@ -56,7 +43,7 @@ export function DemoControls() {
       <div className="border-t border-line px-4 py-4 sm:px-5">
         <h3 className="text-[14px] font-semibold text-text">How to demo</h3>
         <ol className="mt-3 space-y-3">
-          {steps(demo.intervalSec).map((s, i) => (
+          {STEPS.map((s, i) => (
             <li key={s.title} className="flex gap-3">
               <span className="tabular flex size-6 shrink-0 items-center justify-center rounded-full bg-ink-tint text-[12px] font-bold text-ink">{i + 1}</span>
               <div className="min-w-0 pt-0.5">
@@ -68,22 +55,15 @@ export function DemoControls() {
         </ol>
       </div>
 
-      <Dialog open={confirm} onOpenChange={setConfirm}>
+      <Dialog open={confirm} onOpenChange={(o) => !busy && setConfirm(o)}>
         {confirm && (
-          <DialogContent title="Reset demo data?" description="Every change made during this demo is replaced with the starting data. This can't be undone.">
+          <DialogContent title="Reset demo data?" description="Every change made in the demo company, by anyone, is replaced with the starting data. This can't be undone.">
             <div className="mt-2 flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setConfirm(false)}>
+              <Button variant="ghost" onClick={() => setConfirm(false)} disabled={busy}>
                 Cancel
               </Button>
-              <Button
-                variant="dangerSolid"
-                onClick={() => {
-                  resetDemo();
-                  setConfirm(false);
-                  toast.success("Demo data reset", { description: "Everything is back to the starting story." });
-                }}
-              >
-                <RotateCcw /> Reset demo data
+              <Button variant="dangerSolid" onClick={reset} disabled={busy}>
+                {busy ? <Loader2 className="animate-spin" /> : <RotateCcw />} Reset demo data
               </Button>
             </div>
           </DialogContent>

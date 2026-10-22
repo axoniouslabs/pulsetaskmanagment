@@ -36,6 +36,7 @@ export interface Person {
   workType: "desk" | "field";
   onLeave?: boolean;
   backupId?: string;
+  active?: boolean;
   devices: Device[];
 }
 

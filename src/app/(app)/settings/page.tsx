@@ -28,8 +28,10 @@ const SECTIONS = [
 export default function SettingsPage() {
   const { role } = useScope();
   const settings = useApp((s) => s.settings);
+  const demoMode = useApp((s) => s.demoMode);
   const save = useSave();
-  const active = useActiveSection(SECTIONS.map((s) => s.id), role === "owner");
+  const sections = demoMode ? SECTIONS : SECTIONS.filter((s) => s.id !== "demo");
+  const active = useActiveSection(sections.map((s) => s.id), role === "owner");
 
   if (role !== "owner") {
     return (
@@ -49,7 +51,7 @@ export default function SettingsPage() {
 
       {/* section nav: chips on phones, sticky list on desktop */}
       <nav aria-label="Settings sections" className="no-scrollbar -mx-4 mb-6 flex gap-1.5 overflow-x-auto px-4 sm:-mx-6 sm:px-6 lg:hidden">
-        {SECTIONS.map((s) => (
+        {sections.map((s) => (
           <a
             key={s.id}
             href={`#${s.id}`}
@@ -66,7 +68,7 @@ export default function SettingsPage() {
       <div className="grid gap-8 lg:grid-cols-[200px_minmax(0,1fr)]">
         <div className="hidden lg:block">
           <ul className="sticky top-24 space-y-0.5" aria-label="Settings sections">
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <li key={s.id}>
                 <a
                   href={`#${s.id}`}
@@ -165,15 +167,17 @@ export default function SettingsPage() {
             <DeviceList />
           </SettingsSection>
 
+          {demoMode && (
           <SettingsSection
             id="demo"
             title="Demo controls"
             tag={<span className="rounded-full bg-heat-1-tint px-2 py-0.5 text-[12px] font-medium text-heat-1">Demo only</span>}
-            description="These controls exist only in this demo, to show the reminder loop without waiting. They are not part of the product."
+            description="Only shown for the sample company. Use these to run a client demo from a clean start."
             className="border-dashed border-line-strong"
           >
             <DemoControls />
           </SettingsSection>
+          )}
         </div>
       </div>
     </div>
