@@ -12,9 +12,11 @@ import { Avatar } from "@/components/app/avatar";
 const KIND_ICON: Record<Device["kind"], React.ElementType> = { windows: Monitor, android: Smartphone, iphone: Smartphone, browser: Globe };
 
 /** every person's devices, broken ones first, with what to do about them */
-export function DeviceList() {
+export function DeviceList({ onlyMe = false }: { onlyMe?: boolean }) {
   const now = useNow(60000);
-  const people = useApp((s) => s.people);
+  const everyone = useApp((s) => s.people);
+  const meId = useApp((s) => s.viewer?.personId);
+  const people = React.useMemo(() => (onlyMe ? everyone.filter((p) => p.id === meId) : everyone), [everyone, meId, onlyMe]);
   const sorted = React.useMemo(
     () => [...people].sort((a, b) => Number(b.devices.some((d) => !d.healthy)) - Number(a.devices.some((d) => !d.healthy)) || a.name.localeCompare(b.name)),
     [people],

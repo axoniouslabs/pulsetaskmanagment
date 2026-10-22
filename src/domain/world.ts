@@ -13,6 +13,7 @@ import type {
   Project,
   Question,
   Task,
+  TaskTemplate,
   Team,
   Timer,
 } from "@/lib/types";
@@ -43,6 +44,7 @@ export interface World {
   questions: Question[];
   deadlineRequests: DeadlineRequest[];
   stats: DailyStat[];
+  templates: TaskTemplate[];
   timers: Record<string, Timer | undefined>;
   prefs: Record<string, Record<string, boolean>>;
   dayOrder: Record<string, string[]>;
@@ -64,6 +66,7 @@ export const WORLD_KEYS = [
   "questions",
   "deadlineRequests",
   "stats",
+  "templates",
 ] as const;
 
 export const emptyWorld = (): World => ({
@@ -99,6 +102,7 @@ export const emptyWorld = (): World => ({
   questions: [],
   deadlineRequests: [],
   stats: [],
+  templates: [],
   timers: {},
   prefs: {},
   dayOrder: {},

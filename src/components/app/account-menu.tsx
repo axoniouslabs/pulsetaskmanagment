@@ -51,13 +51,11 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
           {dept ? ` · ${dept}` : ""}
         </p>
         <MenuSeparator />
-        {role === "owner" && (
-          <MenuItem asChild>
-            <Link href="/settings">
-              <Settings /> Settings
-            </Link>
-          </MenuItem>
-        )}
+        <MenuItem asChild>
+          <Link href="/settings">
+            <Settings /> Settings
+          </Link>
+        </MenuItem>
         <MenuItem onSelect={() => void signOut()}>
           <LogOut /> Sign out
         </MenuItem>

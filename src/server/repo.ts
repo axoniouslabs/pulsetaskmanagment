@@ -5,6 +5,7 @@ import type { Person, Task, Timer } from "@/lib/types";
 import type { DailyStat } from "@/lib/seed";
 import { scopePeople, scopeTasks } from "@/lib/selectors";
 import { membersOf, emptyWorld, type World } from "@/domain/world";
+import type { EngineState } from "@/domain/engine";
 import { schema, type DB, type Tx } from "./db";
 
 type Conn = DB | Tx;
@@ -15,6 +16,7 @@ const S = schema;
 /* ------------------------------------------------------------------ */
 
 const DATE_FIELDS: Record<string, string[]> = {
+  templates: ["createdAt"],
   tasks: ["createdAt", "startAt", "dueAt", "lastReminderAt", "blockedAt", "submittedAt", "acknowledgedAt", "startedAt", "approvedAt", "statusChangedAt", "snoozedUntil"],
   activity: ["at"],
   notifications: ["at", "pushedAt", "deliveredAt", "seenAt"],
@@ -63,6 +65,8 @@ export interface LoadOptions {
   /** only this person's notifications (commands) */
   notificationsFor?: string;
   stats?: boolean;
+  /** skip notifications entirely (the engine only appends new ones) */
+  skipNotifications?: boolean;
 }
 
 export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}): Promise<World> {
@@ -73,7 +77,7 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   w.settings = { ...org.settings, name: org.name, timezone: org.timezone };
 
   const since30 = format(subDays(new Date(), 35), "yyyy-MM-dd");
-  const [peopleRows, deviceRows, deps, teams, groups, projects, tasks, channels, anns, questions, drs, att, leaves, timerRows] = await Promise.all([
+  const [peopleRows, deviceRows, deps, teams, groups, projects, tasks, channels, anns, questions, drs, att, leaves, timerRows, tpls] = await Promise.all([
     c.select().from(S.people).where(eq(S.people.orgId, orgId)),
     c.select().from(S.devices).where(eq(S.devices.orgId, orgId)),
     c.select().from(S.departments).where(eq(S.departments.orgId, orgId)),
@@ -88,10 +92,12 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
     c.select().from(S.attendance).where(and(eq(S.attendance.orgId, orgId), gte(S.attendance.date, since30))),
     c.select().from(S.leaves).where(eq(S.leaves.orgId, orgId)),
     c.select().from(S.timers).where(eq(S.timers.orgId, orgId)),
+    c.select().from(S.templates).where(eq(S.templates.orgId, orgId)).orderBy(S.templates.name),
   ]);
 
   w.people = peopleRows.map((r) => {
     const p = fromRow<Person>(r, ["orgId", "userId", "prefs", "dayOrder", "createdAt"]);
+    if (!r.mustChangePassword) delete p.mustChangePassword;
     p.devices = deviceRows
       .filter((d) => d.personId === r.id)
       .map((d) => ({ id: d.id, kind: d.kind as Person["devices"][number]["kind"], label: d.label, lastSeen: d.lastSeen.toISOString(), healthy: d.healthy }));
@@ -110,17 +116,20 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   w.deadlineRequests = drs.map((r) => fromRow(r, ["orgId"]));
   w.attendance = att.map((r) => fromRow(r, ["orgId", "id"]));
   w.leaves = leaves.map((r) => fromRow(r, ["orgId"]));
+  w.templates = tpls.map((r) => fromRow(r, ["orgId"]));
   for (const t of timerRows) w.timers[t.personId] = { taskId: t.taskId, startedAt: t.startedAt.toISOString() };
 
   if (opts.activity) {
     const rows = await c.select().from(S.activity).where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, subDays(new Date(), 30)))).orderBy(desc(S.activity.at)).limit(1500);
     w.activity = rows.map((r) => fromRow(r, ["orgId"]));
   }
-  const nWhere = opts.notificationsFor
-    ? and(eq(S.notifications.orgId, orgId), eq(S.notifications.recipientId, opts.notificationsFor))
-    : eq(S.notifications.orgId, orgId);
-  const nRows = await c.select().from(S.notifications).where(nWhere).orderBy(desc(S.notifications.at)).limit(opts.notificationsFor ? 200 : 2000);
-  w.notifications = nRows.map((r) => fromRow(r, ["orgId", "pushedAt", "deliveredAt", "seenAt"]));
+  if (!opts.skipNotifications) {
+    const nWhere = opts.notificationsFor
+      ? and(eq(S.notifications.orgId, orgId), eq(S.notifications.recipientId, opts.notificationsFor))
+      : eq(S.notifications.orgId, orgId);
+    const nRows = await c.select().from(S.notifications).where(nWhere).orderBy(desc(S.notifications.at)).limit(opts.notificationsFor ? 200 : 2000);
+    w.notifications = nRows.map((r) => fromRow(r, ["orgId", "pushedAt", "deliveredAt", "seenAt"]));
+  }
 
   if (opts.stats) {
     const rows = await c.select().from(S.dailyStats).where(and(eq(S.dailyStats.orgId, orgId), gte(S.dailyStats.date, since30)));
@@ -177,8 +186,35 @@ export async function persist(tx: Tx, before: World, after: World) {
   await upsert("deadlineRequests", S.deadlineRequests, before.deadlineRequests, after.deadlineRequests);
   await upsert("leaves", S.leaves, before.leaves, after.leaves);
 
+  // templates can also be deleted
+  {
+    const { added, changed } = diff(before.templates, after.templates);
+    const columns = cols(S.templates);
+    for (const x of [...added, ...changed]) {
+      const row = toRow(x as unknown as Record<string, unknown>, "templates", columns, extra);
+      await tx.insert(S.templates).values(row as never).onConflictDoUpdate({ target: S.templates.id, set: { name: x.name, input: x.input } });
+    }
+    const kept = new Set(after.templates.map((x) => x.id));
+    const gone = before.templates.filter((x) => !kept.has(x.id)).map((x) => x.id);
+    if (gone.length) await tx.delete(S.templates).where(and(eq(S.templates.orgId, orgId), inArray(S.templates.id, gone)));
+  }
+
+  // report rows (written by the engine's rollup)
+  {
+    const key = (r: DailyStat) => `${r.personId}_${r.date}`;
+    const old = new Map(before.stats.map((r) => [key(r), JSON.stringify(r)]));
+    for (const r of after.stats) {
+      if (old.get(key(r)) === JSON.stringify(r)) continue;
+      const row = { ...r, id: key(r), orgId };
+      const { id: _id, orgId: _o, ...set } = row;
+      void _id;
+      void _o;
+      await tx.insert(S.dailyStats).values(row).onConflictDoUpdate({ target: S.dailyStats.id, set });
+    }
+  }
+
   // people: profile fields + personal prefs / order
-  const peopleCols = ["name", "initials", "role", "title", "departmentId", "teamId", "hue", "capacityHours", "email", "phone", "workType", "onLeave", "backupId", "active"];
+  const peopleCols = ["name", "initials", "role", "title", "departmentId", "teamId", "hue", "capacityHours", "email", "phone", "workType", "onLeave", "backupId", "active", "mustChangePassword"];
   const pb = new Map(before.people.map((p) => [p.id, p]));
   for (const p of after.people) {
     const old = pb.get(p.id);
@@ -277,3 +313,22 @@ export async function lockOrg(tx: Tx, orgId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}))`);
 }
 
+
+/* ------------------------------------------------------------------ */
+/* reminder engine bookkeeping                                         */
+/* ------------------------------------------------------------------ */
+
+export async function loadEngineState(c: Conn, orgId: string): Promise<EngineState> {
+  const [row] = await c.select({ engine: S.organizations.engine }).from(S.organizations).where(eq(S.organizations.id, orgId));
+  return row?.engine ?? {};
+}
+
+export async function saveEngineState(c: Conn, orgId: string, state: EngineState) {
+  await c.update(S.organizations).set({ engine: state }).where(eq(S.organizations.id, orgId));
+}
+
+/** activity for the given org-local dates (plus a day either side), for report rollups */
+export async function loadActivitySince(c: Conn, orgId: string, since: Date) {
+  const rows = await c.select().from(S.activity).where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, since))).orderBy(desc(S.activity.at));
+  return rows.map((r) => fromRow<World["activity"][number]>(r, ["orgId"]));
+}

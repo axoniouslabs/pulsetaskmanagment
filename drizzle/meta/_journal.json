@@ -15,6 +15,13 @@
       "when": 1792664976652,
       "tag": "0001_activity_append_only",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1792666601173,
+      "tag": "0002_engine_templates_files",
+      "breakpoints": true
     }
   ]
 }

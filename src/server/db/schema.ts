@@ -10,6 +10,7 @@
  */
 import {
   boolean,
+  customType,
   doublePrecision,
   index,
   integer,
@@ -26,6 +27,10 @@ import type {
   ReminderRule,
   Subtask,
 } from "@/lib/types";
+import type { EngineState } from "@/domain/engine";
+import type { NewTaskInput } from "@/domain/commands";
+
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
 
 const ts = (name?: string) => (name ? timestamp(name, { withTimezone: true, mode: "date" }) : timestamp({ withTimezone: true, mode: "date" }));
 
@@ -100,6 +105,8 @@ export const organizations = pgTable("organizations", {
   name: text().notNull(),
   timezone: text().notNull().default("Asia/Karachi"),
   settings: jsonb().$type<OrgSettings>().notNull(),
+  /** reminder engine bookkeeping: last tick, daily reset, digests sent */
+  engine: jsonb().$type<EngineState>().notNull().default({}),
   createdAt: ts().notNull().defaultNow(),
 });
 
@@ -127,6 +134,8 @@ export const people = pgTable(
     onLeave: boolean().notNull().default(false),
     backupId: text(),
     active: boolean().notNull().default(true),
+    /** set when someone else chose their password; asked to change it after signing in */
+    mustChangePassword: boolean().notNull().default(false),
     /** personal notification preferences, keys like "push:assigned" */
     prefs: jsonb().$type<Record<string, boolean>>().notNull().default({}),
     /** the person's own order for My Day */
@@ -256,6 +265,9 @@ export const tasks = pgTable(
     snoozesToday: integer().notNull().default(0),
     loggedMinutes: integer().notNull().default(0),
     recurrence: text(),
+    recurrenceNextId: text(),
+    remindersToday: integer().notNull().default(0),
+    dependsOn: text().array().notNull().default([]),
     groupClaim: jsonb().$type<{ unitName: string; claimed: boolean }>(),
     updatedAt: ts().notNull().defaultNow(),
   },
@@ -423,4 +435,41 @@ export const dailyStats = pgTable(
     reviewHours: doublePrecision().notNull(),
   },
   (t) => [uniqueIndex().on(t.personId, t.date), index().on(t.orgId, t.date)],
+);
+
+/* ───────────────────────── Templates & files ───────────────────────── */
+
+/** a saved task form ("Monthly stock count") that can be assigned again in one step */
+export const templates = pgTable(
+  "templates",
+  {
+    id: text().primaryKey(),
+    orgId: text().notNull(),
+    name: text().notNull(),
+    createdById: text().notNull(),
+    input: jsonb().$type<Omit<NewTaskInput, "assigneeId" | "dueAt"> & { dueInHours?: number }>().notNull(),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [index().on(t.orgId)],
+);
+
+/**
+ * Uploaded photos and files. Stored in object storage (Vercel Blob) when it's
+ * configured, otherwise in this table so a small company needs nothing extra.
+ */
+export const files = pgTable(
+  "files",
+  {
+    id: text().primaryKey(),
+    orgId: text().notNull(),
+    taskId: text(),
+    byId: text().notNull(),
+    name: text().notNull(),
+    contentType: text().notNull(),
+    size: integer().notNull(),
+    data: bytea(),
+    blobUrl: text(),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [index().on(t.orgId), index().on(t.taskId)],
 );

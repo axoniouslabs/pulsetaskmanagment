@@ -17,11 +17,11 @@ import {
   MessageCircleQuestion,
   Pause,
   Play,
-  Smartphone,
   Sparkles,
   CircleCheckBig,
   ChevronDown,
 } from "lucide-react";
+import { PushCard, usePushState } from "@/components/app/push-card";
 import { useApp, membersOf } from "@/lib/store";
 import { useNow, useScope } from "@/lib/hooks";
 import { NEXT_UP_SCORE, isOpenWork } from "@/lib/selectors";
@@ -403,46 +403,25 @@ function Row({ label, value }: { label: string; value: string }) {
 
 /* ---------- notifications permission ---------- */
 function NotifyPrompt() {
-  const local = useApp((s) => s.local);
-  const setLocal = useApp((s) => s.setLocal);
-  const [perm, setPerm] = React.useState<NotificationPermission | "unsupported">(() =>
-    typeof Notification === "undefined" ? "unsupported" : Notification.permission,
-  );
-  const [dismissed, setDismissed] = React.useState(false);
-  if (dismissed || perm === "unsupported" || (perm === "granted" && local.systemNotifications)) return null;
+  const [dismissed, setDismissed] = React.useState(() => {
+    try {
+      return sessionStorage.getItem("pulse-notify-later") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const { state } = usePushState();
+  if (dismissed || state === "checking" || state === "on" || state === "no-server") return null;
   return (
-    <div className="flex flex-col gap-3 rounded-[var(--radius-lg)] border border-line bg-surface p-4 sm:flex-row sm:items-center">
-      <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-ink-tint text-ink">
-        <Smartphone className="size-5" />
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="text-[14px] font-semibold">Get reminders on this device</p>
-        <p className="mt-0.5 text-[13px] leading-snug text-muted">
-          {perm === "denied"
-            ? "Notifications are blocked in your browser settings. Allow them for this site so reminders can reach you."
-            : "Allow notifications so reminders pop up with Acknowledge and Snooze buttons, even when Pulse is in the background."}
-        </p>
-      </div>
-      <div className="flex gap-2">
-        <Button size="sm" variant="ghost" onClick={() => setDismissed(true)}>Later</Button>
-        {perm !== "denied" && (
-          <Button
-            size="sm"
-            variant="primary"
-            onClick={async () => {
-              const p = await Notification.requestPermission();
-              setPerm(p);
-              if (p === "granted") {
-                setLocal({ systemNotifications: true });
-                toast.success("Notifications on", { description: "When Pulse is in the background, new reminders show up as system notifications." });
-              }
-            }}
-          >
-            Turn on
-          </Button>
-        )}
-      </div>
-    </div>
+    <PushCard
+      compact
+      onDismiss={() => {
+        setDismissed(true);
+        try {
+          sessionStorage.setItem("pulse-notify-later", "1");
+        } catch {}
+      }}
+    />
   );
 }
 

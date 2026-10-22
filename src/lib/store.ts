@@ -92,6 +92,10 @@ export interface AppState extends World, Actions {
   userIds: Record<Role, string>;
   demoMode: boolean;
   serverOffsetMs: number;
+  /** when the reminder engine last ran (null: never) */
+  engineLastTickAt: string | null;
+  /** VAPID public key for Web Push; null when push isn't set up on the server */
+  pushPublicKey: string | null;
   openTaskId: string | null;
   createOpen: boolean;
   createDefaults: Partial<NewTaskInput> | null;
@@ -196,6 +200,8 @@ export const useApp = create<AppState>()((set, get) => {
     userIds: NOBODY,
     demoMode: false,
     serverOffsetMs: 0,
+    engineLastTickAt: null,
+    pushPublicKey: null,
     openTaskId: null,
     createOpen: false,
     createDefaults: null,
@@ -208,7 +214,14 @@ export const useApp = create<AppState>()((set, get) => {
         const res = await fetch("/api/snapshot", { cache: "no-store" });
         if (res.status === 401) return goToLogin();
         if (!res.ok) throw new Error(String(res.status));
-        const data = (await res.json()) as { viewer: Viewer & { name: string }; world: World; serverTime: string; demoMode?: boolean };
+        const data = (await res.json()) as {
+          viewer: Viewer & { name: string };
+          world: World;
+          serverTime: string;
+          demoMode?: boolean;
+          engineLastTickAt: string | null;
+          pushPublicKey: string | null;
+        };
         // a change made while this was loading wins; the next refetch brings both together
         if (pending > 0 || localVersion !== startedAt) return scheduleRefetch();
         const { personId, role } = data.viewer;
@@ -218,6 +231,8 @@ export const useApp = create<AppState>()((set, get) => {
           role,
           userIds: { owner: personId, manager: personId, employee: personId },
           demoMode: !!data.demoMode,
+          engineLastTickAt: data.engineLastTickAt,
+          pushPublicKey: data.pushPublicKey,
           serverOffsetMs: new Date(data.serverTime).getTime() - Date.now(),
           status: "ready",
         });

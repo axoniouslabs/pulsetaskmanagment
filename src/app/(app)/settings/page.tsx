@@ -1,18 +1,20 @@
 "use client";
 
 import * as React from "react";
-import { BellRing, Building2, CheckCheck, FlaskConical, Lock, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
+import { BellRing, Building2, CheckCheck, FlaskConical, KeyRound, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useScope } from "@/lib/hooks";
 import { cn, plural } from "@/lib/utils";
 import { Input, Switch } from "@/components/ui/primitives";
-import { EmptyState, PageHeader, Panel } from "@/components/app/page-header";
+import { PageHeader } from "@/components/app/page-header";
 import { Chips, NumberSetting, SettingRow, SettingsSection, intervalLabel, shortInterval, useSave } from "@/components/pages/settings/parts";
 import { CompanySettings } from "@/components/pages/settings/company";
 import { EscalationLadder } from "@/components/pages/settings/escalation";
 import { NotificationMatrix } from "@/components/pages/settings/notifications";
 import { DeviceList } from "@/components/pages/settings/devices";
 import { DemoControls } from "@/components/pages/settings/demo";
+import { AccountSettings } from "@/components/pages/settings/account";
+import { PushCard } from "@/components/app/push-card";
 
 const SECTIONS = [
   { id: "company", label: "Company", icon: Building2 },
@@ -22,6 +24,7 @@ const SECTIONS = [
   { id: "digests", label: "Reports & digests", icon: Newspaper },
   { id: "notifications", label: "My notifications", icon: UserRoundCog },
   { id: "devices", label: "Devices & delivery", icon: Smartphone },
+  { id: "account", label: "Account", icon: KeyRound },
   { id: "demo", label: "Demo controls", icon: FlaskConical },
 ];
 
@@ -35,9 +38,23 @@ export default function SettingsPage() {
 
   if (role !== "owner") {
     return (
-      <Panel>
-        <EmptyState icon={Lock} title="Only the owner can change settings" body="Ask the owner if working hours, reminders or escalation need to change." />
-      </Panel>
+      <div>
+        <PageHeader title="Settings" description="Where your reminders reach you. Company rules like working hours and escalation are set by the owner." />
+        <div className="max-w-[820px] space-y-10">
+          <SettingsSection id="this-device" title="This device" description="Turn on notifications on every phone and PC you use for work.">
+            <PushCard />
+          </SettingsSection>
+          <SettingsSection id="notifications" title="My notifications" description="Choose what reaches you, and where. Escalations and notices always reach you.">
+            <NotificationMatrix />
+          </SettingsSection>
+          <SettingsSection id="devices" title="My devices" description="Every device that receives your reminders.">
+            <DeviceList onlyMe />
+          </SettingsSection>
+          <SettingsSection id="account" title="Account">
+            <AccountSettings />
+          </SettingsSection>
+        </div>
+      </div>
     );
   }
 
@@ -164,7 +181,13 @@ export default function SettingsPage() {
           </SettingsSection>
 
           <SettingsSection id="devices" title="Devices & delivery" description="Every phone and PC that receives reminders. Fix broken ones before blaming silence.">
+            <PushCard />
+            <div className="border-t border-line" />
             <DeviceList />
+          </SettingsSection>
+
+          <SettingsSection id="account" title="Account">
+            <AccountSettings />
           </SettingsSection>
 
           {demoMode && (

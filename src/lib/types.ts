@@ -37,6 +37,7 @@ export interface Person {
   onLeave?: boolean;
   backupId?: string;
   active?: boolean;
+  mustChangePassword?: boolean;
   devices: Device[];
 }
 
@@ -93,6 +94,9 @@ export interface Attachment {
   byId: string;
   isProof?: boolean;
   hue?: number;
+  /** where the file can be opened; absent for demo placeholders */
+  url?: string;
+  contentType?: string;
 }
 
 export type Channel = "push" | "inapp" | "email" | "whatsapp";
@@ -149,6 +153,12 @@ export interface Task {
   snoozesToday: number;
   loggedMinutes: number;
   recurrence?: "daily" | "weekly" | "monthly";
+  /** the next copy of a repeating task, once it has been made */
+  recurrenceNextId?: string;
+  /** reminders sent today, for the daily cap */
+  remindersToday?: number;
+  /** tasks that must be done before this one can start */
+  dependsOn?: string[];
   groupClaim?: { unitName: string; claimed: boolean };
 }
 
@@ -301,4 +311,27 @@ export interface OrgSettings {
 export interface Timer {
   taskId: string;
   startedAt: string;
+}
+
+export interface TaskTemplate {
+  id: string;
+  name: string;
+  createdById: string;
+  createdAt: string;
+  input: {
+    title: string;
+    description?: string;
+    priority: Priority;
+    estimateHours?: number;
+    projectId?: string;
+    requiresApproval?: boolean;
+    requiresProof?: boolean;
+    requiresResult?: boolean;
+    reminder?: Partial<ReminderRule>;
+    subtasks?: string[];
+    tags?: string[];
+    recurrence?: Task["recurrence"];
+    /** default deadline, in hours from when it's assigned */
+    dueInHours?: number;
+  };
 }
