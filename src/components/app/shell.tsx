@@ -4,21 +4,21 @@ import * as React from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
-import { Menu as MenuIcon, Plus, Search, X } from "lucide-react";
+import { Lock, Menu as MenuIcon, Plus, Search, X } from "lucide-react";
 import { useApp, useMeId, membersOf } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { isOpenWork } from "@/lib/selectors";
 import { Button } from "@/components/ui/button";
 import { Kbd, Sheet, SheetClose, TooltipProvider } from "@/components/ui/primitives";
 import { HOME, MOBILE_TABS, NAV, type NavItem } from "./nav";
-import { AccountMenu } from "./account-menu";
+import { AccountMenu, signOut } from "./account-menu";
 import { NotificationBell } from "./notifications";
 import { TaskDetailSheet } from "./task-detail";
 import { CreateTaskDialog } from "./create-task";
 import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
-import { EngineAlarm, EngineLive, PasswordNudge } from "./engine-alarm";
+import { EngineAlarm, EngineLive, PasswordNudge, SubscriptionNotice } from "./engine-alarm";
 import { MotionProvider } from "./motion-provider";
 import { m } from "motion/react";
 import { GLIDE } from "@/lib/motion";
@@ -86,6 +86,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, []);
 
   if (status === "error") return <LoadError />;
+  if (status === "locked") return <Locked />;
   if (!hydrated) return <ShellSkeleton />;
 
   return (
@@ -96,6 +97,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
           <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
+            <SubscriptionNotice />
             <EngineAlarm />
             <PasswordNudge />
             {/* each page settles in; keyed so a new page gets its own entrance */}
@@ -125,6 +127,34 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       />
     </TooltipProvider>
     </MotionProvider>
+  );
+}
+
+/** the company's access is paused by Pulse: say why and who to contact */
+function Locked() {
+  const locked = useApp((s) => s.locked);
+  const admin = useApp((s) => s.platformAdmin);
+  return (
+    <div className="flex min-h-dvh items-center justify-center bg-paper px-6">
+      <div className="enter w-full max-w-[420px] text-center">
+        <span className="mx-auto flex size-12 items-center justify-center rounded-full bg-sunken ring-8 ring-sunken/40">
+          <Lock className="size-5 text-muted" />
+        </span>
+        <h1 className="mt-6 font-display text-[24px] font-semibold tracking-[-0.02em] text-text">Pulse is paused for {locked?.company ?? "your company"}</h1>
+        <p className="mt-2 text-[14.5px] leading-relaxed text-muted">{locked?.message}</p>
+        <p className="mt-2 text-[13px] text-faint">Nothing has been deleted. Everything is here when access is restored.</p>
+        <div className="mt-6 flex flex-col justify-center gap-2 sm:flex-row">
+          {admin && (
+            <Button asChild variant="primary">
+              <Link href="/admin">Open Pulse admin</Link>
+            </Button>
+          )}
+          <Button variant="secondary" onClick={() => signOut()}>
+            Sign out
+          </Button>
+        </div>
+      </div>
+    </div>
   );
 }
 

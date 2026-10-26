@@ -13,6 +13,12 @@ export interface NewCompany {
   timezone?: string;
   /** ask the owner to choose their own password after the first sign-in */
   mustChangePassword?: boolean;
+  /** subscription: plan (user limit) and paid-up date; none means no limit, never expires */
+  planId?: string | null;
+  expiresAt?: Date | null;
+  contactPhone?: string;
+  /** the owner also runs the Pulse admin panel (the first company on a server) */
+  platformAdmin?: boolean;
 }
 
 export class CompanyError extends Error {}
@@ -52,8 +58,16 @@ export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boo
     const [taken] = await tx.select({ id: S.user.id }).from(S.user).where(eq(S.user.email, ownerEmail));
     if (taken) throw new CompanyError(`${ownerEmail} already has a Pulse account.`);
 
-    await tx.insert(S.organizations).values({ id: orgId, name: company, timezone, settings });
-    await tx.insert(S.user).values({ id: userId, name: ownerName, email: ownerEmail, emailVerified: true });
+    await tx.insert(S.organizations).values({
+      id: orgId,
+      name: company,
+      timezone,
+      settings,
+      planId: input.planId ?? null,
+      expiresAt: input.expiresAt ?? null,
+      contactPhone: input.contactPhone?.trim() ?? "",
+    });
+    await tx.insert(S.user).values({ id: userId, name: ownerName, email: ownerEmail, emailVerified: true, platformAdmin: !!input.platformAdmin });
     await tx.insert(S.account).values({ id: newId("a"), accountId: userId, providerId: "credential", userId, password: hash });
     await tx.insert(S.people).values({
       id: personId,

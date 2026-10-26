@@ -5,7 +5,7 @@ import { NextResponse, type NextRequest } from "next/server";
 // session, active person, permissions) run on the server for every request.
 const PUBLIC = [/^\/login(\/|$)/, /^\/setup(\/|$)/, /^\/api\/auth\//, /^\/api\/cron\//, /^\/api\/push\/action$/, /^\/api\/health$/, /^\/api\/setup\/status$/];
 
-export function proxy(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   if (PUBLIC.some((p) => p.test(pathname))) return NextResponse.next();
   if (!getSessionCookie(request)) {
@@ -13,6 +13,11 @@ export function proxy(request: NextRequest) {
     const url = new URL("/login", request.url);
     if (pathname !== "/") url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
+  }
+  // the admin panel doesn't exist for anyone but the Pulse administrator
+  if (pathname === "/admin" || pathname.startsWith("/admin/")) {
+    const { isPlatformAdminRequest } = await import("@/server/admin-gate");
+    if (!(await isPlatformAdminRequest(request.headers))) return NextResponse.rewrite(new URL("/_not-found", request.url), { status: 404 });
   }
   return NextResponse.next();
 }

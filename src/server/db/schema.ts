@@ -45,6 +45,8 @@ export const user = pgTable("users", {
   image: text(),
   createdAt: ts().notNull().defaultNow(),
   updatedAt: ts().notNull().defaultNow(),
+  /** runs the Pulse admin panel (companies, subscriptions, usage) */
+  platformAdmin: boolean().notNull().default(false),
 });
 
 export const session = pgTable(
@@ -117,6 +119,52 @@ export const organizations = pgTable("organizations", {
   /** reminder engine bookkeeping: last tick, daily reset, digests sent */
   engine: jsonb().$type<EngineState>().notNull().default({}),
   createdAt: ts().notNull().defaultNow(),
+  /** subscription: plan (user limit), paid-up date and whether access is paused */
+  planId: text(),
+  status: text().notNull().default("active"), // active | suspended
+  expiresAt: ts(), // null: never expires
+  contactPhone: text().notNull().default(""),
+  notes: text().notNull().default(""),
+});
+
+/** what a company can buy: a user limit and a monthly price (PKR) */
+export const plans = pgTable("plans", {
+  id: text().primaryKey(),
+  name: text().notNull(),
+  maxUsers: integer(), // null: unlimited
+  priceMonthly: integer(), // PKR; null: not set yet
+  sortOrder: integer().notNull().default(0),
+  archived: boolean().notNull().default(false),
+  createdAt: ts().notNull().defaultNow(),
+});
+
+/** a payment received outside Pulse (bank, JazzCash, Easypaisa, cash), recorded by an admin */
+export const payments = pgTable(
+  "payments",
+  {
+    id: text().primaryKey(),
+    orgId: text()
+      .notNull()
+      .references(() => organizations.id, { onDelete: "cascade" }),
+    amount: integer().notNull(),
+    method: text().notNull(),
+    reference: text().notNull().default(""),
+    months: integer().notNull(),
+    paidAt: ts().notNull(),
+    periodFrom: ts().notNull(),
+    periodTo: ts().notNull(),
+    recordedBy: text().notNull(),
+    note: text().notNull().default(""),
+    createdAt: ts().notNull().defaultNow(),
+  },
+  (t) => [index().on(t.orgId), index().on(t.paidAt)],
+);
+
+/** one row of settings for the Pulse service itself (support contact shown to customers) */
+export const platformSettings = pgTable("platform_settings", {
+  id: text().primaryKey(),
+  data: jsonb().$type<{ supportName?: string; supportPhone?: string; supportEmail?: string }>().notNull().default({}),
+  updatedAt: ts().notNull().defaultNow(),
 });
 
 export const people = pgTable(

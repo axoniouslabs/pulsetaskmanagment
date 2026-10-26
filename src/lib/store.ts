@@ -83,8 +83,24 @@ interface Actions {
   setLocal: (patch: Partial<LocalSettings>) => void;
 }
 
+export interface Subscription {
+  state: "active" | "expiring" | "expired" | "suspended";
+  expiresAt: string | null;
+  daysLeft: number | null;
+  planName: string | null;
+  maxUsers: number | null;
+  usedUsers: number;
+  /** what to tell people (who to contact), when there's something to say */
+  notice: string | null;
+}
+
 export interface AppState extends World, Actions {
-  status: "loading" | "ready" | "error";
+  status: "loading" | "ready" | "error" | "locked";
+  /** set when the company's access is paused: why, and who to contact */
+  locked: { company: string; message: string } | null;
+  /** this sign-in also runs the Pulse admin panel */
+  platformAdmin: boolean;
+  subscription: Subscription | null;
   viewer: Viewer | null;
   /** the signed-in person's role; kept as `role` so screens read one value */
   role: Role;
@@ -149,7 +165,8 @@ function send(cmd: Command) {
       if (res.status === 401) return goToLogin();
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        toast.error(res.status === 422 || res.status === 403 ? body.error ?? "That didn't go through." : "Couldn't save that change", {
+        if (res.status === 402) toast.error("Changes are paused", { id: "read-only", description: body.error });
+        else toast.error(res.status === 422 || res.status === 403 ? body.error ?? "That didn't go through." : "Couldn't save that change", {
           description: res.status >= 500 ? "Pulse had a problem saving. Your screen has been refreshed; please try again." : undefined,
         });
         localVersion++;
@@ -209,6 +226,9 @@ export const useApp = create<AppState>()((set, get) => {
     serverOffsetMs: 0,
     engineLastTickAt: null,
     companyCreatedAt: null,
+    locked: null,
+    platformAdmin: false,
+    subscription: null,
     pushPublicKey: null,
     openTaskId: null,
     createOpen: false,
@@ -221,6 +241,10 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         const res = await fetch("/api/snapshot", { cache: "no-store" });
         if (res.status === 401) return goToLogin();
+        if (res.status === 423) {
+          const d = (await res.json()) as { locked: { company: string; message: string }; platformAdmin?: boolean };
+          return set({ status: "locked", locked: d.locked, platformAdmin: !!d.platformAdmin });
+        }
         if (!res.ok) throw new Error(String(res.status));
         const data = (await res.json()) as {
           viewer: Viewer & { name: string };
@@ -229,6 +253,8 @@ export const useApp = create<AppState>()((set, get) => {
           demoMode?: boolean;
           engineLastTickAt: string | null;
           companyCreatedAt?: string | null;
+          platformAdmin?: boolean;
+          subscription?: Subscription | null;
           pushPublicKey: string | null;
         };
         // a change made while this was loading wins; the next refetch brings both together
@@ -242,6 +268,9 @@ export const useApp = create<AppState>()((set, get) => {
           demoMode: !!data.demoMode,
           engineLastTickAt: data.engineLastTickAt,
           companyCreatedAt: data.companyCreatedAt ?? null,
+          platformAdmin: !!data.platformAdmin,
+          subscription: data.subscription ?? null,
+          locked: null,
           pushPublicKey: data.pushPublicKey,
           serverOffsetMs: new Date(data.serverTime).getTime() - Date.now(),
           status: "ready",

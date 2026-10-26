@@ -26,7 +26,8 @@ export async function setupCompany(input: SetupInput): Promise<{ ok: true } | { 
   if (!keyMatches(input.key ?? "")) return { ok: false, error: "That setup key isn't right. Copy the CRON_SECRET value from your Vercel project settings.", field: "key" };
 
   try {
-    await createCompany({ company: input.company, ownerName: input.name, ownerEmail: input.email, password: input.password }, { onlyIfEmpty: true });
+    // whoever sets up an empty server runs it: they also get the Pulse admin panel
+    await createCompany({ company: input.company, ownerName: input.name, ownerEmail: input.email, password: input.password, platformAdmin: true }, { onlyIfEmpty: true });
   } catch (e) {
     if (e instanceof CompanyError) return { ok: false, error: e.message };
     console.error("setup", e);

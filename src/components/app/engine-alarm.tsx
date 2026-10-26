@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { AlertTriangle } from "lucide-react";
+import { AlertTriangle, CalendarClock, Lock } from "lucide-react";
 import { Tip } from "@/components/ui/primitives";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
@@ -32,13 +32,14 @@ export function EngineAlarm() {
   const role = useApp((s) => s.role);
   const last = useApp((s) => s.engineLastTickAt);
   const created = useApp((s) => s.companyCreatedAt);
+  const paused = useApp((s) => s.subscription?.state === "expired");
   const offset = useApp((s) => s.serverOffsetMs);
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 30_000);
     return () => clearInterval(t);
   }, []);
-  if (role !== "owner") return null;
+  if (role !== "owner" || paused) return null; // an ended subscription pauses reminders on purpose
   const mins = last ? Math.floor((now + offset - new Date(last).getTime()) / 60000) : null;
   if (mins !== null && mins < STALE_MIN) return null;
   // a company created minutes ago hasn't had its first check yet: give the scheduler time
@@ -83,4 +84,41 @@ export function EngineLive() {
       </span>
     </Tip>
   );
+}
+
+/**
+ * Subscription notices. Owners hear a week ahead that the paid-up date is close;
+ * once it has passed, everyone sees that Pulse is read-only and why.
+ */
+export function SubscriptionNotice() {
+  const role = useApp((s) => s.role);
+  const sub = useApp((s) => s.subscription);
+  if (!sub) return null;
+  const date = sub.expiresAt ? new Date(sub.expiresAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }) : "";
+  if (sub.state === "expired")
+    return (
+      <div role="status" className="mb-4 flex gap-3 rounded-[var(--radius-lg)] border border-heat-1/35 bg-heat-1-tint px-4 py-3 text-[13.5px] leading-snug text-text">
+        <Lock className="mt-0.5 size-[18px] shrink-0 text-heat-1" />
+        <div className="min-w-0">
+          <p className="font-semibold">Pulse is read-only for now</p>
+          <p className="mt-0.5 text-muted">
+            {role === "owner" ? sub.notice : `Your company's subscription ended on ${date}. You can still see your work; changes and reminders are paused until it's renewed.`}
+          </p>
+        </div>
+      </div>
+    );
+  if (sub.state === "expiring" && role === "owner")
+    return (
+      <div role="status" className="mb-4 flex flex-col gap-1 rounded-[var(--radius-lg)] border border-ink/15 bg-ink-tint/60 px-4 py-3 text-[13.5px] leading-snug text-ink sm:flex-row sm:items-center sm:gap-2">
+        <CalendarClock className="hidden size-[18px] shrink-0 sm:block" />
+        <p>
+          <span className="font-semibold">
+            Your subscription runs until {date}
+            {sub.daysLeft !== null && sub.daysLeft >= 0 ? ` (${sub.daysLeft === 0 ? "today" : sub.daysLeft === 1 ? "1 day left" : `${sub.daysLeft} days left`})` : ""}.
+          </span>{" "}
+          {sub.notice}
+        </p>
+      </div>
+    );
+  return null;
 }

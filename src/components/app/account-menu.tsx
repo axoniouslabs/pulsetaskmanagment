@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { Check, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
+import { Building2, Check, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
 import { setThemePref, useThemePref, type ThemePref } from "@/lib/theme";
 import { useApp, useMe } from "@/lib/store";
 import { authClient } from "@/lib/auth-client";
@@ -20,6 +20,7 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
   const role = useApp((s) => s.role);
   const dept = useApp((s) => s.departments.find((d) => d.id === me?.departmentId)?.name);
   const theme = useThemePref();
+  const platformAdmin = useApp((s) => s.platformAdmin);
   if (!me) return null;
 
   return (
@@ -53,6 +54,13 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
           {dept ? ` · ${dept}` : ""}
         </p>
         <MenuSeparator />
+        {platformAdmin && (
+          <MenuItem asChild>
+            <Link href="/admin">
+              <Building2 /> Pulse admin
+            </Link>
+          </MenuItem>
+        )}
         <MenuItem asChild>
           <Link href="/settings">
             <Settings /> Settings

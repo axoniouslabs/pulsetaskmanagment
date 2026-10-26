@@ -7,6 +7,7 @@ import { computeDailyStats } from "@/domain/stats";
 import { deliverPush } from "./push";
 import { sendDigestEmails } from "./email";
 import { newId } from "./ids";
+import { accessOf } from "./platform";
 
 const ROLLUP_EVERY_MIN = 15;
 
@@ -37,9 +38,15 @@ export async function tickOrg(orgId: string, now = new Date()) {
 
 /** Run the engine for every organisation. Errors in one never stop the others. */
 export async function tickAll(now = new Date()) {
-  const orgs = await db.select({ id: schema.organizations.id }).from(schema.organizations);
-  const results: Record<string, { notifications: number } | { error: string }> = {};
+  const orgs = await db.select({ id: schema.organizations.id, status: schema.organizations.status, expiresAt: schema.organizations.expiresAt }).from(schema.organizations);
+  const results: Record<string, { notifications: number } | { error: string } | { paused: string }> = {};
   for (const o of orgs) {
+    // no reminders for a company whose subscription has ended or is paused
+    const access = accessOf(o, now);
+    if (access.state === "expired" || access.state === "suspended") {
+      results[o.id] = { paused: access.state };
+      continue;
+    }
     try {
       results[o.id] = await tickOrg(o.id, now);
     } catch (e) {

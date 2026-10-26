@@ -5,6 +5,10 @@ import { db } from "./db";
 import { loadWorld, lockOrg, persist } from "./repo";
 import { deliverPush } from "./push";
 import { newId } from "./ids";
+import { blockedMessage, canWrite, loadSubscription } from "./platform";
+
+/** small personal things that still work while a company is read-only */
+const READ_ONLY_OK = new Set<Command["type"]>(["markRead", "markAllRead", "readAnnouncement", "setPref", "setDayOrder"]);
 
 export type RunResult = { ok: true } | { ok: false; status: number; error: string };
 
@@ -14,6 +18,10 @@ export type RunResult = { ok: true } | { ok: false; status: number; error: strin
  * Push goes out after the data is safely stored.
  */
 export async function runCommand(actor: { orgId: string; personId: string }, cmd: Command): Promise<RunResult> {
+  if (!READ_ONLY_OK.has(cmd.type)) {
+    const sub = await loadSubscription(actor.orgId);
+    if (sub && !canWrite(sub)) return { ok: false, status: 402, error: await blockedMessage(sub) };
+  }
   try {
     const { newNotificationIds } = await db.transaction(async (tx) => {
       await lockOrg(tx, actor.orgId);
