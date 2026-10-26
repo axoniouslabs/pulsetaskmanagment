@@ -572,7 +572,7 @@ export const ACTIVITY_ICON: Record<ActivityKind, { icon: React.ElementType; cls:
   snoozed: { icon: Clock4, cls: "text-muted" },
   blocked: { icon: AlertOctagon, cls: "text-heat-2" },
   unblocked: { icon: CheckCircle2, cls: "text-ok" },
-  submitted: { icon: Send, cls: "text-[#6a4fb3]" },
+  submitted: { icon: Send, cls: "text-review" },
   approved: { icon: CheckCircle2, cls: "text-ok" },
   rejected: { icon: Undo2, cls: "text-heat-2" },
   cancelled: { icon: XCircle, cls: "text-faint" },

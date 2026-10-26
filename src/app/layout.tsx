@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import "@fontsource-variable/figtree";
 import "@fontsource-variable/bricolage-grotesque";
 import "./globals.css";
+import { THEME_BOOT } from "@/lib/theme-boot";
 
 export const metadata: Metadata = {
   title: { default: "Pulse", template: "%s · Pulse" },
@@ -12,7 +13,10 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f4f6f7",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f6f7" },
+    { media: "(prefers-color-scheme: dark)", color: "#0d1619" },
+  ],
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
@@ -20,7 +24,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="h-full antialiased">
+    <html lang="en" className="h-full antialiased" data-theme="light" suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_BOOT }} />
+      </head>
       <body className="min-h-full">{children}</body>
     </html>
   );

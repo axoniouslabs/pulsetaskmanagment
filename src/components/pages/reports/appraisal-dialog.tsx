@@ -71,7 +71,7 @@ export function AppraisalDialog({
           <div className="mt-5 overflow-hidden rounded-[var(--radius-md)] border border-line">
             <table className="w-full text-[13.5px]">
               <thead>
-                <tr className="border-b border-line bg-[#fafbfb] text-[12.5px] text-muted">
+                <tr className="border-b border-line bg-hover text-[12.5px] text-muted">
                   <th className="px-3 py-2 text-left font-medium">Measure</th>
                   <th className="px-3 py-2 text-right font-medium">{row.person.name.split(" ")[0]}</th>
                   <th className="px-3 py-2 text-right font-medium">Team average</th>

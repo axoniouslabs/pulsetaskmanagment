@@ -151,7 +151,7 @@ function PersonRow({ row, dept }: { row: Row; dept?: string }) {
     <li className="border-b border-line last:border-b-0">
       <Link
         href={`/team?person=${p.id}`}
-        className={cn("relative flex min-h-[60px] items-center gap-3 px-4 py-3 pl-5 transition-colors hover:bg-[#fafbfb]", kind === "leave" && "text-faint")}
+        className={cn("relative flex min-h-[60px] items-center gap-3 px-4 py-3 pl-5 transition-colors hover:bg-hover", kind === "leave" && "text-faint")}
       >
         {(kind === "late" || kind === "absent") && (
           <span className={cn("absolute inset-y-1.5 left-0 w-[3px] rounded-r-full", kind === "late" ? "bg-heat-1" : "bg-heat-3")} aria-hidden />

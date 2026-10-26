@@ -29,7 +29,7 @@ export const NOTE_ICON: Record<NotificationKind, { icon: React.ElementType; cls:
   escalation: { icon: ArrowUpRight, cls: "bg-heat-3-tint text-heat-3" },
   blocked: { icon: AlertOctagon, cls: "bg-heat-2-tint text-heat-2" },
   unblocked: { icon: Unlock, cls: "bg-ok-tint text-ok" },
-  submitted: { icon: Send, cls: "bg-[#efeafb] text-[#6a4fb3]" },
+  submitted: { icon: Send, cls: "bg-review-tint text-review" },
   approved: { icon: CheckCircle2, cls: "bg-ok-tint text-ok" },
   rejected: { icon: Undo2, cls: "bg-heat-2-tint text-heat-2" },
   mention: { icon: AtSign, cls: "bg-info-tint text-info" },

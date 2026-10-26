@@ -1,9 +1,13 @@
 @import "tailwindcss";
 
+/* dark mode follows the data-theme attribute set before first paint (see layout.tsx) */
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 /* ------------------------------------------------------------------
    Pulse design tokens
    Ink teal for structure and primary actions, cool paper background,
    and a single loud scale — "heat" — reserved for stalled work.
+   Every colour is a variable, so the dark theme only redefines values.
 ------------------------------------------------------------------- */
 @theme {
   --font-sans: "Figtree Variable", ui-sans-serif, system-ui, sans-serif;
@@ -12,6 +16,7 @@
   --color-paper: #f4f6f7;
   --color-surface: #ffffff;
   --color-sunken: #eef1f3;
+  --color-hover: #f8fafa;
   --color-line: #e2e7ea;
   --color-line-strong: #cfd7dc;
 
@@ -26,6 +31,8 @@
   --color-ok-tint: #e3f3eb;
   --color-info: #2f6fb5;
   --color-info-tint: #e6eff9;
+  --color-review: #6a4fb3;
+  --color-review-tint: #efeafb;
 
   /* heat scale: escalation levels 1–4 */
   --color-heat-1: #c98a04;
@@ -43,36 +50,177 @@
   --radius-lg: 14px;
   --radius-xl: 20px;
 
-  --shadow-pop: 0 1px 2px rgb(15 61 71 / 0.06), 0 8px 24px -6px rgb(15 61 71 / 0.16);
-  --shadow-sheet: -12px 0 40px -12px rgb(15 61 71 / 0.22);
+  /* layered, tinted shadows: a close contact shadow and a soft ambient one */
+  --shadow-card: 0 1px 1px rgb(15 61 71 / 0.03), 0 1px 3px rgb(15 61 71 / 0.04);
+  --shadow-pop: 0 1px 2px rgb(15 61 71 / 0.06), 0 4px 8px -2px rgb(15 61 71 / 0.06), 0 16px 32px -8px rgb(15 61 71 / 0.14);
+  --shadow-sheet: -1px 0 0 rgb(15 61 71 / 0.04), -16px 0 48px -16px rgb(15 61 71 / 0.24);
 
-  --animate-slide-in: slide-in 220ms cubic-bezier(0.2, 0.8, 0.2, 1);
-  --animate-fade-in: fade-in 160ms ease-out;
-  --animate-pop-in: pop-in 180ms cubic-bezier(0.2, 0.8, 0.2, 1);
+  /* motion: one settling curve, no bounce; exits are quicker than entrances */
+  --ease-settle: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-exit: cubic-bezier(0.4, 0, 0.84, 0.6);
+  --ease-standard: cubic-bezier(0.25, 0.1, 0.25, 1);
+
+  --animate-slide-in: sheet-in 340ms var(--ease-settle);
+  --animate-fade-in: fade-in 200ms var(--ease-standard);
+  --animate-pop-in: pop-in 260ms var(--ease-settle);
+  --animate-page-in: page-in 380ms var(--ease-settle) both;
   --animate-pulse-dot: pulse-dot 2.4s ease-in-out infinite;
+  --animate-row-flash: row-flash 1600ms var(--ease-standard);
 }
 
-@keyframes slide-in {
-  from { transform: translateX(24px); opacity: 0; }
-  to { transform: translateX(0); opacity: 1; }
+/* -------- dark theme: deep teal-slate, never pure black -------- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --color-paper: #0d1619;
+  --color-surface: #131f22;
+  --color-sunken: #18262a;
+  --color-hover: #172427;
+  --color-line: #213236;
+  --color-line-strong: #2e454b;
+
+  /* ink as a foreground colour (links, active states, borders); fills use --ink-fill below */
+  --color-ink: #7cc4cf;
+  --color-ink-soft: #9fd6de;
+  --color-ink-tint: #15323a;
+  --color-text: #e4eef0;
+  --color-muted: #9cb0b5;
+  --color-faint: #6e858b;
+
+  --color-ok: #4cc38a;
+  --color-ok-tint: #12302a;
+  --color-info: #6ea8ea;
+  --color-info-tint: #15263a;
+  --color-review: #b29ef0;
+  --color-review-tint: #251f3c;
+
+  --color-heat-1: #e3b03f;
+  --color-heat-1-tint: #31270f;
+  --color-heat-2: #f08c4e;
+  --color-heat-2-tint: #3a2414;
+  --color-heat-3: #f2705f;
+  --color-heat-3-tint: #3c1c19;
+  --color-heat-4: #e8618a;
+  --color-heat-4-tint: #3a1626;
+
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.25);
+  --shadow-pop: 0 1px 2px rgb(0 0 0 / 0.35), 0 16px 40px -8px rgb(0 0 0 / 0.55);
+  --shadow-sheet: -1px 0 0 rgb(255 255 255 / 0.04), -24px 0 56px -16px rgb(0 0 0 / 0.6);
+
+  --ink-fill: #1f6f7b;
+  --ink-fill-hover: #26808d;
 }
+:root {
+  --ink-fill: var(--color-ink);
+  --ink-fill-hover: var(--color-ink-soft);
+}
+
+/* In dark mode "ink" is a light teal for text; solid ink fills stay a deep teal so white text on them reads */
+@layer utilities {
+  [data-theme="dark"] .bg-ink {
+    background-color: var(--ink-fill);
+  }
+  [data-theme="dark"] .hover\:bg-ink-soft:hover {
+    background-color: var(--ink-fill-hover);
+  }
+  [data-theme="dark"] .login-brand.bg-ink {
+    background-color: #0f3a42;
+  }
+  [data-theme="dark"] .bg-white.text-ink {
+    color: #0f3d47;
+  }
+  [data-theme="dark"] .bg-ink\/20,
+  [data-theme="dark"] .bg-ink\/25 {
+    background-color: rgb(2 8 10 / 0.6);
+  }
+}
+
+/* -------- keyframes -------- */
 @keyframes fade-in {
   from { opacity: 0; }
   to { opacity: 1; }
 }
+@keyframes fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
 @keyframes pop-in {
-  from { transform: translateY(6px) scale(0.98); opacity: 0; }
+  from { transform: translateY(8px) scale(0.985); opacity: 0; }
   to { transform: translateY(0) scale(1); opacity: 1; }
 }
+@keyframes pop-out {
+  from { transform: translateY(0) scale(1); opacity: 1; }
+  to { transform: translateY(4px) scale(0.99); opacity: 0; }
+}
+@keyframes sheet-in {
+  from { transform: translateX(40px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes sheet-out {
+  from { transform: translateX(0); opacity: 1; }
+  to { transform: translateX(24px); opacity: 0; }
+}
+@keyframes rise-in {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+@keyframes rise-out {
+  from { transform: translateY(0); }
+  to { transform: translateY(100%); }
+}
+@keyframes menu-in {
+  from { transform: scale(0.97) translateY(-2px); opacity: 0; }
+  to { transform: scale(1) translateY(0); opacity: 1; }
+}
+@keyframes menu-out {
+  from { opacity: 1; }
+  to { transform: scale(0.98); opacity: 0; }
+}
+/* ends on "none" so a page never becomes a containing block for its fixed children */
+@keyframes page-in {
+  from { transform: translateY(6px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
 @keyframes pulse-dot {
-  0%, 100% { box-shadow: 0 0 0 0 rgb(30 138 90 / 0.45); }
-  50% { box-shadow: 0 0 0 5px rgb(30 138 90 / 0); }
+  0%, 100% { box-shadow: 0 0 0 0 color-mix(in oklab, var(--color-ok) 45%, transparent); }
+  50% { box-shadow: 0 0 0 5px color-mix(in oklab, var(--color-ok) 0%, transparent); }
+}
+@keyframes row-flash {
+  0%, 20% { background-color: color-mix(in oklab, var(--color-ink-tint) 85%, transparent); }
+  100% { background-color: transparent; }
+}
+@keyframes shimmer {
+  from { background-position: 150% 0; }
+  to { background-position: -50% 0; }
+}
+@keyframes trace {
+  from { stroke-dashoffset: var(--trace-len, 60); }
+  to { stroke-dashoffset: 0; }
+}
+@keyframes trace-loop {
+  0% { stroke-dashoffset: var(--trace-len, 60); opacity: 1; }
+  55% { stroke-dashoffset: 0; opacity: 1; }
+  80%, 100% { stroke-dashoffset: 0; opacity: 0.25; }
+}
+@keyframes arrive {
+  0% { transform: translateY(-14px) scale(0.98); opacity: 0; }
+  100% { transform: none; opacity: 1; }
+}
+@keyframes glow-once {
+  0%, 100% { background-color: transparent; }
+  40% { background-color: color-mix(in oklab, var(--color-ok) 12%, transparent); }
 }
 
 @layer base {
   html {
     -webkit-tap-highlight-color: transparent;
     text-rendering: optimizeLegibility;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    html {
+      scroll-behavior: smooth;
+    }
   }
   body {
     background: var(--color-paper);
@@ -81,7 +229,7 @@
     font-feature-settings: "ss01";
   }
   ::selection {
-    background: var(--color-ink-tint);
+    background: color-mix(in oklab, var(--color-ink) 22%, transparent);
   }
   :focus-visible {
     outline: 2px solid var(--color-ink);
@@ -92,6 +240,74 @@
   }
   button:disabled {
     cursor: not-allowed;
+  }
+  /* theme changes cross-fade instead of flashing */
+  html.theme-switching,
+  html.theme-switching *,
+  html.theme-switching *::before,
+  html.theme-switching *::after {
+    transition: background-color 260ms var(--ease-standard), border-color 260ms var(--ease-standard), color 260ms var(--ease-standard), fill 260ms var(--ease-standard) !important;
+  }
+}
+
+@layer components {
+  /* Radix overlays, dialogs, sheets and menus: settle in, leave quickly */
+  .motion-overlay[data-state="open"] { animation: fade-in 220ms var(--ease-standard); }
+  .motion-overlay[data-state="closed"] { animation: fade-out 160ms var(--ease-exit); }
+
+  .motion-dialog[data-state="open"] { animation: rise-in 380ms var(--ease-settle); }
+  .motion-dialog[data-state="closed"] { animation: rise-out 220ms var(--ease-exit); }
+  @media (min-width: 640px) {
+    .motion-dialog[data-state="open"] { animation: pop-in 280ms var(--ease-settle); }
+    .motion-dialog[data-state="closed"] { animation: pop-out 150ms var(--ease-exit); }
+  }
+
+  .motion-sheet[data-state="open"] { animation: rise-in 380ms var(--ease-settle); }
+  .motion-sheet[data-state="closed"] { animation: rise-out 220ms var(--ease-exit); }
+  @media (min-width: 768px) {
+    .motion-sheet[data-state="open"] { animation: sheet-in 340ms var(--ease-settle); }
+    .motion-sheet[data-state="closed"] { animation: sheet-out 180ms var(--ease-exit); }
+  }
+
+  .motion-palette[data-state="open"] { animation: pop-in 260ms var(--ease-settle); }
+  .motion-palette[data-state="closed"] { animation: pop-out 140ms var(--ease-exit); }
+
+  .motion-menu {
+    transform-origin: var(--radix-dropdown-menu-content-transform-origin, var(--radix-popover-content-transform-origin, top));
+  }
+  .motion-menu[data-state="open"] { animation: menu-in 180ms var(--ease-settle); }
+  .motion-menu[data-state="closed"] { animation: menu-out 110ms var(--ease-exit); }
+
+  .motion-tip[data-state="delayed-open"],
+  .motion-tip[data-state="instant-open"] { animation: fade-in 140ms var(--ease-standard); }
+
+  .motion-check[data-state="checked"] { animation: pop-in 200ms var(--ease-settle); }
+
+  /* avatars: a tint per person that works on both themes */
+  .avatar-tint {
+    background-color: oklch(0.93 0.045 var(--hue));
+    color: oklch(0.38 0.09 var(--hue));
+  }
+  [data-theme="dark"] .avatar-tint {
+    background-color: oklch(0.34 0.055 var(--hue));
+    color: oklch(0.9 0.06 var(--hue));
+  }
+
+  /* loading placeholders: a slow sheen rather than a blink */
+  .skeleton {
+    background: linear-gradient(100deg, var(--color-sunken) 30%, color-mix(in oklab, var(--color-sunken) 55%, var(--color-surface)) 50%, var(--color-sunken) 70%);
+    background-size: 220% 100%;
+    animation: shimmer 1.8s var(--ease-standard) infinite;
+  }
+
+  /* the pulse line: drawn once, or traced while loading */
+  .trace {
+    stroke-dasharray: var(--trace-len, 60);
+    animation: trace 1100ms var(--ease-settle) 120ms both;
+  }
+  .trace-loop {
+    stroke-dasharray: var(--trace-len, 60);
+    animation: trace-loop 1700ms var(--ease-settle) infinite;
   }
 }
 
@@ -117,12 +333,33 @@
   .safe-bottom {
     padding-bottom: env(safe-area-inset-bottom);
   }
+  .press {
+    transition: transform 140ms var(--ease-settle), background-color 160ms var(--ease-standard), border-color 160ms var(--ease-standard), color 160ms var(--ease-standard), box-shadow 160ms var(--ease-standard);
+  }
+  .press:active:not(:disabled) {
+    transform: scale(0.98);
+  }
+  /* a one-off sequence: delays come from --d */
+  .enter {
+    animation: page-in 560ms var(--ease-settle) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .arrive {
+    animation: arrive 640ms var(--ease-settle) both;
+    animation-delay: var(--d, 0ms);
+  }
+  .glow-once {
+    animation: glow-once 1400ms var(--ease-standard) both;
+    animation-delay: var(--d, 0ms);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
+    animation-delay: 0ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

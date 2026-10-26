@@ -11,6 +11,8 @@ import {
 } from "radix-ui";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { m } from "motion/react";
+import { GLIDE } from "@/lib/motion";
 
 /* ---------------- Dialog: centred on desktop, bottom sheet on phones ---------------- */
 export const Dialog = D.Root;
@@ -34,12 +36,12 @@ export function DialogContent({
 }) {
   return (
     <D.Portal>
-      <D.Overlay className="fixed inset-0 z-50 bg-ink/25 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
+      <D.Overlay className="motion-overlay fixed inset-0 z-50 bg-ink/25 backdrop-blur-[3px]" />
       <D.Content
         className={cn(
           "fixed z-50 flex max-h-[92dvh] flex-col bg-surface shadow-pop outline-none",
-          "inset-x-0 bottom-0 rounded-t-[var(--radius-xl)] data-[state=open]:animate-pop-in",
-          "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[8vh] sm:w-full sm:-translate-x-1/2 sm:rounded-[var(--radius-lg)]",
+          "motion-dialog inset-x-0 bottom-0 rounded-t-[var(--radius-xl)]",
+          "sm:inset-x-auto sm:bottom-auto sm:left-1/2 sm:top-[7vh] sm:max-h-[86dvh] sm:w-full sm:-translate-x-1/2 sm:rounded-[var(--radius-lg)]",
           wide ? "sm:max-w-2xl" : "sm:max-w-lg",
           className,
         )}
@@ -55,7 +57,7 @@ export function DialogContent({
             )}
           </div>
           {!hideClose && (
-            <D.Close className="-mr-1.5 -mt-0.5 rounded-[var(--radius-sm)] p-1.5 text-faint hover:bg-sunken hover:text-text" aria-label="Close">
+            <D.Close className="press -mr-1.5 -mt-0.5 rounded-[var(--radius-sm)] p-1.5 text-faint hover:bg-sunken hover:text-text" aria-label="Close">
               <X className="size-[18px]" />
             </D.Close>
           )}
@@ -83,9 +85,9 @@ export function Sheet({
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-40 bg-ink/20 data-[state=open]:animate-fade-in" />
+        <D.Overlay className="motion-overlay fixed inset-0 z-40 bg-ink/20 backdrop-blur-[1px]" />
         <D.Content
-          className="fixed inset-y-0 right-0 z-40 flex w-full flex-col bg-surface shadow-sheet outline-none data-[state=open]:animate-slide-in md:w-[min(640px,92vw)]"
+          className="motion-sheet fixed inset-y-0 right-0 z-40 flex w-full flex-col bg-surface shadow-sheet outline-none md:w-[min(640px,92vw)]"
           aria-describedby={undefined}
         >
           <D.Title className="sr-only">{title}</D.Title>
@@ -108,7 +110,7 @@ export function MenuContent({ children, align = "end", className }: { children: 
         align={align}
         sideOffset={6}
         className={cn(
-          "z-50 min-w-48 rounded-[var(--radius-md)] border border-line bg-surface p-1 shadow-pop data-[state=open]:animate-pop-in",
+          "motion-menu z-50 min-w-48 rounded-[var(--radius-md)] border border-line bg-surface p-1 shadow-pop",
           className,
         )}
       >
@@ -121,7 +123,7 @@ export function MenuItem({ className, ...props }: React.ComponentProps<typeof DM
   return (
     <DM.Item
       className={cn(
-        "flex cursor-pointer select-none items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13.5px] text-text outline-none data-[highlighted]:bg-sunken data-[disabled]:opacity-40 [&_svg]:size-4 [&_svg]:text-muted",
+        "flex cursor-pointer select-none items-center gap-2.5 rounded-[var(--radius-sm)] px-2.5 py-2 text-[13.5px] text-text outline-none transition-colors duration-100 data-[highlighted]:bg-sunken data-[disabled]:opacity-40 [&_svg]:size-4 [&_svg]:text-muted",
         className,
       )}
       {...props}
@@ -143,7 +145,7 @@ export function PopoverContent({ children, className, align = "end" }: { childre
         align={align}
         sideOffset={8}
         collisionPadding={12}
-        className={cn("z-50 rounded-[var(--radius-lg)] border border-line bg-surface shadow-pop outline-none data-[state=open]:animate-pop-in", className)}
+        className={cn("motion-menu z-50 rounded-[var(--radius-lg)] border border-line bg-surface shadow-pop outline-none", className)}
       >
         {children}
       </PO.Content>
@@ -158,7 +160,7 @@ export function Tip({ label, children, side = "top" }: { label: React.ReactNode;
     <TT.Root delayDuration={250}>
       <TT.Trigger asChild>{children}</TT.Trigger>
       <TT.Portal>
-        <TT.Content side={side} sideOffset={6} className="z-[60] max-w-64 rounded-[var(--radius-sm)] bg-text px-2.5 py-1.5 text-xs leading-snug text-white data-[state=delayed-open]:animate-fade-in">
+        <TT.Content side={side} sideOffset={6} className="motion-tip z-[60] max-w-64 rounded-[var(--radius-sm)] bg-text px-2.5 py-1.5 text-xs leading-snug text-surface shadow-pop">
           {label}
         </TT.Content>
       </TT.Portal>
@@ -171,12 +173,12 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof SW.R
   return (
     <SW.Root
       className={cn(
-        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full bg-line-strong transition-colors data-[state=checked]:bg-ink",
+        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full bg-line-strong transition-colors duration-200 data-[state=checked]:bg-ink",
         className,
       )}
       {...props}
     >
-      <SW.Thumb className="block size-[18px] translate-x-[2px] rounded-full bg-white shadow transition-transform data-[state=checked]:translate-x-[18px]" />
+      <SW.Thumb className="block size-[18px] translate-x-[2px] rounded-full bg-white shadow-[0_1px_2px_rgb(0_0_0/0.2)] transition-transform duration-[260ms] ease-[var(--ease-settle)] data-[state=checked]:translate-x-[18px]" />
     </SW.Root>
   );
 }
@@ -185,12 +187,12 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof CB
   return (
     <CB.Root
       className={cn(
-        "flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-surface transition-colors hover:border-ink/50 data-[state=checked]:border-ok data-[state=checked]:bg-ok",
+        "flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-surface transition-colors duration-150 hover:border-ink/50 data-[state=checked]:border-ok data-[state=checked]:bg-ok",
         className,
       )}
       {...props}
     >
-      <CB.Indicator>
+      <CB.Indicator className="motion-check">
         <Check className="size-3.5 text-white" strokeWidth={3} />
       </CB.Indicator>
     </CB.Root>
@@ -199,7 +201,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof CB
 
 /* ---------------- Inputs ---------------- */
 export const fieldBase =
-  "w-full rounded-[var(--radius-sm)] border border-line-strong bg-surface px-3 text-[14px] text-text placeholder:text-faint transition-colors hover:border-ink/35 focus:border-ink focus:outline-none focus:ring-2 focus:ring-ink/12";
+  "w-full rounded-[var(--radius-sm)] border border-line-strong bg-surface px-3 text-[14px] text-text placeholder:text-faint transition-[border-color,box-shadow] duration-150 hover:border-ink/35 focus:border-ink focus:outline-none focus:ring-[3px] focus:ring-ink/12";
 
 export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(({ className, ...props }, ref) => (
   <input ref={ref} className={cn(fieldBase, "h-10", className)} {...props} />
@@ -238,7 +240,7 @@ export function Field({ label, hint, children, className, htmlFor }: { label: st
   );
 }
 
-/* ---------------- Segmented control ---------------- */
+/* ---------------- Segmented control: the selection glides between options ---------------- */
 export function Segmented<T extends string>({
   value,
   onChange,
@@ -252,25 +254,38 @@ export function Segmented<T extends string>({
   className?: string;
   size?: "sm" | "md";
 }) {
+  const id = React.useId();
   return (
     <div role="tablist" className={cn("inline-flex rounded-[var(--radius-sm)] bg-sunken p-0.5", className)}>
-      {options.map((o) => (
-        <button
-          key={o.value}
-          role="tab"
-          type="button"
-          aria-selected={value === o.value}
-          onClick={() => onChange(o.value)}
-          className={cn(
-            "inline-flex items-center gap-1.5 rounded-[5px] font-medium text-muted transition-colors hover:text-text",
-            size === "sm" ? "h-7 px-2.5 text-[12.5px]" : "h-8 px-3 text-[13px]",
-            value === o.value && "bg-surface text-text shadow-[0_1px_2px_rgb(15_61_71/0.12)]",
-          )}
-        >
-          {o.label}
-          {o.count !== undefined && <span className="tabular text-faint">{o.count}</span>}
-        </button>
-      ))}
+      {options.map((o) => {
+        const on = value === o.value;
+        return (
+          <button
+            key={o.value}
+            role="tab"
+            type="button"
+            aria-selected={on}
+            onClick={() => onChange(o.value)}
+            className={cn(
+              "relative inline-flex items-center gap-1.5 rounded-[5px] font-medium transition-colors duration-150",
+              on ? "text-text" : "text-muted hover:text-text",
+              size === "sm" ? "h-7 px-2.5 text-[12.5px]" : "h-8 px-3 text-[13px]",
+            )}
+          >
+            {on && (
+              <m.span
+                layoutId={`seg-${id}`}
+                className="absolute inset-0 rounded-[5px] bg-surface shadow-[0_1px_2px_rgb(15_61_71/0.12),0_0_0_0.5px_rgb(15_61_71/0.04)] dark:shadow-[0_1px_2px_rgb(0_0_0/0.4)]"
+                transition={GLIDE}
+              />
+            )}
+            <span className="relative inline-flex items-center gap-1.5">
+              {o.label}
+              {o.count !== undefined && <span className="tabular text-faint">{o.count}</span>}
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }
@@ -281,7 +296,7 @@ export function Bar({ value, max = 100, tone = "ink", className }: { value: numb
   const color = { ink: "bg-ink", ok: "bg-ok", "heat-1": "bg-heat-1", "heat-2": "bg-heat-2", "heat-3": "bg-heat-3" }[tone];
   return (
     <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-sunken", className)}>
-      <div className={cn("h-full rounded-full transition-[width] duration-500", color)} style={{ width: `${pctv}%` }} />
+      <div className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-settle)]", color)} style={{ width: `${pctv}%` }} />
     </div>
   );
 }

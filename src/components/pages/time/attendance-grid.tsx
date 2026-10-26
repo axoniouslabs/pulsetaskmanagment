@@ -121,21 +121,21 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
                 <React.Fragment key={s.id}>
                   {s.name && (
                     <tr>
-                      <td colSpan={days.length + 3} className="border-b border-line bg-[#fafbfb] px-4 py-1.5">
+                      <td colSpan={days.length + 3} className="border-b border-line bg-hover px-4 py-1.5">
                         <span className="sticky left-4 inline-block text-[12.5px] font-semibold text-text">{s.name}</span>
                       </td>
                     </tr>
                   )}
                   {s.rows.map((r) => (
                     <tr key={r.person.id} className="group">
-                      <th scope="row" className="sticky left-0 z-[1] border-b border-line bg-surface px-4 py-2 text-left font-normal shadow-[1px_0_0_var(--color-line)] group-hover:bg-[#fafbfb]">
+                      <th scope="row" className="sticky left-0 z-[1] border-b border-line bg-surface px-4 py-2 text-left font-normal shadow-[1px_0_0_var(--color-line)] group-hover:bg-hover">
                         <span className="flex items-center gap-2">
                           <Avatar person={r.person} size="xs" />
                           <span className="max-w-[104px] truncate font-medium text-text sm:max-w-[150px]">{r.person.name}</span>
                         </span>
                       </th>
                       {r.cells.map((c) => (
-                        <td key={c.date} className={cn("border-b border-line px-0.5 py-2 text-center group-hover:bg-[#fafbfb]", c.status === "weekend" && "bg-sunken/70 group-hover:bg-sunken")}>
+                        <td key={c.date} className={cn("border-b border-line px-0.5 py-2 text-center group-hover:bg-hover", c.status === "weekend" && "bg-sunken/70 group-hover:bg-sunken")}>
                           {c.status === "weekend" ? (
                             <span className="mx-auto block h-[2px] w-2.5 rounded-full bg-line-strong" aria-label="Sunday" role="img" />
                           ) : (
@@ -152,8 +152,8 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
                           )}
                         </td>
                       ))}
-                      <td className={cn("tabular border-b border-line py-2 pl-4 pr-2 text-right group-hover:bg-[#fafbfb]", r.late ? "font-semibold text-heat-1" : "text-faint")}>{r.late}</td>
-                      <td className={cn("tabular border-b border-line py-2 pl-2 pr-4 text-right group-hover:bg-[#fafbfb]", r.absent ? "font-semibold text-heat-3" : "text-faint")}>{r.absent}</td>
+                      <td className={cn("tabular border-b border-line py-2 pl-4 pr-2 text-right group-hover:bg-hover", r.late ? "font-semibold text-heat-1" : "text-faint")}>{r.late}</td>
+                      <td className={cn("tabular border-b border-line py-2 pl-2 pr-4 text-right group-hover:bg-hover", r.absent ? "font-semibold text-heat-3" : "text-faint")}>{r.absent}</td>
                     </tr>
                   ))}
                 </React.Fragment>

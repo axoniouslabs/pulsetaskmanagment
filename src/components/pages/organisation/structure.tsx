@@ -128,7 +128,7 @@ function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; p
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         aria-controls={listId}
-        className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-[#fafbfb] sm:px-5"
+        className="flex min-h-14 w-full items-center gap-3 px-4 py-2.5 text-left transition-colors hover:bg-hover sm:px-5"
       >
         <ChevronDown className={cn("size-4 shrink-0 text-faint transition-transform", !open && "-rotate-90")} />
         <span className="min-w-0 flex-1">
@@ -150,7 +150,7 @@ function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; p
       </button>
 
       {open && (
-        <ul id={listId} className="border-t border-line bg-[#fbfcfc] pb-1">
+        <ul id={listId} className="border-t border-line bg-hover pb-1">
           <li className="flex justify-end px-4 pt-2 sm:px-5">
             <Button size="sm" variant="ghost" onClick={onChangeLead}>
               <UserRound /> Change lead

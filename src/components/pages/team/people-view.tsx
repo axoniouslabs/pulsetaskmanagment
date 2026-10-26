@@ -45,7 +45,7 @@ export function PeopleView({
       </div>
       {sections.map((s) => (
         <section key={s.key} aria-label={s.title}>
-          <h3 className="flex items-baseline gap-2 border-b border-line [section+section_&]:border-t bg-[#f8fafa] px-4 py-2 sm:px-5">
+          <h3 className="flex items-baseline gap-2 border-b border-line [section+section_&]:border-t bg-hover px-4 py-2 sm:px-5">
             <span className="text-[13px] font-semibold text-text">{s.title}</span>
             {s.sub && <span className="text-[12px] text-muted">{s.sub}</span>}
           </h3>
@@ -95,7 +95,7 @@ function PersonLine({
       <button
         type="button"
         onClick={() => onOpen(p.id)}
-        className={cn("grid w-full grid-cols-[minmax(0,1fr)_16px] items-center gap-x-5 gap-y-2.5 px-4 py-3.5 text-left transition-colors hover:bg-[#fafbfb] sm:px-5", COLS)}
+        className={cn("grid w-full grid-cols-[minmax(0,1fr)_16px] items-center gap-x-5 gap-y-2.5 px-4 py-3.5 text-left transition-colors hover:bg-hover sm:px-5", COLS)}
       >
         {/* who */}
         <div className="flex min-w-0 items-center gap-3">

@@ -59,7 +59,7 @@ export function PeopleTable({
       <div className="thin-scrollbar overflow-x-auto">
         <table className="w-full min-w-[860px] border-collapse text-[13.5px]">
           <thead>
-            <tr className="border-b border-line bg-[#fafbfb]">
+            <tr className="border-b border-line bg-hover">
               {COLS.map((c) => {
                 const active = sort.key === c.key;
                 return (
@@ -104,7 +104,7 @@ export function PeopleTable({
                 <tr
                   key={p.id}
                   onClick={() => router.push(`/team?person=${p.id}`)}
-                  className="cursor-pointer border-b border-line last:border-b-0 hover:bg-[#fafbfb]"
+                  className="cursor-pointer border-b border-line last:border-b-0 hover:bg-hover"
                 >
                   <td className="py-2.5 pl-4 pr-3 sm:pl-5">
                     <div className="flex items-center gap-2.5">

@@ -33,7 +33,7 @@ const STATUS_STYLE: Record<TaskStatus, { icon: React.ElementType; cls: string }>
   acknowledged: { icon: Eye, cls: "text-info bg-info-tint" },
   in_progress: { icon: CircleDot, cls: "text-ink bg-ink-tint" },
   blocked: { icon: AlertOctagon, cls: "text-heat-2 bg-heat-2-tint" },
-  submitted: { icon: Hourglass, cls: "text-[#6a4fb3] bg-[#efeafb]" },
+  submitted: { icon: Hourglass, cls: "text-review bg-review-tint" },
   approved: { icon: CheckCircle2, cls: "text-ok bg-ok-tint" },
   cancelled: { icon: XCircle, cls: "text-faint bg-sunken" },
 };

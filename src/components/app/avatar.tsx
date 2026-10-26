@@ -1,5 +1,6 @@
 "use client";
 
+import type * as React from "react";
 import { useApp } from "@/lib/store";
 import type { Person } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -32,15 +33,12 @@ export function Avatar({
   const el = (
     <span
       className={cn(
-        "relative inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-tight",
+        "avatar-tint relative inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-tight",
         SIZES[size],
         p.onLeave && "opacity-60 grayscale",
         className,
       )}
-      style={{
-        backgroundColor: `oklch(0.93 0.045 ${p.hue})`,
-        color: `oklch(0.38 0.09 ${p.hue})`,
-      }}
+      style={{ "--hue": p.hue } as React.CSSProperties}
       aria-label={p.name}
     >
       {p.initials}

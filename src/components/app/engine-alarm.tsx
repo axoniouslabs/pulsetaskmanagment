@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import { AlertTriangle } from "lucide-react";
+import { Tip } from "@/components/ui/primitives";
 import Link from "next/link";
 import { useApp } from "@/lib/store";
 
@@ -49,9 +50,33 @@ export function EngineAlarm() {
           {mins === null
             ? "The reminder engine has never run for this company. Nobody is being reminded or escalated until it does."
             : `The reminder engine last ran ${mins >= 120 ? `${Math.round(mins / 60)} hours` : `${mins} minutes`} ago. Nobody is being reminded or escalated until it runs again.`}{" "}
-          Check that the every-minute scheduler calling <code className="rounded bg-white/60 px-1">/api/cron/tick</code> is switched on.
+          Check that the every-minute scheduler calling <code className="rounded bg-surface/60 px-1">/api/cron/tick</code> is switched on.
         </p>
       </div>
     </div>
+  );
+}
+
+/** a quiet heartbeat in the top bar: the reminder engine is running */
+export function EngineLive() {
+  const role = useApp((s) => s.role);
+  const last = useApp((s) => s.engineLastTickAt);
+  const offset = useApp((s) => s.serverOffsetMs);
+  const [now, setNow] = React.useState(() => Date.now());
+  React.useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 15_000);
+    return () => clearInterval(t);
+  }, []);
+  if (role === "employee" || !last) return null;
+  const secs = Math.max(0, Math.round((now + offset - new Date(last).getTime()) / 1000));
+  if (secs >= STALE_MIN * 60) return null;
+  const ago = secs < 60 ? "less than a minute ago" : `${Math.round(secs / 60)} min ago`;
+  return (
+    <Tip label={`Reminders are running. Last check ${ago}.`} side="bottom">
+      <span className="mr-1 inline-flex h-8 items-center gap-2 rounded-full px-2.5 text-[12.5px] font-medium text-muted" tabIndex={0} aria-label={`Reminders are running. Last check ${ago}.`}>
+        <span className="size-2 animate-pulse-dot rounded-full bg-ok" />
+        <span className="hidden sm:inline">Live</span>
+      </span>
+    </Tip>
   );
 }

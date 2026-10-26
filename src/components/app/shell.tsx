@@ -18,7 +18,10 @@ import { CreateTaskDialog } from "./create-task";
 import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
-import { EngineAlarm, PasswordNudge } from "./engine-alarm";
+import { EngineAlarm, EngineLive, PasswordNudge } from "./engine-alarm";
+import { MotionProvider } from "./motion-provider";
+import { m } from "motion/react";
+import { GLIDE } from "@/lib/motion";
 
 /** load what this person may see, and keep it fresh while the app is open */
 function useLiveData() {
@@ -86,6 +89,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   if (!hydrated) return <ShellSkeleton />;
 
   return (
+    <MotionProvider>
     <TooltipProvider>
       <div className="flex min-h-dvh">
         <Sidebar />
@@ -94,7 +98,10 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
             <EngineAlarm />
             <PasswordNudge />
-            {children}
+            {/* each page settles in; keyed so a new page gets its own entrance */}
+            <div key={pathname} className="animate-page-in">
+              {children}
+            </div>
           </main>
         </div>
         <BottomNav />
@@ -109,7 +116,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         mobileOffset={{ top: 12, left: 12, right: 12 }}
         toastOptions={{
           classNames: {
-            toast: "!rounded-[var(--radius-md)] !border-line !shadow-pop !font-sans",
+            toast: "!rounded-[var(--radius-md)] !border-line !bg-surface !text-text !shadow-pop !font-sans",
             title: "!text-[14px] !font-semibold !text-text",
             description: "!text-[13px] !text-muted",
             actionButton: "!bg-ink !text-white",
@@ -117,6 +124,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         }}
       />
     </TooltipProvider>
+    </MotionProvider>
   );
 }
 
@@ -135,22 +143,39 @@ function LoadError() {
   );
 }
 
+/** while the first data loads: the layout's outline, with the pulse line tracing in the corner */
 function ShellSkeleton() {
   return (
-    <div className="flex min-h-dvh">
-      <div className="hidden w-[248px] shrink-0 border-r border-line bg-surface lg:block" />
-      <div className="flex-1 px-6 pt-20">
+    <div className="flex min-h-dvh" aria-busy="true" aria-label="Loading Pulse">
+      <div className="hidden w-[248px] shrink-0 flex-col gap-6 border-r border-line bg-surface px-5 pt-5 lg:flex">
+        <div className="flex items-center gap-2.5">
+          <Logo trace="beat" />
+          <div className="skeleton h-4 w-20 rounded" />
+        </div>
+        <div className="skeleton h-9 rounded-[var(--radius-sm)]" />
+        <div className="space-y-2.5">
+          {[72, 56, 64, 48].map((w) => (
+            <div key={w} className="skeleton h-4 rounded" style={{ width: `${w}%` }} />
+          ))}
+        </div>
+      </div>
+      <div className="flex-1 px-4 pt-6 sm:px-6 lg:px-10 lg:pt-24">
+        <div className="mb-8 flex items-center gap-2 lg:hidden">
+          <Logo size={28} trace="beat" />
+          <span className="font-display text-[17px] font-bold tracking-tight text-ink">Pulse</span>
+        </div>
         <div className="mx-auto max-w-[1160px] space-y-4">
-          <div className="h-8 w-64 animate-pulse rounded-md bg-sunken" />
-          <div className="h-4 w-96 max-w-full animate-pulse rounded-md bg-sunken" />
-          <div className="mt-8 h-64 animate-pulse rounded-[var(--radius-lg)] bg-sunken" />
+          <div className="skeleton h-4 w-48 rounded" />
+          <div className="skeleton h-9 w-72 max-w-full rounded-md" />
+          <div className="skeleton h-4 w-96 max-w-full rounded" />
+          <div className="skeleton mt-8 h-64 rounded-[var(--radius-lg)]" />
         </div>
       </div>
     </div>
   );
 }
 
-function NavLink({ item, badges, onClick }: { item: NavItem; badges: Record<string, number>; onClick?: () => void }) {
+function NavLink({ item, badges, onClick, group = "side" }: { item: NavItem; badges: Record<string, number>; onClick?: () => void; group?: string }) {
   const pathname = usePathname();
   const active = pathname.startsWith(item.href);
   const count = item.badge ? badges[item.badge] : 0;
@@ -158,15 +183,17 @@ function NavLink({ item, badges, onClick }: { item: NavItem; badges: Record<stri
     <Link
       href={item.href}
       onClick={onClick}
+      aria-current={active ? "page" : undefined}
       className={cn(
-        "group flex h-9 items-center gap-3 rounded-[var(--radius-sm)] px-2.5 text-[14px] transition-colors",
-        active ? "bg-ink-tint font-semibold text-ink" : "text-muted hover:bg-sunken hover:text-text",
+        "group relative flex h-9 items-center gap-3 rounded-[var(--radius-sm)] px-2.5 text-[14px] transition-colors duration-150",
+        active ? "font-semibold text-ink" : "text-muted hover:bg-sunken hover:text-text",
       )}
     >
-      <item.icon className={cn("size-[18px] shrink-0", active ? "text-ink" : "text-faint group-hover:text-muted")} strokeWidth={active ? 2.3 : 2} />
-      <span className="flex-1 truncate">{item.label}</span>
+      {active && <m.span layoutId={`nav-${group}`} className="absolute inset-0 rounded-[var(--radius-sm)] bg-ink-tint" transition={GLIDE} />}
+      <item.icon className={cn("relative size-[18px] shrink-0 transition-colors duration-150", active ? "text-ink" : "text-faint group-hover:text-muted")} strokeWidth={active ? 2.3 : 2} />
+      <span className="relative flex-1 truncate">{item.label}</span>
       {count > 0 && (
-        <span className={cn("tabular min-w-5 rounded-full px-1.5 text-center text-[11.5px] font-semibold leading-5", item.badge === "today" ? "bg-heat-1-tint text-heat-1" : "bg-ink text-white")}>{count}</span>
+        <span className={cn("tabular relative min-w-5 rounded-full px-1.5 text-center text-[11.5px] font-semibold leading-5", item.badge === "today" ? "bg-heat-1-tint text-heat-1" : "bg-ink text-white")}>{count}</span>
       )}
     </Link>
   );
@@ -219,7 +246,7 @@ function TopBar() {
         </div>
         <button
           onClick={() => setCommandOpen(true)}
-          className="ml-auto hidden h-10 w-[min(420px,40vw)] items-center gap-2.5 rounded-full border border-line bg-surface px-4 text-[14px] text-faint transition-colors hover:border-line-strong md:flex lg:ml-0"
+          className="ml-auto hidden h-10 w-[min(420px,40vw)] items-center gap-2.5 rounded-full border border-line bg-surface px-4 text-[14px] text-faint shadow-[var(--shadow-card)] transition-[border-color,box-shadow] duration-200 hover:border-line-strong hover:shadow-[var(--shadow-pop)] md:flex lg:ml-0"
         >
           <Search className="size-4" />
           Search tasks, people, pages
@@ -229,7 +256,8 @@ function TopBar() {
           </span>
         </button>
         <div className="ml-auto flex items-center gap-1 md:ml-auto">
-          <button onClick={() => setCommandOpen(true)} className="inline-flex size-10 items-center justify-center rounded-full text-muted hover:bg-sunken md:hidden" aria-label="Search">
+          <EngineLive />
+          <button onClick={() => setCommandOpen(true)} className="press inline-flex size-10 items-center justify-center rounded-full text-muted hover:bg-sunken md:hidden" aria-label="Search">
             <Search className="size-5" />
           </button>
           <NotificationBell />
@@ -247,7 +275,12 @@ function Tab({ item, badges }: { item: NavItem; badges: Record<string, number> }
   const active = pathname.startsWith(item.href);
   const count = item.badge ? badges[item.badge] : 0;
   return (
-    <Link href={item.href} className={cn("relative flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-[11px] font-medium", active ? "text-ink" : "text-faint")}>
+    <Link
+      href={item.href}
+      aria-current={active ? "page" : undefined}
+      className={cn("press relative flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-[11px] font-medium transition-colors duration-150", active ? "text-ink" : "text-faint")}
+    >
+      {active && <m.span layoutId="tab-active" className="absolute top-0 h-[2.5px] w-8 rounded-b-full bg-ink" transition={GLIDE} />}
       <item.icon className="size-[22px]" strokeWidth={active ? 2.3 : 1.9} />
       {item.label}
       {count > 0 && <span className="tabular absolute left-1/2 top-1 ml-2 rounded-full bg-heat-3 px-1.5 text-[10px] font-bold leading-4 text-white">{count}</span>}
@@ -270,13 +303,13 @@ function BottomNav() {
           <Tab item={tabs[0]} badges={badges} />
           <Tab item={tabs[1]} badges={badges} />
           <div className="flex flex-1 items-center justify-center">
-            <button onClick={() => openCreate()} className="flex size-12 items-center justify-center rounded-full bg-ink text-white shadow-pop active:scale-95" aria-label="New task">
+            <button onClick={() => openCreate()} className="press flex size-12 items-center justify-center rounded-full bg-ink text-white shadow-pop" aria-label="New task">
               <Plus className="size-6" />
             </button>
           </div>
           <Tab item={tabs[2]} badges={badges} />
           {rest.length ? (
-            <button onClick={() => setMore(true)} className="flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-[11px] font-medium text-faint">
+            <button onClick={() => setMore(true)} className="press flex flex-1 flex-col items-center justify-center gap-1 pt-2 text-[11px] font-medium text-faint">
               <MenuIcon className="size-[22px]" strokeWidth={1.9} />
               More
             </button>
@@ -294,7 +327,7 @@ function BottomNav() {
         </div>
         <div className="space-y-1 p-3">
           {[tabs[3], ...rest].filter(Boolean).map((n) => (
-            <NavLink key={n.href} item={n} badges={badges} onClick={() => setMore(false)} />
+            <NavLink key={n.href} item={n} badges={badges} onClick={() => setMore(false)} group="more" />
           ))}
         </div>
         <div className="border-t border-line p-3">

@@ -1,6 +1,9 @@
 "use client";
 
+import * as React from "react";
+import { AnimatePresence, m } from "motion/react";
 import { Paperclip, MessageSquare, ListChecks, Camera, Users } from "lucide-react";
+import { EASE_EXIT, SETTLE } from "@/lib/motion";
 import type { Task } from "@/lib/types";
 import { useApp } from "@/lib/store";
 import { heatOf } from "@/lib/selectors";
@@ -33,8 +36,21 @@ export function TaskRow({
   const heat = heatOf(task);
   const doneSubs = task.subtasks.filter((s) => s.done).length;
 
+  // a soft glow when the status changes while the row is on screen (by you or by someone else)
+  const [seen, setSeen] = React.useState(task.status);
+  const [flash, setFlash] = React.useState(0);
+  if (seen !== task.status) {
+    setSeen(task.status);
+    setFlash((f) => f + 1);
+  }
+
   return (
-    <div
+    <m.div
+      layout="position"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.22, ease: EASE_EXIT } }}
+      transition={SETTLE}
       role="button"
       tabIndex={0}
       onClick={() => openTask(task.id)}
@@ -45,10 +61,11 @@ export function TaskRow({
         }
       }}
       className={cn(
-        "group relative flex cursor-pointer flex-col gap-2 border-b border-line bg-surface px-4 py-3 pl-5 transition-colors last:border-b-0 hover:bg-[#fafbfb] focus-visible:bg-sunken focus-visible:outline-none sm:flex-row sm:items-center sm:gap-4",
+        "group relative flex cursor-pointer flex-col gap-2 overflow-hidden border-b border-line bg-surface px-4 py-3 pl-5 transition-colors duration-150 last:border-b-0 hover:bg-hover focus-visible:bg-sunken focus-visible:outline-none sm:flex-row sm:items-center sm:gap-4",
         className,
       )}
     >
+      {flash > 0 && <span key={flash} aria-hidden className="pointer-events-none absolute inset-0 animate-row-flash" />}
       <HeatEdge level={heat} />
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <StatusIcon status={task.status} className="mt-[1px]" />
@@ -114,10 +131,15 @@ export function TaskRow({
         {showStatus && <StatusPill status={task.status} className="hidden md:inline-flex" />}
         {showActions && <TaskActions task={task} size="sm" compact />}
       </div>
-    </div>
+    </m.div>
   );
 }
 
+/** rows settle in, glide when the order changes, and fold away when they leave */
 export function TaskList({ children, className }: { children: React.ReactNode; className?: string }) {
-  return <div className={cn("overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface", className)}>{children}</div>;
+  return (
+    <div className={cn("overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface shadow-[var(--shadow-card)]", className)}>
+      <AnimatePresence initial={false}>{children}</AnimatePresence>
+    </div>
+  );
 }

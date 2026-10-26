@@ -32,7 +32,7 @@ export function ChannelList({
                 onClick={() => onSelect(c.id)}
                 aria-current={active ? "true" : undefined}
                 className={cn(
-                  "relative flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-[#fafbfb]",
+                  "relative flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover",
                   active && "bg-ink-tint/55 hover:bg-ink-tint/70",
                 )}
               >

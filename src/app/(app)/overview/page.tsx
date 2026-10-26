@@ -2,6 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
+import { Count } from "@/components/app/count";
 import { isToday, differenceInHours, format } from "date-fns";
 import { toast } from "sonner";
 import { CheckCircle2, MessageCircleQuestion, ChevronRight, Plus, CalendarClock } from "lucide-react";
@@ -70,7 +71,13 @@ export default function OverviewPage() {
           {greet}, {me.name.split(" ")[0]}. {format(now, "EEEE d MMMM")}.
         </p>
         <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">
-          {total === 0 ? "Everything is moving." : `${total} ${total === 1 ? "thing needs" : "things need"} you.`}
+          {total === 0 ? (
+            "Everything is moving."
+          ) : (
+            <>
+              <Count value={total} /> {total === 1 ? "thing needs" : "things need"} you.
+            </>
+          )}
         </h1>
         <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">
           {total === 0
@@ -112,7 +119,7 @@ export default function OverviewPage() {
               {a.quiet.map((p) => {
                 const theirs = tasks.filter((t) => t.assigneeId === p.id && isOpenWork(t));
                 return (
-                  <Link key={p.id} href={`/team?person=${p.id}`} className="relative flex items-center gap-3 border-b border-line px-4 py-3 pl-5 last:border-0 hover:bg-[#fafbfb]">
+                  <Link key={p.id} href={`/team?person=${p.id}`} className="relative flex items-center gap-3 border-b border-line px-4 py-3 pl-5 last:border-0 hover:bg-hover">
                     <span className={cn("absolute inset-y-1.5 left-0 w-[3px] rounded-r-full", HEAT[1].bar)} />
                     <Avatar person={p} size="md" />
                     <div className="min-w-0 flex-1">
@@ -249,11 +256,13 @@ function Glance({ label, value, sub, href, highlight }: { label: string; value: 
         <dt className="font-medium text-text">{label}</dt>
         <dd className="text-[12.5px] text-muted">{sub}</dd>
       </div>
-      <span className={cn("tabular font-display text-[26px] font-semibold leading-none", highlight ? "text-ink" : "text-text")}>{value}</span>
+      <span className={cn("tabular font-display text-[26px] font-semibold leading-none", highlight ? "text-ink" : "text-text")}>
+        <Count value={value} />
+      </span>
     </div>
   );
   return href ? (
-    <Link href={href} className="-mx-2 block rounded-[var(--radius-sm)] px-2 py-1 hover:bg-sunken">
+    <Link href={href} className="-mx-2 block rounded-[var(--radius-sm)] px-2 py-1 transition-colors duration-150 hover:bg-sunken">
       {inner}
     </Link>
   ) : (

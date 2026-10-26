@@ -6,13 +6,13 @@ import { cn } from "@/lib/utils";
 import { hoursLabel, type Totals, timeSplit } from "./metrics";
 
 export const C = {
-  ink: "#0f3d47",
-  inkSoft: "#1d5663",
-  muted: "#8a979d",
-  light: "#cfd7dc",
-  ok: "#1e8a5a",
-  grid: "#e2e7ea",
-  text: "#5b6b72",
+  ink: "var(--color-ink)",
+  inkSoft: "var(--color-ink-soft)",
+  muted: "var(--color-faint)",
+  light: "var(--color-line-strong)",
+  ok: "var(--color-ok)",
+  grid: "var(--color-line)",
+  text: "var(--color-muted)",
 };
 
 const axisProps = {
@@ -132,7 +132,7 @@ export function ThroughputChart({ data }: { data: DayPoint[] }) {
             <CartesianGrid vertical={false} stroke={C.grid} />
             <XAxis dataKey="label" {...axisProps} interval={many ? "preserveStartEnd" : 0} minTickGap={8} />
             <YAxis {...axisProps} allowDecimals={false} width={44} />
-            <Tooltip cursor={{ fill: "rgb(15 61 71 / 0.05)" }} content={<ChartTip labelKey="full" />} />
+            <Tooltip cursor={{ fill: "var(--color-hover)" }} content={<ChartTip labelKey="full" />} />
             <Bar dataKey="approved" name="Approved" fill={C.ink} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
             <Line dataKey="assigned" name="Assigned" stroke={C.muted} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff" }} type="monotone" isAnimationActive={false} />
           </ComposedChart>
@@ -215,7 +215,7 @@ export function EstimateChart({ data, unitLabel }: { data: { label: string; full
             <CartesianGrid vertical={false} stroke={C.grid} />
             <XAxis dataKey="label" {...axisProps} interval={0} minTickGap={4} />
             <YAxis {...axisProps} width={44} />
-            <Tooltip cursor={{ fill: "rgb(15 61 71 / 0.05)" }} content={<ChartTip unit="h" labelKey="full" />} />
+            <Tooltip cursor={{ fill: "var(--color-hover)" }} content={<ChartTip unit="h" labelKey="full" />} />
             <Bar dataKey="est" name="Estimated" fill={C.light} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
             <Bar dataKey="actual" name="Actual" fill={C.ink} radius={[4, 4, 0, 0]} maxBarSize={22} isAnimationActive={false} />
           </BarChart>
@@ -242,15 +242,15 @@ export function DepartmentChart({
         <BarChart data={rows} layout="vertical" margin={{ top: 0, right: 48, bottom: 0, left: 0 }} barCategoryGap="30%">
           <CartesianGrid horizontal={false} stroke={C.grid} />
           <XAxis type="number" {...axisProps} domain={[0, domainMax ?? "auto"]} hide />
-          <YAxis type="category" dataKey="name" {...axisProps} width={92} tick={{ fill: "#13262c", fontSize: 13 }} />
-          <Tooltip cursor={{ fill: "rgb(15 61 71 / 0.05)" }} content={({ active, payload }) => (active && payload?.length ? (
+          <YAxis type="category" dataKey="name" {...axisProps} width={92} tick={{ fill: "var(--color-text)", fontSize: 13 }} />
+          <Tooltip cursor={{ fill: "var(--color-hover)" }} content={({ active, payload }) => (active && payload?.length ? (
             <div className="rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-[12.5px] shadow-pop">
               <p className="font-medium text-text">{String(payload[0].payload.name)}</p>
               <p className="tabular text-muted">{String(payload[0].payload.label)}</p>
             </div>
           ) : null)} />
           <Bar dataKey="value" fill={C.ink} radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
-            <LabelList dataKey="label" position="right" fill="#13262c" fontSize={12.5} />
+            <LabelList dataKey="label" position="right" fill="var(--color-text)" fontSize={12.5} />
           </Bar>
         </BarChart>
       </ResponsiveContainer>

@@ -204,10 +204,10 @@ export function timeSplit(t: Totals) {
   // overruns past the estimate are mostly time spent stuck, plus a share per escalation
   const blocked = (t.overrunHours * 0.55 + t.escalations * 1.5) / tasks;
   const parts = [
-    { key: "waiting", label: "Waiting to start", hours: waiting, color: "#cfd7dc" },
-    { key: "working", label: "In progress", hours: working, color: "#0f3d47" },
-    { key: "review", label: "Waiting for review", hours: review, color: "#8a979d" },
-    { key: "blocked", label: "Blocked", hours: blocked, color: "#dc6a1c" },
+    { key: "waiting", label: "Waiting to start", hours: waiting, color: "var(--color-line-strong)" },
+    { key: "working", label: "In progress", hours: working, color: "var(--color-ink)" },
+    { key: "review", label: "Waiting for review", hours: review, color: "var(--color-faint)" },
+    { key: "blocked", label: "Blocked", hours: blocked, color: "var(--color-heat-2)" },
   ];
   const total = parts.reduce((s, p) => s + p.hours, 0);
   return { parts, total };

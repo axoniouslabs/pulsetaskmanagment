@@ -56,8 +56,8 @@ export function CommandPalette() {
   return (
     <D.Root open={open} onOpenChange={setOpen}>
       <D.Portal>
-        <D.Overlay className="fixed inset-0 z-50 bg-ink/25 backdrop-blur-[2px] data-[state=open]:animate-fade-in" />
-        <D.Content className="fixed left-1/2 top-[10vh] z-50 w-[min(600px,calc(100vw-24px))] -translate-x-1/2 overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-pop data-[state=open]:animate-pop-in" aria-describedby={undefined}>
+        <D.Overlay className="motion-overlay fixed inset-0 z-50 bg-ink/25 backdrop-blur-[3px]" />
+        <D.Content className="fixed left-1/2 top-[10vh] z-50 w-[min(600px,calc(100vw-24px))] -translate-x-1/2 overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-pop motion-palette" aria-describedby={undefined}>
           <D.Title className="sr-only">Search and commands</D.Title>
           <Command loop>
             <div className="flex items-center gap-3 border-b border-line px-4">

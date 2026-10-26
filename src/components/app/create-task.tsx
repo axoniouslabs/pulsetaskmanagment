@@ -488,7 +488,7 @@ function CreateTaskForm() {
         )}
       </div>
 
-      <div className="sticky bottom-0 -mx-5 mt-6 flex flex-col-reverse gap-2 border-t border-line bg-surface px-5 pt-4 sm:-mx-6 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+      <div className="sticky -bottom-5 z-10 -mx-5 -mb-5 mt-6 flex flex-col-reverse gap-2 border-t border-line bg-surface px-5 pb-5 pt-4 sm:-bottom-6 sm:-mx-6 sm:-mb-6 sm:flex-row sm:items-center sm:justify-between sm:px-6 sm:pb-6">
         {s.role !== "employee" ? (
           tplName !== null ? (
             <div className="flex items-center gap-2">

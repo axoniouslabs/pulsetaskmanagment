@@ -215,7 +215,7 @@ function WeekSheet({ now, today }: { now: Date; today: string }) {
         }
       />
       <Panel className="overflow-hidden">
-        <div className="hidden grid-cols-[minmax(120px,1.3fr)_1fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-line bg-[#fafbfb] px-5 py-2.5 text-[12.5px] font-medium text-muted sm:grid">
+        <div className="hidden grid-cols-[minmax(120px,1.3fr)_1fr_0.9fr_0.9fr_0.9fr_0.9fr] gap-3 border-b border-line bg-hover px-5 py-2.5 text-[12.5px] font-medium text-muted sm:grid">
           <span>Day</span>
           <span>Status</span>
           <span>In</span>

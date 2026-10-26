@@ -34,8 +34,8 @@ function nextPath() {
 function Initials({ a, size = "md" }: { a: Pick<DemoAccount, "hue" | "initials" | "name">; size?: "md" | "lg" }) {
   return (
     <span
-      className={cn("inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-tight", size === "lg" ? "size-10 text-[14px]" : "size-8 text-[12px]")}
-      style={{ backgroundColor: `oklch(0.93 0.045 ${a.hue})`, color: `oklch(0.38 0.09 ${a.hue})` }}
+      className={cn("avatar-tint inline-flex shrink-0 select-none items-center justify-center rounded-full font-semibold tracking-tight", size === "lg" ? "size-10 text-[14px]" : "size-8 text-[12px]")}
+      style={{ "--hue": a.hue } as React.CSSProperties}
       aria-hidden
     >
       {a.initials}
@@ -84,19 +84,22 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
   return (
     <div className="grid min-h-dvh lg:grid-cols-[minmax(0,1fr)_minmax(0,1.05fr)]">
       {/* brand side */}
-      <aside className="relative hidden overflow-hidden bg-ink text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
+      <aside className="login-brand relative hidden overflow-hidden bg-ink text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         <div className="pointer-events-none absolute -right-40 -top-40 size-[520px] rounded-full bg-white/[0.04]" />
         <div className="pointer-events-none absolute -bottom-56 -left-24 size-[560px] rounded-full bg-white/[0.03]" />
         <div className="relative flex items-center gap-3">
-          <Logo size={36} inverse />
+          <Logo size={36} inverse trace="once" />
           <span className="font-display text-[22px] font-bold tracking-tight">Pulse</span>
         </div>
         <div className="relative max-w-[460px]">
-          <h1 className="font-display text-[44px] font-semibold leading-[1.05] tracking-tight xl:text-[52px]">Assign once. Pulse follows up.</h1>
-          <p className="mt-5 text-[16px] leading-relaxed text-white/70">
+          <h1 className="enter font-display text-[44px] font-semibold leading-[1.05] tracking-[-0.025em] xl:text-[52px]" style={{ "--d": "80ms" } as React.CSSProperties}>
+            Assign once. Pulse follows up.
+          </h1>
+          <p className="enter mt-5 text-[16px] leading-relaxed text-white/70" style={{ "--d": "200ms" } as React.CSSProperties}>
             Reminders reach the right phone until someone responds. If they don&apos;t, the right manager hears about it. Every step is on the record.
           </p>
-          <div className="mt-10 w-[340px] rounded-[var(--radius-lg)] bg-white text-text shadow-[0_30px_60px_-20px_rgb(0_0_0/0.45)]">
+          {/* the one orchestrated moment: a reminder arrives, and Acknowledge glows once */}
+          <div className="arrive mt-10 w-[340px] rounded-[var(--radius-lg)] bg-surface text-text shadow-[0_30px_60px_-20px_rgb(0_0_0/0.45)]" style={{ "--d": "700ms" } as React.CSSProperties}>
             <div className="flex gap-3 px-4 pb-3 pt-3.5">
               <span className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-ink text-white">
                 <BellRing className="size-[18px]" />
@@ -108,26 +111,26 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
               </div>
             </div>
             <div className="grid grid-cols-2 border-t border-line text-[13px]">
-              <span className="flex h-10 items-center justify-center gap-1.5 font-semibold text-ink">
+              <span className="glow-once flex h-10 items-center justify-center gap-1.5 rounded-bl-[var(--radius-lg)] font-semibold text-ink" style={{ "--d": "1500ms" } as React.CSSProperties}>
                 <Check className="size-4" /> Acknowledge
               </span>
               <span className="flex h-10 items-center justify-center border-l border-line font-medium text-muted">Snooze 30</span>
             </div>
           </div>
         </div>
-        <p className="relative flex items-center gap-2 text-[13px] text-white/55">
+        <p className="enter relative flex items-center gap-2 text-[13px] text-white/55" style={{ "--d": "320ms" } as React.CSSProperties}>
           <ShieldCheck className="size-4" /> Each person sees only their own work and their team&apos;s.
         </p>
       </aside>
 
       {/* form side */}
       <main className="flex items-center justify-center px-4 py-10 sm:px-8">
-        <div className="w-full max-w-[420px]">
+        <div className="enter w-full max-w-[420px]" style={{ "--d": "120ms" } as React.CSSProperties}>
           <div className="mb-8 flex items-center gap-2.5 lg:hidden">
-            <Logo size={32} />
+            <Logo size={32} trace="once" />
             <span className="font-display text-[20px] font-bold tracking-tight text-ink">Pulse</span>
           </div>
-          <h2 className="font-display text-[28px] font-semibold tracking-tight text-text">Sign in</h2>
+          <h2 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Sign in</h2>
           <p className="mt-1.5 text-[14.5px] text-muted">Use the work email your company added you with.</p>
 
           <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
@@ -139,7 +142,7 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
               <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
               <span className="relative block">
                 <Input type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pr-11" />
-                <button type="button" onClick={() => setShow((v) => !v)} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-faint hover:text-muted" aria-label={show ? "Hide password" : "Show password"}>
+                <button type="button" onClick={() => setShow((v) => !v)} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted" aria-label={show ? "Hide password" : "Show password"}>
                   {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
                 </button>
               </span>
@@ -160,7 +163,7 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
             <section className="mt-10">
               <div className="flex items-center gap-3">
                 <span className="h-px flex-1 bg-line" />
-                <span className="text-[12px] font-medium uppercase tracking-[0.08em] text-faint">Or try the demo company</span>
+                <span className="text-[13px] font-medium text-faint">Or try the demo company</span>
                 <span className="h-px flex-1 bg-line" />
               </div>
               <div className="mt-4 space-y-2">
@@ -173,7 +176,7 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
                       type="button"
                       disabled={!!busy}
                       onClick={() => quick(f.email)}
-                      className="group flex w-full items-center gap-3 rounded-[var(--radius-md)] border border-line bg-surface p-3 text-left transition-colors hover:border-ink/40 hover:bg-ink-tint/40 disabled:opacity-60"
+                      className="press group flex w-full items-center gap-3 rounded-[var(--radius-md)] border border-line bg-surface p-3 text-left shadow-[var(--shadow-card)] hover:border-ink/40 hover:bg-ink-tint/40 disabled:opacity-60"
                     >
                       <Initials a={a} size="lg" />
                       <span className="min-w-0 flex-1">
@@ -183,7 +186,7 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
                         </span>
                         <span className="mt-0.5 block text-[12.5px] leading-snug text-faint">{f.hint}</span>
                       </span>
-                      {busy === f.email ? <Loader2 className="size-4 animate-spin text-ink" /> : <ArrowRight className="size-4 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-ink" />}
+                      {busy === f.email ? <Loader2 className="size-4 animate-spin text-ink" /> : <ArrowRight className="size-4 text-faint transition-transform duration-200 ease-[var(--ease-settle)] group-hover:translate-x-0.5 group-hover:text-ink" />}
                     </button>
                   );
                 })}

@@ -302,13 +302,13 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
             if (!list.length) return null;
             return (
               <div key={d.id}>
-                <p className="sticky top-0 z-[1] border-b border-line bg-[#f8fafa] px-3.5 py-1.5 text-[12.5px] font-semibold text-text">{d.name}</p>
+                <p className="sticky top-0 z-[1] border-b border-line bg-hover px-3.5 py-1.5 text-[12.5px] font-semibold text-text">{d.name}</p>
                 <ul>
                   {list.map((p) => {
                     const on = members.includes(p.id);
                     return (
                       <li key={p.id} className="border-b border-line last:border-b-0">
-                        <label className={cn("flex min-h-11 cursor-pointer items-center gap-3 px-3.5 py-1.5 transition-colors hover:bg-[#fafbfb]", on && "bg-ink-tint/40")}>
+                        <label className={cn("flex min-h-11 cursor-pointer items-center gap-3 px-3.5 py-1.5 transition-colors hover:bg-hover", on && "bg-ink-tint/40")}>
                           <Checkbox checked={on} onCheckedChange={(v) => toggle(p.id, v === true)} aria-label={p.name} />
                           <Avatar person={p} size="sm" />
                           <span className="min-w-0 flex-1">

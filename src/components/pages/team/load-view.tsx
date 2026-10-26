@@ -124,7 +124,7 @@ export function LoadView({
               {sections.map((s) => (
                 <React.Fragment key={s.key}>
                   <tr>
-                    <th colSpan={days.length + 1} scope="colgroup" className="border-b border-line bg-[#f8fafa] p-0 text-left">
+                    <th colSpan={days.length + 1} scope="colgroup" className="border-b border-line bg-hover p-0 text-left">
                       <span className="sticky left-0 inline-flex items-baseline gap-2 px-4 py-2">
                         <span className="text-[13px] font-semibold text-text">{s.title}</span>
                         {s.sub && <span className="text-[12px] font-normal text-muted">{s.sub}</span>}
@@ -135,7 +135,7 @@ export function LoadView({
                     const r = rows.get(p.id)!;
                     return (
                       <tr key={p.id} className="group cursor-pointer" onClick={() => onOpen(p.id)}>
-                        <th scope="row" className="sticky left-0 z-10 border-b border-line bg-surface p-0 text-left font-normal transition-colors group-last:border-b-0 group-hover:bg-[#fafbfb]">
+                        <th scope="row" className="sticky left-0 z-10 border-b border-line bg-surface p-0 text-left font-normal transition-colors group-last:border-b-0 group-hover:bg-hover">
                           <button type="button" className="flex min-h-12 w-full items-center gap-2.5 px-4 py-1.5 text-left" aria-label={`Open ${p.name}`}>
                             <Avatar person={p} size="sm" />
                             <span className="min-w-0">
@@ -149,11 +149,11 @@ export function LoadView({
                         </th>
                         {r.cells.map((c) =>
                           c.kind === "away" ? (
-                            <td key={c.day.toISOString()} colSpan={c.span} className="border-b border-line p-1 transition-colors group-last:border-b-0 group-hover:bg-[#fafbfb]">
+                            <td key={c.day.toISOString()} colSpan={c.span} className="border-b border-line p-1 transition-colors group-last:border-b-0 group-hover:bg-hover">
                               <div className="flex h-10 items-center justify-center rounded-[var(--radius-sm)] bg-sunken text-[12.5px] font-medium text-faint">On leave</div>
                             </td>
                           ) : (
-                            <td key={c.day.toISOString()} className="border-b border-line p-1 transition-colors group-last:border-b-0 group-hover:bg-[#fafbfb]">
+                            <td key={c.day.toISOString()} className="border-b border-line p-1 transition-colors group-last:border-b-0 group-hover:bg-hover">
                               <div
                                 className={cn("tabular flex h-10 min-w-12 items-center justify-center rounded-[var(--radius-sm)] text-[13px] font-semibold transition-[filter] group-hover:brightness-[0.98]", LOAD_STYLE[c.tone].cell, c.hours < 0.05 && "font-normal text-faint")}
                                 title={`${p.name.split(" ")[0]}, ${format(c.day, "EEEE")}: ${fmtHours(c.hours)} of ${p.capacityHours} hours`}

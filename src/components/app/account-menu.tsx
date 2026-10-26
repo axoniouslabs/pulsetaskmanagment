@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { ChevronsUpDown, LogOut, Settings } from "lucide-react";
+import { Check, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun } from "lucide-react";
+import { setThemePref, useThemePref, type ThemePref } from "@/lib/theme";
 import { useApp, useMe } from "@/lib/store";
 import { authClient } from "@/lib/auth-client";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/primitives";
@@ -18,6 +19,7 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
   const me = useMe();
   const role = useApp((s) => s.role);
   const dept = useApp((s) => s.departments.find((d) => d.id === me?.departmentId)?.name);
+  const theme = useThemePref();
   if (!me) return null;
 
   return (
@@ -56,6 +58,19 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
             <Settings /> Settings
           </Link>
         </MenuItem>
+        <MenuSeparator />
+        <p className="px-2.5 pb-1 pt-1.5 text-[12px] text-faint">Appearance</p>
+        {([
+          ["system", "Match this device", Monitor],
+          ["light", "Light", Sun],
+          ["dark", "Dark", Moon],
+        ] as [ThemePref, string, typeof Sun][]).map(([v, label, Icon]) => (
+          <MenuItem key={v} onSelect={(e) => { e.preventDefault(); setThemePref(v); }}>
+            <Icon /> {label}
+            {theme === v && <Check className="ml-auto !text-ink" />}
+          </MenuItem>
+        ))}
+        <MenuSeparator />
         <MenuItem onSelect={() => void signOut()}>
           <LogOut /> Sign out
         </MenuItem>
