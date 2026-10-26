@@ -119,15 +119,17 @@ export const organizations = pgTable("organizations", {
   /** reminder engine bookkeeping: last tick, daily reset, digests sent */
   engine: jsonb().$type<EngineState>().notNull().default({}),
   createdAt: ts().notNull().defaultNow(),
-  /** subscription: plan (user limit), paid-up date and whether access is paused */
-  planId: text(),
-  status: text().notNull().default("active"), // active | suspended
-  expiresAt: ts(), // null: never expires
+  /** active | suspended (paused by the Pulse administrator) */
+  status: text().notNull().default("active"),
+  /** the Pulse administrator's own records about this company */
   contactPhone: text().notNull().default(""),
   notes: text().notNull().default(""),
+  /** retired: from the short-lived subscription system; kept so no data is dropped, never read */
+  planId: text(),
+  expiresAt: ts(),
 });
 
-/** what a company can buy: a user limit and a monthly price (PKR) */
+/** retired (subscription plans); kept so no data is dropped, never read */
 export const plans = pgTable("plans", {
   id: text().primaryKey(),
   name: text().notNull(),
@@ -138,7 +140,7 @@ export const plans = pgTable("plans", {
   createdAt: ts().notNull().defaultNow(),
 });
 
-/** a payment received outside Pulse (bank, JazzCash, Easypaisa, cash), recorded by an admin */
+/** retired (subscription payments); kept so no data is dropped, never read */
 export const payments = pgTable(
   "payments",
   {
@@ -160,7 +162,7 @@ export const payments = pgTable(
   (t) => [index().on(t.orgId), index().on(t.paidAt)],
 );
 
-/** one row of settings for the Pulse service itself (support contact shown to customers) */
+/** retired (support contact for renewals); kept so no data is dropped, never read */
 export const platformSettings = pgTable("platform_settings", {
   id: text().primaryKey(),
   data: jsonb().$type<{ supportName?: string; supportPhone?: string; supportEmail?: string }>().notNull().default({}),

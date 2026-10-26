@@ -15,8 +15,6 @@ import { TooltipProvider } from "@/components/ui/primitives";
 const NAV = [
   { href: "/admin", label: "Overview" },
   { href: "/admin/companies", label: "Companies" },
-  { href: "/admin/plans", label: "Plans" },
-  { href: "/admin/settings", label: "Settings" },
 ];
 
 export function AdminChrome({ children }: { children: React.ReactNode }) {

@@ -62,7 +62,6 @@ export function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenC
 }
 
 function AddPersonForm({ onDone }: { onDone: () => void }) {
-  const sub = useApp((s) => s.subscription);
   const teams = useApp((s) => s.teams);
   const departments = useApp((s) => s.departments);
   const [f, setF] = React.useState({ name: "", email: "", phone: "", title: "", role: "employee" as "employee" | "manager", teamId: teams[0]?.id ?? "", workType: "desk" as "desk" | "field", capacityHours: 8 });
@@ -91,7 +90,7 @@ function AddPersonForm({ onDone }: { onDone: () => void }) {
   return (
     <DialogContent
       title="Add a person"
-      description={`They get a sign-in with a temporary password, and can be assigned tasks straight away.${sub?.maxUsers ? ` Your ${sub.planName} plan has ${Math.max(0, sub.maxUsers - sub.usedUsers)} of ${sub.maxUsers} places free.` : ""}`}
+      description="They get a sign-in with a temporary password, and can be assigned tasks straight away."
     >
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">

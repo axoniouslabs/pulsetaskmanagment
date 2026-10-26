@@ -95,19 +95,15 @@ If the engine stops for more than 10 minutes, the owner sees a red **Reminders a
    It prints a temporary password. The owner signs in, then adds departments, teams and people
    from **Organisation** and **Team → Add person**.
 
-## 8. Selling Pulse to other companies (admin panel)
+## 8. Adding other companies (admin panel)
 
 The person who set up the server is the **Pulse administrator**. They open **Pulse admin** from the
-account menu (or go to `/admin`). Nobody else can see it.
+account menu (or go to `/admin`). Nobody else can see it; each company's owner runs only their own
+company from the normal app.
 
-- **Companies → Add a company:** company name, owner's name and email, a plan, and either a first
-  payment or a free trial. Pulse shows the owner's temporary password and a message ready to send.
-- **Record a payment:** money received by bank transfer, JazzCash, Easypaisa or cash. Each payment
-  adds its months to the company's paid-up date.
-- **When the paid-up date passes**, that company becomes read-only: they can sign in and look, but
-  can't change anything, and their reminders pause. Owners are told a week before.
-- **Pause access** locks a company out completely until you resume it. Nothing is deleted.
-- **Plans** set how many active people a company can have and the monthly price.
-- **Settings** holds the name, phone and email customers see when they need to renew.
-- **Overview** lists who needs attention: ended or ending subscriptions, companies over their plan's
-  limit, and companies that have stopped using Pulse.
+- **Companies → Add a company:** company name, owner's name and email, and a phone number for your
+  records. Pulse shows the owner's temporary password and a message ready to send.
+- **Each company's page:** people, how much they use Pulse (active this week, tasks, reminders, a
+  weekly chart), your private notes, and a button to reset the owner's password.
+- **Pause access** locks a company out until you resume it, and stops its reminders. Nothing is deleted.
+- **Overview** lists companies that have stopped using Pulse, and warns you if reminders stop running.

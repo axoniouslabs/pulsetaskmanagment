@@ -18,7 +18,7 @@ import { CreateTaskDialog } from "./create-task";
 import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
-import { EngineAlarm, EngineLive, PasswordNudge, SubscriptionNotice } from "./engine-alarm";
+import { EngineAlarm, EngineLive, PasswordNudge } from "./engine-alarm";
 import { MotionProvider } from "./motion-provider";
 import { m } from "motion/react";
 import { GLIDE } from "@/lib/motion";
@@ -97,7 +97,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="flex min-w-0 flex-1 flex-col">
           <TopBar />
           <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
-            <SubscriptionNotice />
             <EngineAlarm />
             <PasswordNudge />
             {/* each page settles in; keyed so a new page gets its own entrance */}

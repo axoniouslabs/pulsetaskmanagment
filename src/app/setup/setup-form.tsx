@@ -39,7 +39,7 @@ export function SetupForm() {
           <span className="font-display text-[20px] font-bold tracking-tight text-ink">Pulse</span>
         </div>
         <h1 className="mt-8 font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Set up your company</h1>
-        <p className="mt-1.5 text-[14.5px] leading-relaxed text-muted">This creates your own company and makes you the Pulse administrator, so you can add client companies and their subscriptions afterwards.</p>
+        <p className="mt-1.5 text-[14.5px] leading-relaxed text-muted">This creates your own company and makes you the Pulse administrator, so you can add other companies afterwards.</p>
 
         <form onSubmit={onSubmit} noValidate className="mt-7 rounded-[var(--radius-lg)] border border-line bg-surface p-5 shadow-[var(--shadow-card)] sm:p-6">
           <div className="space-y-4">

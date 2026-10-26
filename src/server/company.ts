@@ -13,9 +13,7 @@ export interface NewCompany {
   timezone?: string;
   /** ask the owner to choose their own password after the first sign-in */
   mustChangePassword?: boolean;
-  /** subscription: plan (user limit) and paid-up date; none means no limit, never expires */
-  planId?: string | null;
-  expiresAt?: Date | null;
+  /** for the Pulse administrator's records */
   contactPhone?: string;
   /** the owner also runs the Pulse admin panel (the first company on a server) */
   platformAdmin?: boolean;
@@ -63,8 +61,6 @@ export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boo
       name: company,
       timezone,
       settings,
-      planId: input.planId ?? null,
-      expiresAt: input.expiresAt ?? null,
       contactPhone: input.contactPhone?.trim() ?? "",
     });
     await tx.insert(S.user).values({ id: userId, name: ownerName, email: ownerEmail, emailVerified: true, platformAdmin: !!input.platformAdmin });

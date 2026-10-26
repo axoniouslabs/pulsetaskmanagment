@@ -8,20 +8,18 @@ import { Input, Segmented } from "@/components/ui/primitives";
 import { EmptyState, Panel } from "@/components/app/page-header";
 import { ago } from "@/lib/admin-shared";
 import type { CompanyRow } from "@/server/admin-data";
-import { AccessBadge, PageTitle, Seats } from "./bits";
+import { PageTitle, StatusBadge } from "./bits";
 
-type Filter = "all" | "attention" | "ended" | "paused";
+type Filter = "all" | "active" | "paused";
 
 export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number }) {
   const [q, setQ] = React.useState("");
   const [filter, setFilter] = React.useState<Filter>("all");
-  const needs = (c: CompanyRow) => c.access.state === "expired" || c.access.state === "expiring" || (c.maxUsers !== null && c.users > c.maxUsers);
   const shown = rows.filter((c) => {
     const text = `${c.name} ${c.owner?.name ?? ""} ${c.owner?.email ?? ""} ${c.contactPhone}`.toLowerCase();
     if (q && !text.includes(q.trim().toLowerCase())) return false;
-    if (filter === "attention") return needs(c);
-    if (filter === "ended") return c.access.state === "expired";
-    if (filter === "paused") return c.access.state === "suspended";
+    if (filter === "active") return c.access === "active";
+    if (filter === "paused") return c.access === "paused";
     return true;
   });
 
@@ -29,7 +27,7 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
     <>
       <PageTitle
         title="Companies"
-        sub="Every company on Pulse, its plan and how much it's being used. Open one to record a payment or change its plan."
+        sub="Every company on Pulse and how much it's being used. Open one to see its people, reset the owner's password or pause it."
         action={
           <Button asChild variant="primary">
             <Link href="/admin/companies/new">
@@ -49,8 +47,7 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
           onChange={setFilter}
           options={[
             { value: "all", label: `All ${rows.length}` },
-            { value: "attention", label: `Needs attention ${rows.filter(needs).length}` },
-            { value: "ended", label: "Ended" },
+            { value: "active", label: "Active" },
             { value: "paused", label: "Paused" },
           ]}
         />
@@ -67,9 +64,9 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
             <thead>
               <tr className="border-b border-line text-[12.5px] text-faint">
                 <th className="px-5 py-2.5 font-medium">Company</th>
-                <th className="px-3 py-2.5 font-medium">Plan</th>
                 <th className="px-3 py-2.5 font-medium">People</th>
-                <th className="px-3 py-2.5 font-medium">Subscription</th>
+                <th className="px-3 py-2.5 font-medium">Active this week</th>
+                <th className="px-3 py-2.5 font-medium">Status</th>
                 <th className="px-3 py-2.5 font-medium">Last used</th>
                 <th className="px-3 py-2.5 text-right font-medium">Tasks, 30 days</th>
                 <th className="w-10" />
@@ -84,12 +81,10 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
                     </Link>
                     <p className="text-[12.5px] text-faint">{c.owner ? `${c.owner.name}, ${c.owner.email}` : "No owner"}</p>
                   </td>
-                  <td className="px-3 py-3 text-text">{c.planName ?? <span className="text-faint">No plan</span>}</td>
+                  <td className="px-3 py-3 tabular text-text">{c.users}</td>
+                  <td className="px-3 py-3 tabular text-text">{c.activeThisWeek}</td>
                   <td className="px-3 py-3">
-                    <Seats used={c.users} max={c.maxUsers} />
-                  </td>
-                  <td className="px-3 py-3">
-                    <AccessBadge access={c.access} />
+                    <StatusBadge access={c.access} />
                   </td>
                   <td className="px-3 py-3 text-muted">{ago(c.lastActivityAt, now)}</td>
                   <td className="px-3 py-3 text-right tabular text-text">{c.tasks30}</td>
@@ -110,12 +105,13 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
                       <p className="truncate text-[14.5px] font-medium text-text">{c.name}</p>
                       <p className="truncate text-[12.5px] text-faint">{c.owner?.name ?? "No owner"}</p>
                     </div>
-                    <AccessBadge access={c.access} />
+                    <StatusBadge access={c.access} />
                   </div>
                   <div className="mt-3 flex items-end justify-between gap-4 text-[12.5px] text-muted">
                     <span>
-                      {c.planName ?? "No plan"}
-                      <Seats used={c.users} max={c.maxUsers} className="mt-1" />
+                      {c.users} {c.users === 1 ? "person" : "people"}
+                      <br />
+                      {c.activeThisWeek} active this week
                     </span>
                     <span className="text-right">
                       Used {ago(c.lastActivityAt, now).toLowerCase()}

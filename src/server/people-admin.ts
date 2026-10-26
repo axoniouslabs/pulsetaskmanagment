@@ -6,15 +6,14 @@ import { z } from "zod";
 import { db, schema as S } from "./db";
 import { lockOrg } from "./repo";
 import { newId } from "./ids";
-import { assertSeats, assertWritable, SubscriptionError } from "./platform";
+import { assertNotPaused, PausedError } from "./platform";
 
-/** the subscription allows this change (and, when adding people, has room for them) */
-async function subscriptionAllows(orgId: string, addingPeople = 0) {
+/** a paused company can't change its people */
+async function notPaused(orgId: string) {
   try {
-    await assertWritable(orgId);
-    if (addingPeople) await assertSeats(orgId, addingPeople);
+    await assertNotPaused(orgId);
   } catch (e) {
-    throw e instanceof SubscriptionError ? new AdminError(e.message) : e;
+    throw e instanceof PausedError ? new AdminError(e.message) : e;
   }
 }
 
@@ -50,7 +49,7 @@ const log = (orgId: string, actorId: string, text: string) => ({ id: newId("act"
 
 export async function createPerson(orgId: string, actorId: string, raw: unknown) {
   const input = personInput.parse(raw);
-  await subscriptionAllows(orgId, 1);
+  await notPaused(orgId);
   const password = tempPassword();
   const hash = await hashPassword(password);
   return db.transaction(async (tx) => {
@@ -87,11 +86,7 @@ export async function createPerson(orgId: string, actorId: string, raw: unknown)
 
 export async function updatePerson(orgId: string, actorId: string, personId: string, raw: unknown) {
   const patch = personPatch.parse(raw);
-  await subscriptionAllows(orgId);
-  if (patch.active === true) {
-    const [was] = await db.select({ active: S.people.active }).from(S.people).where(and(eq(S.people.id, personId), eq(S.people.orgId, orgId)));
-    if (was && !was.active) await subscriptionAllows(orgId, 1);
-  }
+  await notPaused(orgId);
   return db.transaction(async (tx) => {
     await lockOrg(tx, orgId);
     const [p] = await tx.select().from(S.people).where(and(eq(S.people.id, personId), eq(S.people.orgId, orgId)));
@@ -141,7 +136,7 @@ export async function resetPassword(orgId: string, actorId: string, personId: st
   const [p] = await db.select().from(S.people).where(and(eq(S.people.id, personId), eq(S.people.orgId, orgId)));
   if (!p?.userId) throw new AdminError("That person isn't in this company.");
   if (personId === actorId) throw new AdminError("Change your own password in Settings → Account.");
-  await subscriptionAllows(orgId);
+  await notPaused(orgId);
   const password = tempPassword();
   const hash = await hashPassword(password);
   await db.transaction(async (tx) => {
