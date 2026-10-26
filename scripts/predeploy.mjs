@@ -4,12 +4,15 @@
 // Without a database yet, it warns and lets the build continue, so the first
 // deploy succeeds; add the database and redeploy.
 import { execSync } from "node:child_process";
+import { findDatabaseUrl } from "../src/server/db/url.mjs";
 
-const db = process.env.DATABASE_URL || process.env.POSTGRES_URL;
+const db = findDatabaseUrl(process.env);
 if (!db) {
   console.warn("\n⚠  Pulse: no DATABASE_URL yet. Skipping migrations. Add a Neon database to the project and redeploy.\n");
   process.exit(0);
 }
+// the steps below (and the seed) read DATABASE_URL
+process.env.DATABASE_URL = db;
 const run = (cmd) => execSync(cmd, { stdio: "inherit", env: process.env });
 
 console.log("Pulse: applying database migrations");

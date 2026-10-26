@@ -2,11 +2,12 @@ import "server-only";
 import { drizzle } from "drizzle-orm/node-postgres";
 import { Pool } from "pg";
 import * as schema from "./schema";
+import { findDatabaseUrl } from "./url.mjs";
 
 const globalForDb = globalThis as unknown as { pulsePool?: Pool };
 
-// DATABASE_URL, or the name the Vercel/Neon integration uses
-const url = process.env.DATABASE_URL ?? process.env.POSTGRES_URL;
+// DATABASE_URL, or whatever name the Vercel/Neon integration used
+const url = findDatabaseUrl(process.env);
 const local = !url || /localhost|127\.0\.0\.1/.test(url);
 
 const pool =
