@@ -1,6 +1,6 @@
 import "server-only";
 import { randomInt } from "node:crypto";
-import { and, eq, ne } from "drizzle-orm";
+import { and, eq, isNull, ne, notInArray } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { db, schema as S } from "./db";
@@ -81,6 +81,13 @@ export async function updatePerson(orgId: string, actorId: string, personId: str
     if (!p) throw new AdminError("That person isn't in this company.");
     if (p.role === "owner" && (patch.role || patch.active === false)) throw new AdminError("The owner's role can't be changed here.");
     if (personId === actorId && patch.active === false) throw new AdminError("You can't deactivate yourself.");
+    if (patch.active === false && p.active) {
+      // escalations go up through heads and leads, so those roles need a successor first
+      const heads = await tx.select({ name: S.departments.name }).from(S.departments).where(and(eq(S.departments.orgId, orgId), eq(S.departments.headId, personId)));
+      const leads = await tx.select({ name: S.teams.name }).from(S.teams).where(and(eq(S.teams.orgId, orgId), eq(S.teams.leadId, personId)));
+      const runs = [...heads.map((d) => `the ${d.name} department`), ...leads.map((t) => `the ${t.name} team`)];
+      if (runs.length) throw new AdminError(`${p.name.split(" ")[0]} runs ${runs.join(" and ")}. Choose someone else in Organisation first, so escalations still reach a person.`);
+    }
     const set: Partial<typeof S.people.$inferInsert> = {};
     if (patch.name) {
       set.name = patch.name;
@@ -98,8 +105,13 @@ export async function updatePerson(orgId: string, actorId: string, personId: str
     if (patch.active === false && p.active) {
       if (p.userId) await tx.delete(S.session).where(eq(S.session.userId, p.userId));
       await tx.update(S.devices).set({ endpoint: null, p256dh: null, auth: null, healthy: false }).where(eq(S.devices.personId, personId));
-      // nobody stays team lead or head after leaving; the owner picks a successor
-      await tx.insert(S.activity).values(log(orgId, actorId, `Deactivated ${p.name}. They can no longer sign in.`));
+      // nothing they were holding goes quiet: open work, reviews and questions pass to whoever deactivated them
+      const open = and(eq(S.tasks.orgId, orgId), notInArray(S.tasks.status, ["approved", "cancelled"]));
+      const handed = await tx.update(S.tasks).set({ assigneeId: actorId }).where(and(open, eq(S.tasks.assigneeId, personId))).returning({ id: S.tasks.id });
+      await tx.update(S.tasks).set({ reviewerId: actorId }).where(and(open, eq(S.tasks.reviewerId, personId)));
+      await tx.update(S.questions).set({ toId: actorId }).where(and(eq(S.questions.orgId, orgId), eq(S.questions.toId, personId), isNull(S.questions.answer)));
+      const moved = handed.length ? ` Their ${handed.length === 1 ? "open task was" : `${handed.length} open tasks were`} handed to you.` : "";
+      await tx.insert(S.activity).values(log(orgId, actorId, `Deactivated ${p.name}. They can no longer sign in.${moved}`));
     } else if (patch.active === true && !p.active) {
       await tx.insert(S.activity).values(log(orgId, actorId, `Reactivated ${p.name}`));
     } else if (Object.keys(set).length) {

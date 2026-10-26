@@ -9,6 +9,7 @@
  * Column names are snake_case in the database (drizzle `casing: "snake_case"`).
  */
 import {
+  bigint,
   boolean,
   customType,
   doublePrecision,
@@ -97,6 +98,14 @@ export const verification = pgTable(
   },
   (t) => [index().on(t.identifier)],
 );
+
+/** sign-in attempts per address, shared by every server instance (Better Auth rate limiting) */
+export const rateLimit = pgTable("rate_limit", {
+  id: text().primaryKey(),
+  key: text().notNull().unique(),
+  count: integer().notNull(),
+  lastRequest: bigint({ mode: "number" }).notNull(),
+});
 
 /* ───────────────────────── Organisation ───────────────────────── */
 

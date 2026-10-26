@@ -3,7 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Loader2, LogOut } from "lucide-react";
-import { authClient } from "@/lib/auth-client";
+import { changeMyPassword } from "./actions";
 import { useApp, useMe } from "@/lib/store";
 import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented } from "@/components/ui/primitives";
@@ -22,12 +22,11 @@ export function AccountSettings() {
     e.preventDefault();
     if (next.length < 8) return toast.error("Use at least 8 characters for the new password.");
     setBusy(true);
-    const { error } = await authClient.changePassword({ currentPassword: current, newPassword: next, revokeOtherSessions: true });
+    const r = await changeMyPassword(current, next).catch(() => ({ ok: false as const, error: "Couldn't change the password. Try again." }));
     setBusy(false);
-    if (error) return toast.error(error.status === 400 || error.status === 401 ? "Your current password isn't right." : "Couldn't change the password. Try again.");
+    if (!r.ok) return toast.error(r.error);
     setCurrent("");
     setNext("");
-    await fetch("/api/me/password-changed", { method: "POST" }).catch(() => {});
     void useApp.getState().load();
     toast.success("Password changed", { description: "You've been signed out on your other devices." });
   }

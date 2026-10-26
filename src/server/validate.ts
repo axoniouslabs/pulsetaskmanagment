@@ -101,7 +101,7 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("snooze"), taskId: id, minutes: z.number().int() }),
   z.object({ type: z.literal("block"), taskId: id, reason: text(500), blockerOwnerId: id.optional() }),
   z.object({ type: z.literal("unblock"), taskId: id, note: text(500).optional() }),
-  z.object({ type: z.literal("submit"), taskId: id, note: text(2000), proofName: text(200).optional() }),
+  z.object({ type: z.literal("submit"), taskId: id, note: text(2000) }),
   z.object({ type: z.literal("approve"), taskId: id, note: text(1000).optional() }),
   z.object({ type: z.literal("reject"), taskId: id, reason: text(1000) }),
   z.object({ type: z.literal("cancel"), taskId: id, reason: text(500) }),

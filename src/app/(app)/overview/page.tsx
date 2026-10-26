@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Count } from "@/components/app/count";
 import { isToday, differenceInHours, format } from "date-fns";
 import { toast } from "sonner";
-import { CheckCircle2, MessageCircleQuestion, ChevronRight, Plus, CalendarClock } from "lucide-react";
+import { CheckCircle2, MessageCircleQuestion, ChevronRight, Plus, CalendarClock, Check } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useNow, useScope } from "@/lib/hooks";
 import { attention, heatOf, isOpenWork } from "@/lib/selectors";
@@ -33,6 +33,8 @@ export default function OverviewPage() {
   const hour = now.getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
   const scopeLabel = role === "owner" ? "the company" : state.departments.find((d) => d.headId === meId)?.name ?? "your team";
+  // a company that has just been created: guide the owner through the first steps
+  const starting = role === "owner" && (state.departments.length === 0 || state.people.length <= 1 || state.tasks.length === 0) && total === 0;
 
   const reasonFor = (t: Task, kind: "overdue" | "unseen" | "blocked" | "review") => {
     if (kind === "blocked")
@@ -66,24 +68,37 @@ export default function OverviewPage() {
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0">
-        {/* the status line is the hero */}
-        <p className="text-[14px] text-muted">
-          {greet}, {me.name.split(" ")[0]}. {format(now, "EEEE d MMMM")}.
-        </p>
-        <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">
-          {total === 0 ? (
-            "Everything is moving."
-          ) : (
-            <>
-              <Count value={total} /> {total === 1 ? "thing needs" : "things need"} you.
-            </>
-          )}
-        </h1>
-        <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">
-          {total === 0
-            ? `No overdue, ignored or blocked work in ${scopeLabel}. You can close the app.`
-            : `The rest of ${scopeLabel} is on track: ${plural(open.length, "open task")}, ${doneToday.length} done today. Below is only what has stalled, most urgent first.`}
-        </p>
+        {starting ? (
+          <GettingStarted
+            greeting={`${greet}, ${me.name.split(" ")[0]}. ${format(now, "EEEE d MMMM")}.`}
+            hasDepartments={state.departments.length > 0}
+            hasPeople={state.people.length > 1}
+            hasTasks={state.tasks.length > 0}
+            onAssign={() => state.openCreate()}
+          />
+        ) : (
+          <>
+          {/* the status line is the hero */}
+          <p className="text-[14px] text-muted">
+            {greet}, {me.name.split(" ")[0]}. {format(now, "EEEE d MMMM")}.
+          </p>
+          <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">
+            {total === 0 ? (
+              "Everything is moving."
+            ) : (
+              <>
+                <Count value={total} /> {total === 1 ? "thing needs" : "things need"} you.
+              </>
+            )}
+          </h1>
+          <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">
+            {total === 0
+              ? `No overdue, ignored or blocked work in ${scopeLabel}. You can close the app.`
+              : `The rest of ${scopeLabel} is on track: ${plural(open.length, "open task")}, ${doneToday.length} done today. Below is only what has stalled, most urgent first.`}
+          </p>
+
+          </>
+        )}
 
         <div className="mt-8 space-y-8">
           {a.overdue.length > 0 && (
@@ -136,15 +151,17 @@ export default function OverviewPage() {
             </Block>
           )}
 
-          <ClearList
-            items={[
+          {!starting && (
+            <ClearList
+              items={[
               !a.overdue.length && "Nothing overdue",
               !a.unseen.length && "Every task has been acknowledged",
               !a.blocked.length && "Nobody is blocked",
               !a.slowReview.length && "Reviews are on time",
               !a.quiet.length && "Everyone has been active today",
-            ].filter(Boolean) as string[]}
-          />
+              ].filter(Boolean) as string[]}
+            />
+          )}
         </div>
       </div>
 
@@ -372,3 +389,49 @@ function DepartmentHealth() {
   );
 }
 
+
+function GettingStarted({ greeting, hasDepartments, hasPeople, hasTasks, onAssign }: { greeting: string; hasDepartments: boolean; hasPeople: boolean; hasTasks: boolean; onAssign: () => void }) {
+  const steps = [
+    { done: hasPeople, title: "Add your people", body: "Each person gets a sign-in and a temporary password to share with them. Teams can come later.", href: "/team", action: "Open Team" },
+    { done: hasDepartments, title: "Group them into departments", body: "Each department has a head, who hears about it when work there stalls.", href: "/organisation", action: "Open Organisation" },
+    { done: hasTasks, title: "Assign the first task", body: "Pick a person, a deadline and how often Pulse should remind them.", action: "Assign a task" },
+  ];
+  const next = steps.findIndex((s) => !s.done);
+  return (
+    <>
+      <p className="text-[14px] text-muted">{greeting}</p>
+      <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">Welcome to Pulse.</h1>
+      <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">Three steps and your team is on automatic follow-up. You can come back to this page at any time.</p>
+      <ol className="mt-8 overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface shadow-[var(--shadow-card)]">
+        {steps.map((st, i) => (
+          <li key={st.title} className={cn("flex gap-4 border-b border-line px-5 py-4 last:border-0", i === next && "bg-ink-tint/35")}>
+            <span
+              className={cn(
+                "mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-full text-[13px] font-semibold tabular",
+                st.done ? "bg-ok-tint text-ok" : i === next ? "bg-ink text-white" : "bg-sunken text-muted",
+              )}
+              aria-hidden
+            >
+              {st.done ? <Check className="size-4" /> : i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className={cn("text-[15px] font-semibold", st.done ? "text-muted line-through decoration-line-strong" : "text-text")}>{st.title}</p>
+              <p className="mt-0.5 text-[13.5px] leading-snug text-muted">{st.body}</p>
+              {i === next &&
+                (st.href ? (
+                  <Link href={st.href} className="press mt-3 inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-ink px-3.5 text-[13.5px] font-medium text-white transition-colors hover:bg-ink-soft">
+                    {st.action}
+                  </Link>
+                ) : (
+                  <Button variant="primary" size="sm" className="mt-3" onClick={onAssign}>
+                    <Plus /> {st.action}
+                  </Button>
+                ))}
+            </div>
+            <span className="sr-only">{st.done ? "Done" : "To do"}</span>
+          </li>
+        ))}
+      </ol>
+    </>
+  );
+}

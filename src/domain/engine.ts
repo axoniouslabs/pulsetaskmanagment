@@ -61,8 +61,14 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   const log = (kind: ActivityKind, text: string, taskId?: string) => acts.push({ id: uid("act"), at: nowIso, actorId: "system", kind, text, taskId });
   const note = (recipientId: string | undefined, kind: NotificationKind, title: string, body: string, taskId?: string) => {
     if (!recipientId) return undefined;
-    const p = w.people.find((x) => x.id === recipientId);
-    if (!p || p.active === false) return undefined;
+    let p = w.people.find((x) => x.id === recipientId);
+    // someone who has left can't act on an escalation or a review: the owner hears instead
+    if (p?.active === false && (kind === "escalation" || kind === "submitted")) {
+      const owner = ownerOf(w);
+      p = owner && owner !== recipientId ? w.people.find((x) => x.id === owner) : undefined;
+      recipientId = p?.id;
+    }
+    if (!p || !recipientId || p.active === false) return undefined;
     const n: AppNotification = { id: uid("n"), at: nowIso, recipientId, kind, title, body, taskId, read: false };
     notes.push(n);
     return n;
@@ -255,6 +261,12 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       recurrenceNextId: undefined,
       dependsOn: [],
     };
+    // the person it repeated for has left: the next copy goes to the owner to hand on
+    if (w.people.find((p) => p.id === t.assigneeId)?.active === false) {
+      const owner = ownerOf(w);
+      if (owner) copy.assigneeId = owner;
+    }
+    if (w.people.find((p) => p.id === copy.reviewerId)?.active === false) copy.reviewerId = ownerOf(w) ?? copy.reviewerId;
     t.recurrenceNextId = id;
     w.tasks.unshift(copy);
     log("assigned", `Repeats ${t.recurrence}: next copy assigned to ${first(t.assigneeId)}`, id);

@@ -94,6 +94,8 @@ export interface AppState extends World, Actions {
   serverOffsetMs: number;
   /** when the reminder engine last ran (null: never) */
   engineLastTickAt: string | null;
+  /** when this company was created on Pulse */
+  companyCreatedAt: string | null;
   /** VAPID public key for Web Push; null when push isn't set up on the server */
   pushPublicKey: string | null;
   openTaskId: string | null;
@@ -206,6 +208,7 @@ export const useApp = create<AppState>()((set, get) => {
     demoMode: false,
     serverOffsetMs: 0,
     engineLastTickAt: null,
+    companyCreatedAt: null,
     pushPublicKey: null,
     openTaskId: null,
     createOpen: false,
@@ -225,6 +228,7 @@ export const useApp = create<AppState>()((set, get) => {
           serverTime: string;
           demoMode?: boolean;
           engineLastTickAt: string | null;
+          companyCreatedAt?: string | null;
           pushPublicKey: string | null;
         };
         // a change made while this was loading wins; the next refetch brings both together
@@ -237,6 +241,7 @@ export const useApp = create<AppState>()((set, get) => {
           userIds: { owner: personId, manager: personId, employee: personId },
           demoMode: !!data.demoMode,
           engineLastTickAt: data.engineLastTickAt,
+          companyCreatedAt: data.companyCreatedAt ?? null,
           pushPublicKey: data.pushPublicKey,
           serverOffsetMs: new Date(data.serverTime).getTime() - Date.now(),
           status: "ready",

@@ -120,16 +120,19 @@ export function membersOf(w: Pick<World, "people" | "teams" | "groups">, unitTyp
   return [];
 }
 
+/** someone who can still act on a notice: in the company and not deactivated */
+const activeId = (w: Pick<World, "people">, id: string | undefined) => (id && w.people.some((x) => x.id === id && x.active !== false) ? id : undefined);
+
 export const leadOf = (w: Pick<World, "people" | "teams">, personId: string) => {
   const p = w.people.find((x) => x.id === personId);
   const team = w.teams.find((t) => t.id === p?.teamId);
-  return team?.leadId && team.leadId !== personId ? team.leadId : undefined;
+  return team?.leadId && team.leadId !== personId ? activeId(w, team.leadId) : undefined;
 };
 
 export const headOf = (w: Pick<World, "people" | "departments">, personId: string) => {
   const p = w.people.find((x) => x.id === personId);
   const dep = w.departments.find((d) => d.id === p?.departmentId);
-  return dep?.headId && dep.headId !== personId ? dep.headId : undefined;
+  return dep?.headId && dep.headId !== personId ? activeId(w, dep.headId) : undefined;
 };
 
-export const ownerOf = (w: Pick<World, "people">) => w.people.find((p) => p.role === "owner")?.id;
+export const ownerOf = (w: Pick<World, "people">) => (w.people.find((p) => p.role === "owner" && p.active !== false) ?? w.people.find((p) => p.role === "owner"))?.id;

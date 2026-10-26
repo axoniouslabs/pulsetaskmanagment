@@ -1,5 +1,6 @@
 import { tickAll } from "@/server/tick";
 import { json } from "@/server/session";
+import { secretMatches } from "@/server/secret";
 
 /**
  * Called every minute by the scheduler (cron-job.org, GitHub Actions or Vercel
@@ -11,7 +12,7 @@ async function handle(req: Request) {
   if (secret) {
     const url = new URL(req.url);
     const given = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? url.searchParams.get("secret");
-    if (given !== secret) return json({ ok: false, error: "unauthorized" }, 401);
+    if (!secretMatches(given, secret)) return json({ ok: false, error: "unauthorized" }, 401);
   } else if (process.env.NODE_ENV === "production") {
     return json({ ok: false, error: "Set CRON_SECRET to enable the reminder engine." }, 503);
   }

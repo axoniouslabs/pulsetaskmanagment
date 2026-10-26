@@ -50,7 +50,7 @@ With `ENGINE_INTERNAL_TICK=1` in `.env` the reminder engine runs every minute in
 ## Demo company
 
 Crescent Distributors: 20 staff in 5 departments (Sales, Operations, Accounts, Development, Admin & HR).
-Everyone has a login, `firstname@crescent.pk` with the `SEED_PASSWORD`. With `DEMO_MODE=1` the sign-in
+Everyone has a login, `firstname@crescent.pk` with the `SEED_PASSWORD`. With `PULSE_DEMO=1` the sign-in
 page also shows one-tap buttons for the owner (Imran), a manager (Saad) and an employee (Ali), and the
 owner gets **Settings → Demo controls → Reset demo data**.
 

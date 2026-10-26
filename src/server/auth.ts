@@ -18,7 +18,7 @@ export const auth = betterAuth({
   trustedOrigins,
   database: drizzleAdapter(db, {
     provider: "pg",
-    schema: { user: schema.user, session: schema.session, account: schema.account, verification: schema.verification },
+    schema: { user: schema.user, session: schema.session, account: schema.account, verification: schema.verification, rateLimit: schema.rateLimit },
   }),
   emailAndPassword: {
     enabled: true,
@@ -30,6 +30,11 @@ export const auth = betterAuth({
     expiresIn: 60 * 60 * 24 * 30,
     updateAge: 60 * 60 * 24,
   },
-  rateLimit: { enabled: process.env.NODE_ENV === "production" },
+  // kept in Postgres so the limit holds across every serverless instance
+  rateLimit: {
+    enabled: process.env.NODE_ENV === "production",
+    storage: "database",
+    customRules: { "/sign-in/email": { window: 300, max: 10 } },
+  },
   plugins: [nextCookies()],
 });

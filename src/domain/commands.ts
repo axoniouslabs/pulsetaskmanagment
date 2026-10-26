@@ -710,9 +710,16 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     }
     case "addDepartment": {
       const name = cmd.name.trim() || fail("Give the department a name.");
-      if (!w.people.some((p) => p.id === cmd.headId)) fail("Pick who heads the department.");
+      const head = w.people.find((p) => p.id === cmd.headId) ?? fail("Pick who heads the department.");
+      if (w.departments.some((d) => d.headId === head.id) || w.teams.some((t) => t.leadId === head.id)) {
+        fail(`${first(head.id)} already heads a department or leads a team. Pick someone else, or give that role away first.`);
+      }
       const id = ctx.uid("d");
-      w.departments.push({ id, name, headId: cmd.headId, description: cmd.description.trim() });
+      w.departments.push({ id, name, headId: head.id, description: cmd.description.trim() });
+      // the head works in the department they run, with a manager's view of it
+      if (head.role === "employee") head.role = "manager";
+      head.departmentId = id;
+      head.teamId = "";
       w.channels.push({ id: ctx.uid("c"), name, kind: "open", unitType: "department", unitId: id, description: `Day-to-day coordination for ${name}` });
       log("created", `Created the ${name} department`);
       break;
@@ -746,6 +753,9 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "setTeamLead": {
       const team = w.teams.find((t) => t.id === cmd.teamId) ?? fail("Pick a team.");
       const p = w.people.find((x) => x.id === cmd.personId) ?? fail("Pick a person.");
+      if (w.teams.some((t) => t.leadId === p.id && t.id !== team.id) || w.departments.some((d) => d.headId === p.id && d.id !== team.departmentId)) {
+        fail(`${first(p.id)} already leads a team or heads a department. Give that role to someone else first.`);
+      }
       team.leadId = p.id;
       if (p.teamId !== team.id) {
         p.teamId = team.id;

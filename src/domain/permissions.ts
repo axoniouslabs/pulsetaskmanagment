@@ -17,7 +17,8 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
   const isOwner = me.role === "owner";
   const scope = new Set(scopePeople(w, me.role, actorId).map((p) => p.id));
   const manages = (personId: string) => isOwner || (me.role === "manager" && scope.has(personId) && personId !== actorId) || false;
-  const headsDept = (depId: string) => isOwner || w.departments.some((d) => d.id === depId && d.headId === actorId);
+  const headsDept = (depId: string) => isOwner || (me.role === "manager" && w.departments.some((d) => d.id === depId && d.headId === actorId));
+  const person = (id: string) => w.people.find((p) => p.id === id && p.active !== false);
 
   const task = (id: string): Task | undefined => w.tasks.find((t) => t.id === id);
   const canSeeTask = (t: Task) =>
@@ -38,6 +39,7 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       const target = cmd.input.assigneeId;
       if (cmd.input.claim) {
         if (me.role === "employee") return deny("Only managers and the owner can offer tasks to a team.");
+        if (target !== actorId && !manages(target)) return deny("You can offer tasks only to teams you run.");
         const c = cmd.input.claim;
         if (c.unitType === "team") {
           const team = w.teams.find((x) => x.id === c.unitId);
@@ -63,11 +65,16 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       if (!tpl) return deny("That template no longer exists.");
       return tpl.createdById === actorId || isOwner ? allow : deny("Only the person who made this template can delete it.");
     }
+    case "reassign": {
+      const allowed = managerOf(cmd.taskId, "hand over tasks");
+      if (!allowed.ok) return allowed;
+      if (!person(cmd.toId)) return deny("Pick someone who is still in the company.");
+      return isOwner || cmd.toId === actorId || manages(cmd.toId) ? allow : deny("You can hand tasks only to people in your team.");
+    }
     case "publishDraft":
-    case "reassign":
     case "changeDeadline":
     case "cancel":
-      return managerOf(cmd.taskId, cmd.type === "cancel" ? "cancel tasks" : cmd.type === "reassign" ? "hand over tasks" : cmd.type === "changeDeadline" ? "change deadlines" : "publish tasks");
+      return managerOf(cmd.taskId, cmd.type === "cancel" ? "cancel tasks" : cmd.type === "changeDeadline" ? "change deadlines" : "publish tasks");
 
     case "claimTask": {
       const t = task(cmd.taskId);
@@ -87,6 +94,7 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
     case "snooze":
       return assigneeOnly(cmd.taskId, "snooze its reminders");
     case "block":
+      if (cmd.blockerOwnerId && !person(cmd.blockerOwnerId)) return deny("Pick who you're waiting on from the people in your company.");
       return assigneeOnly(cmd.taskId, "mark this task as blocked");
     case "submit":
       return assigneeOnly(cmd.taskId, "submit this task");
@@ -180,20 +188,31 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       return manages(l.personId) ? allow : deny("Only their manager or the owner can decide leave.");
     }
     case "setOnLeave":
-      return cmd.personId === actorId || manages(cmd.personId) ? allow : deny("Only their manager or the owner can mark leave.");
+      return cmd.personId !== actorId && manages(cmd.personId) ? allow : deny("Ask your manager for leave from Time & attendance. Only a manager or the owner can mark someone as away.");
 
     case "updateSettings":
     case "addHoliday":
     case "removeHoliday":
-    case "addDepartment":
-    case "setDepartmentHead":
       return isOwner ? allow : deny("Only the owner can change company settings.");
+    case "addDepartment":
+    case "setDepartmentHead": {
+      if (!isOwner) return deny("Only the owner can change company settings.");
+      const p = person(cmd.type === "addDepartment" ? cmd.headId : cmd.personId);
+      return p ? allow : deny("Pick a head who is still in the company.");
+    }
 
-    case "addTeam":
-      return headsDept(cmd.departmentId) ? allow : deny("Only the owner or the head of this department can add teams.");
+    case "addTeam": {
+      if (!headsDept(cmd.departmentId)) return deny("Only the owner or the head of this department can add teams.");
+      const lead = person(cmd.leadId);
+      if (!lead) return deny("Pick a team lead who is still in the company.");
+      return isOwner || (lead.role !== "owner" && lead.departmentId === cmd.departmentId) ? allow : deny("Pick a team lead from your own department.");
+    }
     case "setTeamLead": {
       const team = w.teams.find((t) => t.id === cmd.teamId);
-      return team && headsDept(team.departmentId) ? allow : deny("Only the owner or the head of this department can choose team leads.");
+      if (!team || !headsDept(team.departmentId)) return deny("Only the owner or the head of this department can choose team leads.");
+      const p = person(cmd.personId);
+      if (!p) return deny("Pick a team lead who is still in the company.");
+      return isOwner || (p.role !== "owner" && p.departmentId === team.departmentId) ? allow : deny("Only the owner can bring someone in from another department.");
     }
     case "movePerson": {
       const team = w.teams.find((t) => t.id === cmd.teamId);
@@ -202,7 +221,8 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       return isOwner || (headsDept(team.departmentId) && headsDept(p.departmentId)) ? allow : deny("Only the owner can move people between departments.");
     }
     case "addGroup":
-      return me.role !== "employee" ? allow : deny("Only managers and the owner can create groups.");
+      if (me.role === "employee") return deny("Only managers and the owner can create groups.");
+      return cmd.memberIds.every((id) => person(id)) ? allow : deny("Pick group members who are still in the company.");
 
     default:
       return deny("This action isn't allowed.");

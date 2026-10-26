@@ -19,7 +19,7 @@ jobs:
       DATABASE_URL: postgresql://postgres:postgres@localhost:5432/pulse
       BETTER_AUTH_SECRET: ci-secret-0123456789abcdef0123456789
       BETTER_AUTH_URL: http://localhost:3000
-      DEMO_MODE: "1"
+      PULSE_DEMO: "1"
       SEED_PASSWORD: ci-demo-password
     steps:
       - uses: actions/checkout@v5

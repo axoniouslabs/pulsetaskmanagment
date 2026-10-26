@@ -1,5 +1,6 @@
 import "server-only";
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
+import { eq } from "drizzle-orm";
 import { db, schema as S } from "./db";
 import { newId } from "./ids";
 
@@ -40,4 +41,14 @@ export async function storeFile(input: { orgId: string; taskId?: string; byId: s
     blobUrl,
   });
   return { id, name, url: `/api/files/${id}`, sizeKb: Math.max(1, Math.round(bytes.length / 1024)), contentType: input.file.type };
+}
+
+/** undo a stored upload that never made it onto a task */
+export async function removeFile(id: string) {
+  try {
+    const [row] = await db.delete(S.files).where(eq(S.files.id, id)).returning({ blobUrl: S.files.blobUrl });
+    if (row?.blobUrl && process.env.BLOB_READ_WRITE_TOKEN) await del(row.blobUrl);
+  } catch (e) {
+    console.error("remove file", e);
+  }
 }

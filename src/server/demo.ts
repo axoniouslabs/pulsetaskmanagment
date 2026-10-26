@@ -1,5 +1,5 @@
 import "server-only";
-import { eq, sql } from "drizzle-orm";
+import { eq, inArray, isNotNull, and, sql } from "drizzle-orm";
 import { hashPassword } from "better-auth/crypto";
 import { createSeed } from "@/lib/seed";
 import { emptyWorld, type World } from "@/domain/world";
@@ -101,7 +101,7 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** remove the demo organisation, including its append-only activity */
 async function wipe(tx: Tx) {
-  const byOrg = [S.devices, S.departments, S.teams, S.groups, S.projects, S.tasks, S.notifications, S.timers, S.channels, S.announcements, S.questions, S.deadlineRequests, S.attendance, S.leaves, S.dailyStats];
+  const byOrg = [S.devices, S.departments, S.teams, S.groups, S.projects, S.tasks, S.notifications, S.timers, S.channels, S.announcements, S.questions, S.deadlineRequests, S.attendance, S.leaves, S.dailyStats, S.templates, S.files];
   for (const t of byOrg) await tx.delete(t).where(eq((t as typeof S.tasks).orgId, DEMO_ORG_ID));
   // the log refuses deletes on purpose; the demo reset is the one sanctioned exception
   await tx.execute(sql`alter table activity disable trigger activity_no_delete`);
@@ -111,3 +111,22 @@ async function wipe(tx: Tx) {
   await tx.delete(S.organizations).where(eq(S.organizations.id, DEMO_ORG_ID));
 }
 
+
+/**
+ * Take the demo company out for good: every row it owns, plus the demo sign-in
+ * accounts (their sessions go with them). Safe to run when it isn't there.
+ */
+export async function removeDemo(): Promise<string> {
+  const [existing] = await db.select({ id: S.organizations.id }).from(S.organizations).where(eq(S.organizations.id, DEMO_ORG_ID));
+  const logins = await db
+    .select({ userId: S.people.userId })
+    .from(S.people)
+    .where(and(eq(S.people.orgId, DEMO_ORG_ID), isNotNull(S.people.userId)));
+  if (!existing && logins.length === 0) return "No demo company here. Nothing to remove.";
+  const userIds = logins.map((l) => l.userId!).filter(Boolean);
+  await db.transaction(async (tx) => {
+    await wipe(tx);
+    if (userIds.length) await tx.delete(S.user).where(inArray(S.user.id, userIds));
+  });
+  return `Removed the demo company and ${userIds.length} demo sign-ins.`;
+}

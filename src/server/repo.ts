@@ -201,7 +201,11 @@ export async function persist(tx: Tx, before: World, after: World) {
     const columns = cols(S.templates);
     for (const x of [...added, ...changed]) {
       const row = toRow(x as unknown as Record<string, unknown>, "templates", columns, extra);
-      await tx.insert(S.templates).values(row as never).onConflictDoUpdate({ target: S.templates.id, set: { name: x.name, input: x.input } });
+      // the id may come from the client: only ever update a template of this company
+      await tx
+        .insert(S.templates)
+        .values(row as never)
+        .onConflictDoUpdate({ target: S.templates.id, set: { name: x.name, input: x.input }, setWhere: eq(S.templates.orgId, orgId) });
     }
     const kept = new Set(after.templates.map((x) => x.id));
     const gone = before.templates.filter((x) => !kept.has(x.id)).map((x) => x.id);

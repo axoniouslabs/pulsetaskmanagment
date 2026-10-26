@@ -7,11 +7,7 @@
  * Prints a temporary password for the owner, who is asked to change it after signing in.
  */
 import "dotenv/config";
-import { eq } from "drizzle-orm";
-import { hashPassword } from "better-auth/crypto";
-import { emptyWorld } from "@/domain/world";
-import { db, schema as S } from "@/server/db";
-import { newId } from "@/server/ids";
+import { createCompany } from "@/server/company";
 import { tempPassword } from "@/server/people-admin";
 
 const arg = (name: string) => {
@@ -26,35 +22,8 @@ async function main() {
   const timezone = arg("timezone") ?? "Asia/Karachi";
   if (!company || !ownerName || !ownerEmail) throw new Error('Usage: --company "Name" --owner-name "Name" --owner-email you@company.com');
 
-  const [taken] = await db.select({ id: S.user.id }).from(S.user).where(eq(S.user.email, ownerEmail));
-  if (taken) throw new Error(`${ownerEmail} already has a Pulse account.`);
-
   const password = tempPassword();
-  const hash = await hashPassword(password);
-  const orgId = newId("org");
-  const userId = newId("u");
-  const personId = newId("p");
-  const settings = { ...emptyWorld().settings, name: company, timezone };
-
-  await db.transaction(async (tx) => {
-    await tx.insert(S.organizations).values({ id: orgId, name: company, timezone, settings });
-    await tx.insert(S.user).values({ id: userId, name: ownerName, email: ownerEmail, emailVerified: true });
-    await tx.insert(S.account).values({ id: newId("a"), accountId: userId, providerId: "credential", userId, password: hash });
-    await tx.insert(S.people).values({
-      id: personId,
-      orgId,
-      userId,
-      name: ownerName,
-      initials: ownerName.split(/\s+/).map((s) => s[0]!.toUpperCase()).join("").slice(0, 2),
-      role: "owner",
-      title: "Owner",
-      hue: 205,
-      email: ownerEmail,
-      mustChangePassword: true,
-    });
-    await tx.insert(S.channels).values({ id: newId("c"), orgId, name: "Company notices", kind: "announcement", unitType: "org", unitId: orgId, description: "Notices from the owner to everyone" });
-    await tx.insert(S.activity).values({ id: newId("act"), orgId, at: new Date(), actorId: personId, kind: "created", text: `Created ${company} on Pulse` });
-  });
+  await createCompany({ company, ownerName, ownerEmail, timezone, password, mustChangePassword: true });
 
   console.log(`\nCreated ${company}.`);
   console.log(`Owner: ${ownerName} <${ownerEmail}>`);

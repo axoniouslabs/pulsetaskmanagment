@@ -28,7 +28,8 @@ const FEATURED: { email: string; label: string; hint: string }[] = [
 function nextPath() {
   if (typeof window === "undefined") return "/";
   const n = new URLSearchParams(window.location.search).get("next");
-  return n && n.startsWith("/") && !n.startsWith("//") ? n : "/";
+  // a path on this site only: not "//host" or "/\\host", which browsers treat as another site
+  return n && /^\/(?![\/\\])/.test(n) && !/[\\\s]/.test(n) ? n : "/";
 }
 
 function Initials({ a, size = "md" }: { a: Pick<DemoAccount, "hue" | "initials" | "name">; size?: "md" | "lg" }) {
@@ -51,6 +52,20 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const done = () => window.location.replace(nextPath());
+
+  // a brand-new server has no company yet: the first visitor sets one up
+  React.useEffect(() => {
+    let live = true;
+    fetch("/api/setup/status", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        if (live && d?.needsSetup) window.location.replace("/setup");
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -138,15 +153,15 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
               <span className="mb-1.5 block text-[13px] font-medium text-text">Work email</span>
               <Input type="email" autoComplete="username" inputMode="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11" autoFocus />
             </label>
-            <label className="block">
-              <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
-              <span className="relative block">
+            <div className="relative">
+              <label className="block">
+                <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
                 <Input type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pr-11" />
-                <button type="button" onClick={() => setShow((v) => !v)} className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted" aria-label={show ? "Hide password" : "Show password"}>
-                  {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
-                </button>
-              </span>
-            </label>
+              </label>
+              <button type="button" onClick={() => setShow((v) => !v)} className="absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted" aria-label={show ? "Hide password" : "Show password"}>
+                {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+              </button>
+            </div>
             {error && (
               <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
                 {error}

@@ -3,6 +3,7 @@
 import * as React from "react";
 import { toast } from "sonner";
 import { Check, Copy, KeyRound, Loader2, UserMinus, UserPlus, UserRoundCheck } from "lucide-react";
+import { useShallow } from "zustand/react/shallow";
 import { useApp } from "@/lib/store";
 import type { Person } from "@/lib/types";
 import { Button } from "@/components/ui/button";
@@ -173,7 +174,7 @@ export function StaffActions({ person }: { person: Person }) {
 
 function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; onDone: () => void }) {
   const openTasks = useApp((s) => s.tasks.filter((t) => t.assigneeId === p.id && ["assigned", "acknowledged", "in_progress", "blocked", "submitted"].includes(t.status)).length);
-  const leads = useApp((s) => [...s.teams.filter((t) => t.leadId === p.id).map((t) => t.name), ...s.departments.filter((d) => d.headId === p.id).map((d) => d.name)]);
+  const leads = useApp(useShallow((s) => [...s.teams.filter((t) => t.leadId === p.id).map((t) => t.name), ...s.departments.filter((d) => d.headId === p.id).map((d) => d.name)]));
   const [f, setF] = React.useState({ name: p.name, title: p.title, phone: p.phone, role: p.role === "owner" ? undefined : p.role, workType: p.workType, capacityHours: p.capacityHours });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -198,12 +199,12 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
     }
   };
 
-  const footer = (label: string, onClick: () => void, variant: "primary" | "dangerSolid" = "primary") => (
+  const footer = (label: string, onClick: () => void, variant: "primary" | "dangerSolid" = "primary", blocked = false) => (
     <>
       {error && <p className="mt-3 text-[13px] text-heat-3">{error}</p>}
       <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="ghost" onClick={onDone}>Cancel</Button>
-        <Button variant={variant} onClick={onClick} disabled={busy}>
+        <Button variant={variant} onClick={onClick} disabled={busy || blocked}>
           {busy && <Loader2 className="animate-spin" />} {label}
         </Button>
       </div>
@@ -255,11 +256,11 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
       <DialogContent title={`Deactivate ${first}?`} description={`${first} can no longer sign in and stops receiving reminders. Their history and reports stay. You can reactivate them later.`}>
         {(openTasks > 0 || leads.length > 0) && (
           <div className="space-y-1 rounded-[var(--radius-md)] bg-heat-1-tint px-3.5 py-3 text-[13.5px] text-text">
-            {openTasks > 0 && <p>{first} still has {openTasks} open task{openTasks === 1 ? "" : "s"}. Hand them over first so nothing is dropped.</p>}
-            {leads.length > 0 && <p>{first} leads {leads.join(", ")}. Pick someone else in Organisation.</p>}
+            {openTasks > 0 && <p>{first} still has {openTasks} open task{openTasks === 1 ? "" : "s"}. They move to you when you deactivate, along with any reviews, so nothing is dropped. You can hand them on from Tasks.</p>}
+            {leads.length > 0 && <p>{first} runs {leads.join(", ")}. Choose someone else in Organisation first, so escalations still reach a person.</p>}
           </div>
         )}
-        {footer("Deactivate", () => go(() => call(`/api/people/${p.id}`, "PATCH", { active: false }), `${first} deactivated`), "dangerSolid")}
+        {footer("Deactivate", () => go(() => call(`/api/people/${p.id}`, "PATCH", { active: false }), `${first} deactivated`), "dangerSolid", leads.length > 0)}
       </DialogContent>
     );
 

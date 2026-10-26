@@ -1,5 +1,5 @@
 /* Pulse service worker: offline shell + notification actions */
-const VERSION = "pulse-v2";
+const VERSION = "pulse-v3";
 const SHELL = ["/", "/today", "/overview", "/tasks", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {

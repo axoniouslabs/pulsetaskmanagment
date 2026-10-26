@@ -1,8 +1,9 @@
+import { demoEnabled } from "@/lib/demo-flag";
 import { createSeed } from "@/lib/seed";
 import { LoginForm, type DemoAccount } from "./login-form";
 
 export default function LoginPage() {
-  const demo = process.env.DEMO_MODE === "1";
+  const demo = demoEnabled();
   let accounts: DemoAccount[] = [];
   if (demo) {
     const seed = createSeed(new Date("2026-01-05T10:00:00+05:00"));

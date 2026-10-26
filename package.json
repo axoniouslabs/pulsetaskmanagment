@@ -10,6 +10,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed": "tsx --conditions=react-server scripts/seed.ts",
+    "db:remove-demo": "tsx --conditions=react-server scripts/remove-demo.ts",
     "test": "vitest run",
     "test:e2e": "node scripts/e2e-smoke.mjs",
     "vercel-build": "node scripts/predeploy.mjs && next build",

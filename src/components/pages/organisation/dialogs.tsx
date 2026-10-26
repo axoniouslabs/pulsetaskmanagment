@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 import { ChevronRight } from "lucide-react";
 import { useApp } from "@/lib/store";
@@ -28,9 +29,20 @@ function Actions({ onCancel, submitLabel, disabled }: { onCancel: () => void; su
   );
 }
 
-function PeopleOptions({ people, departments }: { people: Person[]; departments: Department[] }) {
+function PeopleOptions({ people: all, departments }: { people: Person[]; departments: Department[] }) {
+  const people = all.filter((p) => p.active !== false);
+  const unplaced = people.filter((p) => !departments.some((d) => d.id === p.departmentId));
   return (
     <>
+      {unplaced.length > 0 && (
+        <optgroup label="Not in a department yet">
+          {unplaced.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}, {p.title}
+            </option>
+          ))}
+        </optgroup>
+      )}
       {departments.map((d) => {
         const list = people.filter((p) => p.departmentId === d.id);
         if (!list.length) return null;
@@ -70,6 +82,21 @@ function AddDepartmentForm({ onDone }: { onDone: () => void }) {
   const [headId, setHeadId] = React.useState("");
   const [description, setDescription] = React.useState("");
   const clash = departments.some((d) => d.name.trim().toLowerCase() === name.trim().toLowerCase());
+
+  if (staff.length === 0)
+    return (
+      <div className="space-y-4">
+        <p className="text-[14px] leading-relaxed text-muted">Every department has a head chosen from your staff, and nobody has been added yet. Add your people first, then come back here.</p>
+        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" onClick={onDone}>
+            Close
+          </Button>
+          <Button asChild variant="primary">
+            <Link href="/team">Add people</Link>
+          </Button>
+        </div>
+      </div>
+    );
 
   return (
     <form

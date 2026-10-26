@@ -1,16 +1,17 @@
 "use server";
 
+import { demoEnabled } from "@/lib/demo-flag";
 import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { auth } from "@/server/auth";
 import { db, schema } from "@/server/db";
 
 /**
- * One-tap sign-in for the demo company. Only works while DEMO_MODE=1 and only
+ * One-tap sign-in for the demo company. Only works while PULSE_DEMO=1 and only
  * for people in the demo organisation; the password stays on the server.
  */
 export async function demoSignIn(email: string): Promise<{ ok: true } | { ok: false; error: string }> {
-  if (process.env.DEMO_MODE !== "1") return { ok: false, error: "Demo sign-in is turned off. Use your email and password." };
+  if (!demoEnabled()) return { ok: false, error: "Demo sign-in is turned off. Use your email and password." };
   const password = process.env.SEED_PASSWORD;
   if (!password) return { ok: false, error: "The demo isn't set up on this server yet." };
   const [person] = await db.select({ orgId: schema.people.orgId }).from(schema.people).where(eq(schema.people.email, email.toLowerCase()));

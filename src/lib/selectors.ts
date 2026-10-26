@@ -76,7 +76,8 @@ export function attention(s: AppState, tasks: Task[], people: Person[], now = ne
     .sort((a, b) => (a.submittedAt ?? "").localeCompare(b.submittedAt ?? ""));
   const activeToday = new Set(s.activity.filter((a) => isToday(new Date(a.at))).map((a) => a.actorId));
   const quiet = people.filter(
-    (p) => p.role !== "owner" && !p.onLeave && !activeToday.has(p.id) && tasks.some((t) => t.assigneeId === p.id && isOpenWork(t)),
+    // never the viewer: their own work is on My day, not something to chase
+    (p) => p.role !== "owner" && p.id !== s.viewer?.personId && p.active !== false && !p.onLeave && !activeToday.has(p.id) && tasks.some((t) => t.assigneeId === p.id && isOpenWork(t)),
   );
   return { overdue, unseen, blocked, slowReview, quiet };
 }

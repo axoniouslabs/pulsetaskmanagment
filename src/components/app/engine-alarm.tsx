@@ -31,6 +31,7 @@ export function PasswordNudge() {
 export function EngineAlarm() {
   const role = useApp((s) => s.role);
   const last = useApp((s) => s.engineLastTickAt);
+  const created = useApp((s) => s.companyCreatedAt);
   const offset = useApp((s) => s.serverOffsetMs);
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {
@@ -40,6 +41,8 @@ export function EngineAlarm() {
   if (role !== "owner") return null;
   const mins = last ? Math.floor((now + offset - new Date(last).getTime()) / 60000) : null;
   if (mins !== null && mins < STALE_MIN) return null;
+  // a company created minutes ago hasn't had its first check yet: give the scheduler time
+  if (mins === null && created && now + offset - new Date(created).getTime() < STALE_MIN * 60000) return null;
 
   return (
     <div role="alert" className="mb-4 flex gap-3 rounded-[var(--radius-lg)] border border-heat-3/30 bg-heat-3-tint px-4 py-3 text-heat-3">
@@ -61,6 +64,7 @@ export function EngineAlarm() {
 export function EngineLive() {
   const role = useApp((s) => s.role);
   const last = useApp((s) => s.engineLastTickAt);
+  const created = useApp((s) => s.companyCreatedAt);
   const offset = useApp((s) => s.serverOffsetMs);
   const [now, setNow] = React.useState(() => Date.now());
   React.useEffect(() => {

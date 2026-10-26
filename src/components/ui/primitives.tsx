@@ -229,13 +229,26 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
 Select.displayName = "Select";
 
 export function Field({ label, hint, children, className, htmlFor }: { label: string; hint?: React.ReactNode; children: React.ReactNode; className?: string; htmlFor?: string }) {
+  // tie the label (and hint) to the control, so tapping the label focuses it and screen readers announce both
+  const auto = React.useId();
+  const hintId = `${auto}-hint`;
+  let id = htmlFor;
+  let control = children;
+  if (React.isValidElement<{ id?: string; "aria-describedby"?: string }>(children) && (children.type === Input || children.type === Select || children.type === Textarea)) {
+    id = children.props.id ?? htmlFor ?? auto;
+    control = React.cloneElement(children, { id, "aria-describedby": hint ? [children.props["aria-describedby"], hintId].filter(Boolean).join(" ") : children.props["aria-describedby"] });
+  }
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
-      <label htmlFor={htmlFor} className="text-[13px] font-medium text-text">
+      <label htmlFor={id} className="text-[13px] font-medium text-text">
         {label}
       </label>
-      {children}
-      {hint && <p className="text-xs leading-snug text-muted">{hint}</p>}
+      {control}
+      {hint && (
+        <p id={hintId} className="text-xs leading-snug text-muted">
+          {hint}
+        </p>
+      )}
     </div>
   );
 }
