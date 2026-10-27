@@ -253,6 +253,25 @@
 }
 
 @layer components {
+  /* Native selects: our own chevron, a real background (the browser's dropdown
+     list takes its colours from here), and readable options in both themes. */
+  .select-field {
+    appearance: none;
+    background-color: var(--color-surface);
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%238a979d' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'><path d='m6 9 6 6 6-6'/></svg>");
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 12px 12px;
+  }
+  .select-field option,
+  .select-field optgroup {
+    background-color: var(--color-surface);
+    color: var(--color-text);
+  }
+  .select-field option:disabled {
+    color: var(--color-faint);
+  }
+
   /* Radix overlays, dialogs, sheets and menus: settle in, leave quickly */
   .motion-overlay[data-state="open"] { animation: fade-in 220ms var(--ease-standard); }
   .motion-overlay[data-state="closed"] { animation: fade-out 160ms var(--ease-exit); }
