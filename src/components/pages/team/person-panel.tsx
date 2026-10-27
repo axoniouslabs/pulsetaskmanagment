@@ -5,7 +5,7 @@ import { subDays, format } from "date-fns";
 import { toast } from "sonner";
 import { BellOff, CalendarOff, CheckCircle2, Globe, Mail, MapPin, Monitor, Phone, Plus, Smartphone, X } from "lucide-react";
 import { useApp } from "@/lib/store";
-import { useNow, useScope } from "@/lib/hooks";
+import { useNow, useScope, useOrgToday } from "@/lib/hooks";
 import type { DailyStat } from "@/lib/seed";
 import type { Device, Person } from "@/lib/types";
 import { NEXT_UP_SCORE, committedHours, isActive } from "@/lib/selectors";
@@ -38,20 +38,24 @@ function PersonDetail({ person: p }: { person: Person }) {
   const backup = backupOf(p, allPeople, teams, departments);
   const first = p.name.split(" ")[0];
   const canManage = (role === "owner" || role === "manager") && p.id !== meId;
-  const att = attendance.find((a) => a.personId === p.id && a.date === format(now, "yyyy-MM-dd"));
+  const today = useOrgToday(now);
+  const att = attendance.find((a) => a.personId === p.id && a.date === today);
   const hours = p.onLeave ? 0 : committedHours(allTasks, p.id, now);
   const tone = loadTone(hours, p.capacityHours);
-  const open = React.useMemo(
-    () => allTasks.filter((t) => t.assigneeId === p.id && isActive(t)).sort((a, b) => NEXT_UP_SCORE(a, now) - NEXT_UP_SCORE(b, now)),
-    [allTasks, p.id, now],
-  );
+  const open = React.useMemo(() => allTasks.filter((t) => t.assigneeId === p.id && isActive(t)).sort((a, b) => NEXT_UP_SCORE(a, now) - NEXT_UP_SCORE(b, now)), [allTasks, p.id, now]);
   const isLead = team?.leadId === p.id;
   const isHead = dept?.headId === p.id;
 
   const toggleLeave = () => {
-    setOnLeave(p.id, !p.onLeave);
-    if (p.onLeave) toast.success("Back from leave", { description: `Reminders for ${first} start again.` });
-    else toast.success("Marked on leave", { description: `Reminders stopped. New tasks go to ${backup?.name.split(" ")[0] ?? "the team lead"}.` });
+    if (!setOnLeave(p.id, !p.onLeave).ok) return;
+    if (p.onLeave)
+      toast.success("Back from leave", {
+        description: `Reminders for ${first} start again.`,
+      });
+    else
+      toast.success("Marked on leave", {
+        description: `Reminders stopped. New tasks go to ${backup?.name.split(" ")[0] ?? "the team lead"}.`,
+      });
   };
 
   return (
@@ -90,11 +94,13 @@ function PersonDetail({ person: p }: { person: Person }) {
               <Mail /> Email
             </a>
           </Button>
-          <Button size="sm" asChild>
-            <a href={`tel:${p.phone.replace(/\s/g, "")}`}>
-              <Phone /> Call
-            </a>
-          </Button>
+          {p.phone.trim() && (
+            <Button size="sm" asChild>
+              <a href={`tel:${p.phone.replace(/\s/g, "")}`}>
+                <Phone /> Call
+              </a>
+            </Button>
+          )}
         </div>
       </div>
 
@@ -107,12 +113,7 @@ function PersonDetail({ person: p }: { person: Person }) {
         )}
         {/* leave */}
         {canManage && (
-          <section
-            className={cn(
-              "flex flex-col gap-3 rounded-[var(--radius-md)] border p-4 sm:flex-row sm:items-center",
-              p.onLeave ? "border-ink/15 bg-ink-tint/50" : "border-line",
-            )}
-          >
+          <section className={cn("flex flex-col gap-3 rounded-[var(--radius-md)] border p-4 sm:flex-row sm:items-center", p.onLeave ? "border-ink/15 bg-ink-tint/50" : "border-line")}>
             <CalendarOff className={cn("size-5 shrink-0", p.onLeave ? "text-ink" : "text-faint")} />
             <div className="min-w-0 flex-1">
               <p className="text-[14px] font-semibold text-text">{p.onLeave ? `${first} is on leave` : "Away for a while?"}</p>
@@ -229,7 +230,12 @@ function PersonDetail({ person: p }: { person: Person }) {
 }
 
 /* ---------------- device line ---------------- */
-const DEVICE_ICON: Record<Device["kind"], React.ElementType> = { windows: Monitor, android: Smartphone, iphone: Smartphone, browser: Globe };
+const DEVICE_ICON: Record<Device["kind"], React.ElementType> = {
+  windows: Monitor,
+  android: Smartphone,
+  iphone: Smartphone,
+  browser: Globe,
+};
 
 function DeviceLine({ device: d, first }: { device: Device; first: string }) {
   const Icon = DEVICE_ICON[d.kind];
@@ -275,7 +281,18 @@ interface Agg {
 }
 
 function aggregate(rows: DailyStat[]): Agg {
-  const a: Agg = { assigned: 0, approved: 0, onTime: 0, ackFirst: 0, submissions: 0, rejections: 0, est: 0, actual: 0, escalations: 0, ack: [] };
+  const a: Agg = {
+    assigned: 0,
+    approved: 0,
+    onTime: 0,
+    ackFirst: 0,
+    submissions: 0,
+    rejections: 0,
+    est: 0,
+    actual: 0,
+    escalations: 0,
+    ack: [],
+  };
   for (const r of rows) {
     a.assigned += r.assigned;
     a.approved += r.approved;
@@ -341,18 +358,48 @@ function PersonStats({ person: p }: { person: Person }) {
     );
 
   const rows: { label: string; value: string; peer?: string; note: string }[] = [
-    { label: "Completion rate", value: mine.completion, peer: peers?.completion, note: "Assigned tasks that were finished and approved." },
-    { label: "On time", value: mine.onTime, peer: peers?.onTime, note: "Finished tasks that were approved before their deadline." },
+    {
+      label: "Completion rate",
+      value: mine.completion,
+      peer: peers?.completion,
+      note: "Assigned tasks that were finished and approved.",
+    },
+    {
+      label: "On time",
+      value: mine.onTime,
+      peer: peers?.onTime,
+      note: "Finished tasks that were approved before their deadline.",
+    },
     {
       label: "Time to acknowledge",
       value: mine.ackMedian,
       peer: peers?.ackMedian,
       note: `Typical wait between a task arriving and ${first} tapping Acknowledge. Average ${mine.ackMean}.`,
     },
-    { label: "Answered the first reminder", value: mine.firstReminder, peer: peers?.firstReminder, note: "Tasks acknowledged without needing a second reminder." },
-    { label: "Sent back for changes", value: mine.rework, peer: peers?.rework, note: "Submissions the reviewer returned. Lower is better." },
-    { label: "Estimate accuracy", value: mine.estimate, peer: peers?.estimate, note: "Actual hours against estimated hours. 1.0× is spot on, higher means work took longer." },
-    { label: "Escalations", value: mine.escalations, peer: peers?.escalations, note: "Times silence moved a task up to the team lead or higher." },
+    {
+      label: "Answered the first reminder",
+      value: mine.firstReminder,
+      peer: peers?.firstReminder,
+      note: "Tasks acknowledged without needing a second reminder.",
+    },
+    {
+      label: "Sent back for changes",
+      value: mine.rework,
+      peer: peers?.rework,
+      note: "Submissions the reviewer returned. Lower is better.",
+    },
+    {
+      label: "Estimate accuracy",
+      value: mine.estimate,
+      peer: peers?.estimate,
+      note: "Actual hours against estimated hours. 1.0× is spot on, higher means work took longer.",
+    },
+    {
+      label: "Escalations",
+      value: mine.escalations,
+      peer: peers?.escalations,
+      note: "Times silence moved a task up to the team lead or higher.",
+    },
   ];
 
   return (

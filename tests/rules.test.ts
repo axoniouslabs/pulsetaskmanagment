@@ -11,7 +11,16 @@ function world() {
   const w = makeWorld();
   w.tasks = [
     task({ id: "t_k", assigneeId: "p_kamran" }),
-    task({ id: "t_ali", assigneeId: "p_ali", createdById: "p_saad", reviewerId: "p_saad", departmentId: "d_dev", status: "in_progress", startedAt: NOW.toISOString(), requiresProof: true }),
+    task({
+      id: "t_ali",
+      assigneeId: "p_ali",
+      createdById: "p_saad",
+      reviewerId: "p_saad",
+      departmentId: "d_dev",
+      status: "in_progress",
+      startedAt: NOW.toISOString(),
+      requiresProof: true,
+    }),
   ];
   return w;
 }
@@ -19,7 +28,11 @@ const can = (actor: string, cmd: Command) => authorize(world(), actor, cmd).ok;
 
 describe("who may do what", () => {
   it("lets managers assign inside their scope only", () => {
-    const create = (assigneeId: string): Command => ({ type: "createTask", id: "new", input: { title: "x", assigneeId, priority: "normal", dueAt: due } });
+    const create = (assigneeId: string): Command => ({
+      type: "createTask",
+      id: "new",
+      input: { title: "x", assigneeId, priority: "normal", dueAt: due },
+    });
     expect(can("p_usman", create("p_kamran"))).toBe(true);
     expect(can("p_usman", create("p_ali"))).toBe(false);
     expect(can("p_hina", create("p_faisal"))).toBe(true); // head of the department
@@ -69,7 +82,21 @@ describe("task rules", () => {
   it("needs proof when the task asks for it", () => {
     const r = tryCommand(world(), { type: "submit", taskId: "t_ali", note: "done" }, ctx("p_ali"));
     expect(r.result.ok).toBe(false);
-    const ok = tryCommand(world(), { type: "submit", taskId: "t_ali", note: "done", proofName: "photo.jpg" }, ctx("p_ali"));
+    // only a real upload counts as proof
+    const withProof = world();
+    withProof.tasks
+      .find((t) => t.id === "t_ali")!
+      .attachments.push({
+        id: "a1",
+        name: "photo.jpg",
+        kind: "image",
+        sizeKb: 100,
+        at: new Date().toISOString(),
+        byId: "p_ali",
+        isProof: true,
+        hue: 10,
+      });
+    const ok = tryCommand(withProof, { type: "submit", taskId: "t_ali", note: "done" }, ctx("p_ali"));
     expect(ok.result.ok).toBe(true);
   });
 
@@ -91,7 +118,10 @@ describe("task rules", () => {
 
   it("checks in late after the grace period, in company time", () => {
     const w = applyCommand(world(), { type: "checkIn" }, { actorId: "p_kamran", now: pkt("2026-10-21T09:20:00"), uid });
-    expect(w.attendance[0]).toMatchObject({ date: "2026-10-21", status: "late" });
+    expect(w.attendance[0]).toMatchObject({
+      date: "2026-10-21",
+      status: "late",
+    });
     const w2 = applyCommand(world(), { type: "checkIn" }, { actorId: "p_kamran", now: pkt("2026-10-21T09:10:00"), uid });
     expect(w2.attendance[0].status).toBe("present");
   });

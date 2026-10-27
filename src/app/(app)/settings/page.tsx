@@ -1,10 +1,11 @@
 "use client";
 
 import * as React from "react";
-import { BellRing, Building2, CheckCheck, FlaskConical, KeyRound, LayoutTemplate, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
+import { BellRing, Building2, CheckCheck, FileDown, FlaskConical, KeyRound, LayoutTemplate, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useScope } from "@/lib/hooks";
 import { cn, plural } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
 import { Input, Switch } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/app/page-header";
 import { Chips, NumberSetting, SettingRow, SettingsSection, intervalLabel, shortInterval, useSave } from "@/components/pages/settings/parts";
@@ -36,7 +37,10 @@ export default function SettingsPage() {
   const demoMode = useApp((s) => s.demoMode);
   const save = useSave();
   const sections = demoMode ? SECTIONS : SECTIONS.filter((s) => s.id !== "demo");
-  const active = useActiveSection(sections.map((s) => s.id), role === "owner");
+  const active = useActiveSection(
+    sections.map((s) => s.id),
+    role === "owner",
+  );
 
   if (role !== "owner") {
     return (
@@ -128,10 +132,17 @@ export default function SettingsPage() {
                 label="Default reminder interval"
                 value={r.intervalMin}
                 onChange={(v) => setReminder({ intervalMin: v })}
-                options={[10, 15, 30, 60, 120].map((n) => ({ value: n, label: shortInterval(n) }))}
+                options={[10, 15, 30, 60, 120].map((n) => ({
+                  value: n,
+                  label: shortInterval(n),
+                }))}
               />
             </SettingRow>
-            <SettingRow htmlFor="only-working" label="Only during working hours" hint={`Between ${settings.workStart} and ${settings.workEnd} on working days. Turn off for teams that work around the clock.`}>
+            <SettingRow
+              htmlFor="only-working"
+              label="Only during working hours"
+              hint={`Between ${settings.workStart} and ${settings.workEnd} on working days. Turn off for teams that work around the clock.`}
+            >
               <Switch id="only-working" checked={r.window === "working"} onCheckedChange={(v) => setReminder({ window: v ? "working" : "always" })} />
             </SettingRow>
             <SettingRow htmlFor="daily-cap" label="Daily limit per task" hint="After this many, Pulse stops reminding for the day and lets escalation do the work.">
@@ -161,25 +172,20 @@ export default function SettingsPage() {
 
           <SettingsSection id="digests" title="Reports & digests" description="Summaries sent to everyone, on working days only.">
             <SettingRow label="Morning brief" hint="Each person's plan for the day. Managers also get what slipped yesterday.">
-              <Input
-                type="time"
-                aria-label="Morning brief time"
-                value={settings.digestMorning}
-                onChange={(e) => e.target.value && save({ digestMorning: e.target.value })}
-                className="tabular w-32"
-              />
+              <Input type="time" aria-label="Morning brief time" value={settings.digestMorning} onChange={(e) => e.target.value && save({ digestMorning: e.target.value })} className="tabular w-32" />
             </SettingRow>
             <SettingRow label="Evening digest" hint="What got done, what is still open and what needs attention tomorrow.">
-              <Input
-                type="time"
-                aria-label="Evening digest time"
-                value={settings.digestEvening}
-                onChange={(e) => e.target.value && save({ digestEvening: e.target.value })}
-                className="tabular w-32"
-              />
+              <Input type="time" aria-label="Evening digest time" value={settings.digestEvening} onChange={(e) => e.target.value && save({ digestEvening: e.target.value })} className="tabular w-32" />
             </SettingRow>
             <SettingRow htmlFor="retention" label="Keep records for" hint="The activity log and reports are kept at least 12 months, so a full year of appraisals is always available.">
               <NumberSetting id="retention" value={settings.retentionMonths} min={12} max={120} suffix="months" onCommit={(n) => save({ retentionMonths: n })} />
+            </SettingRow>
+            <SettingRow label="Your data" hint="Everything your company has in Pulse, as one file: people, tasks, the full activity log, attendance and reports. It's yours to keep.">
+              <Button asChild variant="secondary">
+                <a href="/api/export" download>
+                  <FileDown /> Download all data
+                </a>
+              </Button>
             </SettingRow>
           </SettingsSection>
 
@@ -202,15 +208,15 @@ export default function SettingsPage() {
           </SettingsSection>
 
           {demoMode && (
-          <SettingsSection
-            id="demo"
-            title="Demo controls"
-            tag={<span className="rounded-full bg-heat-1-tint px-2 py-0.5 text-[12px] font-medium text-heat-1">Demo only</span>}
-            description="Only shown for the sample company. Use these to run a client demo from a clean start."
-            className="border-dashed border-line-strong"
-          >
-            <DemoControls />
-          </SettingsSection>
+            <SettingsSection
+              id="demo"
+              title="Demo controls"
+              tag={<span className="rounded-full bg-heat-1-tint px-2 py-0.5 text-[12px] font-medium text-heat-1">Demo only</span>}
+              description="Only shown for the sample company. Use these to run a client demo from a clean start."
+              className="border-dashed border-line-strong"
+            >
+              <DemoControls />
+            </SettingsSection>
           )}
         </div>
       </div>

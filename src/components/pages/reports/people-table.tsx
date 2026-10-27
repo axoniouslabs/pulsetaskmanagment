@@ -56,7 +56,7 @@ export function PeopleTable({
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
-      <div className="thin-scrollbar overflow-x-auto">
+      <div className="thin-scrollbar relative overflow-x-auto">
         <table className="w-full min-w-[860px] border-collapse text-[13.5px]">
           <thead>
             <tr className="border-b border-line bg-hover">
@@ -72,18 +72,10 @@ export function PeopleTable({
                     <button
                       type="button"
                       onClick={() => onSort(c.key)}
-                      className={cn(
-                        "inline-flex h-10 items-center gap-1 whitespace-nowrap text-[12.5px] hover:text-text print:h-8",
-                        active && "text-text",
-                        c.key !== "name" && "flex-row-reverse",
-                      )}
+                      className={cn("inline-flex h-10 items-center gap-1 whitespace-nowrap text-[12.5px] hover:text-text print:h-8", active && "text-text", c.key !== "name" && "flex-row-reverse")}
                     >
                       {c.label}
-                      {active ? (
-                        sort.dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" />
-                      ) : (
-                        <span className="size-3.5" aria-hidden />
-                      )}
+                      {active ? sort.dir === "asc" ? <ArrowUp className="size-3.5" /> : <ArrowDown className="size-3.5" /> : <span className="size-3.5" aria-hidden />}
                     </button>
                   </th>
                 );
@@ -101,25 +93,16 @@ export function PeopleTable({
               const lowOnTime = r.rates.onTime !== null && r.rates.onTime < 70;
               const highRework = r.rates.rework !== null && r.rates.rework >= 20;
               return (
-                <tr
-                  key={p.id}
-                  onClick={() => router.push(`/team?person=${p.id}`)}
-                  className="cursor-pointer border-b border-line last:border-b-0 hover:bg-hover"
-                >
+                <tr key={p.id} onClick={() => router.push(`/team?person=${p.id}`)} className="cursor-pointer border-b border-line last:border-b-0 hover:bg-hover">
                   <td className="py-2.5 pl-4 pr-3 sm:pl-5">
                     <div className="flex items-center gap-2.5">
                       <Avatar person={p} size="md" />
                       <div className="min-w-0">
-                        <Link href={`/team?person=${p.id}`} onClick={(e) => e.stopPropagation()} className="block truncate font-medium text-text hover:underline">
+                        <Link href={`/team?person=${p.id}`} onClick={(e) => e.stopPropagation()} className="relative -my-1 block truncate py-1 font-medium text-text hover:underline">
                           {p.name}
                         </Link>
                         <p className="flex items-center gap-1.5 truncate text-[12px] text-muted">
-                          <span
-                            className={cn(
-                              "rounded-[4px] px-1.5 text-[11px] font-medium leading-[18px]",
-                              p.workType === "field" ? "bg-info-tint text-info" : "bg-sunken text-muted",
-                            )}
-                          >
+                          <span className={cn("rounded-[4px] px-1.5 text-[11px] font-medium leading-[18px]", p.workType === "field" ? "bg-info-tint text-info" : "bg-sunken text-muted")}>
                             {p.workType === "field" ? "Field" : "Desk"}
                           </span>
                           <span className="truncate">{p.title}</span>
@@ -135,7 +118,13 @@ export function PeopleTable({
                   </td>
                   <td className="px-3 py-2.5 text-right">
                     <div className="ml-auto flex w-[84px] items-center justify-end gap-2" title="Estimated hours of work assigned">
-                      <span className="h-1.5 rounded-full bg-line-strong" style={{ width: `${Math.max(4, (r.rates.volume / maxVol) * 36)}px` }} aria-hidden />
+                      <span
+                        className="h-1.5 rounded-full bg-line-strong"
+                        style={{
+                          width: `${Math.max(4, (r.rates.volume / maxVol) * 36)}px`,
+                        }}
+                        aria-hidden
+                      />
                       <span className="tabular text-muted">{Math.round(r.rates.volume)}h</span>
                     </div>
                   </td>
@@ -180,8 +169,8 @@ export function FairnessNote() {
     <p className="mb-3 flex items-start gap-2 text-[13px] leading-snug text-muted">
       <Scale className="mt-0.5 size-4 shrink-0 text-faint" />
       <span>
-        Completion rate is shown next to weighted volume, so someone finishing a few big tasks isn&apos;t ranked below someone finishing many small ones. Response time
-        measures availability, so field staff are compared with field staff.
+        Completion rate is shown next to weighted volume, so someone finishing a few big tasks isn&apos;t ranked below someone finishing many small ones. Response time measures availability, so field
+        staff are compared with field staff.
       </span>
     </p>
   );

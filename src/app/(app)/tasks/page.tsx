@@ -46,6 +46,14 @@ function TasksScreen() {
   const projects = useApp((s) => s.projects);
   const activity = useApp((s) => s.activity);
   const openCreate = useApp((s) => s.openCreate);
+  // the home-screen shortcut "New task" lands on /tasks?new=1
+  React.useEffect(() => {
+    const url = new URL(window.location.href);
+    if (url.searchParams.get("new") !== "1") return;
+    url.searchParams.delete("new");
+    window.history.replaceState(null, "", url.pathname + (url.search || ""));
+    openCreate();
+  }, [openCreate]);
 
   const [mode, setModeState] = React.useState<ViewMode>(() => (typeof window === "undefined" ? "list" : readMode()));
   const [filters, setFilters] = React.useState<TaskFilters>(() => ({
@@ -76,9 +84,7 @@ function TasksScreen() {
 
   const assignees = React.useMemo(() => {
     const ids = new Set(visible.map((t) => t.assigneeId));
-    return allPeople
-      .filter((p) => ids.has(p.id))
-      .sort((a, b) => (a.id === meId ? -1 : b.id === meId ? 1 : a.name.localeCompare(b.name)));
+    return allPeople.filter((p) => ids.has(p.id)).sort((a, b) => (a.id === meId ? -1 : b.id === meId ? 1 : a.name.localeCompare(b.name)));
   }, [visible, allPeople, meId]);
   const projectOptions = React.useMemo(() => {
     const ids = new Set(visible.map((t) => t.projectId).filter(Boolean));

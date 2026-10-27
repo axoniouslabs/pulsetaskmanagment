@@ -1,13 +1,14 @@
 "use client";
 
 import * as React from "react";
-import { Network, Plus } from "lucide-react";
+import { ArrowRightLeft, Network, Plus } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useScope } from "@/lib/hooks";
 import type { Department, Person, Team } from "@/lib/types";
 import { plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { EmptyState, PageHeader, Panel, SectionHeading } from "@/components/app/page-header";
+import { Avatar } from "@/components/app/avatar";
 import { DepartmentList, GroupList } from "@/components/pages/organisation/structure";
 import { EscalationPath } from "@/components/pages/organisation/escalation-path";
 import { AddDepartmentDialog, AddTeamDialog, LeaderDialog, MovePersonDialog, NewGroupDialog } from "@/components/pages/organisation/dialogs";
@@ -24,6 +25,8 @@ export default function OrganisationPage() {
   const [moving, setMoving] = React.useState<Person | null>(null);
   const [leader, setLeader] = React.useState<{ kind: "head"; unit: Department } | { kind: "lead"; unit: Team } | null>(null);
   const people = React.useMemo(() => allPeople.filter((p) => p.active !== false), [allPeople]);
+  // staff who aren't in any team (added with "No team yet", or whose team was never set)
+  const unplaced = React.useMemo(() => people.filter((p) => p.role !== "owner" && !teams.some((t) => t.id === p.teamId) && !departments.some((d) => d.headId === p.id)), [people, teams, departments]);
 
   if (role !== "owner")
     return (
@@ -49,10 +52,7 @@ export default function OrganisationPage() {
 
       <div className="space-y-10">
         <section>
-          <SectionHeading
-            title="Departments and teams"
-            aside={`${plural(departments.length, "department")}, ${plural(teams.length, "team")}, ${plural(people.length, "person", "people")}`}
-          />
+          <SectionHeading title="Departments and teams" aside={`${plural(departments.length, "department")}, ${plural(teams.length, "team")}, ${plural(people.length, "person", "people")}`} />
           {departments.length ? (
             <DepartmentList
               departments={departments}
@@ -78,6 +78,32 @@ export default function OrganisationPage() {
             </Panel>
           )}
         </section>
+
+        {unplaced.length > 0 && (
+          <section>
+            <SectionHeading title="Not in a team yet" aside={plural(unplaced.length, "person", "people")} />
+            <p className="-mt-1 mb-3 max-w-[64ch] text-[13.5px] leading-snug text-muted">
+              They can be assigned work, but their reminders have nobody to escalate to until they join a team.
+              {teams.length === 0 ? " Add a department and a team first." : ""}
+            </p>
+            <Panel className="overflow-hidden">
+              <ul>
+                {unplaced.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3 border-b border-line px-4 py-2.5 last:border-0">
+                    <Avatar person={p} size="md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-[14px] font-medium text-text">{p.name}</p>
+                      <p className="truncate text-[12.5px] text-muted">{p.title}</p>
+                    </div>
+                    <Button size="sm" onClick={() => setMoving(p)} disabled={teams.length === 0}>
+                      <ArrowRightLeft /> Put in a team
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          </section>
+        )}
 
         <section>
           <SectionHeading title="Escalation path" />

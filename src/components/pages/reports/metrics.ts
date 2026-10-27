@@ -5,7 +5,10 @@ import { minutesToLabel } from "@/lib/utils";
 
 export type Period = "week" | "month";
 
-export const PERIOD_LABEL: Record<Period, string> = { week: "This week", month: "Last 4 weeks" };
+export const PERIOD_LABEL: Record<Period, string> = {
+  week: "Last 7 days",
+  month: "Last 4 weeks",
+};
 
 /** the totals behind every rate on the reports page */
 export interface Totals {
@@ -21,6 +24,9 @@ export interface Totals {
   overrunHours: number;
   escalations: number;
   reviewWeighted: number; // sum of reviewHours × submissions
+  waitHours: number;
+  workHours: number;
+  blockedHours: number;
   days: number;
 }
 
@@ -49,6 +55,9 @@ export const emptyTotals = (): Totals => ({
   overrunHours: 0,
   escalations: 0,
   reviewWeighted: 0,
+  waitHours: 0,
+  workHours: 0,
+  blockedHours: 0,
   days: 0,
 });
 
@@ -67,6 +76,9 @@ export function sumRows(rows: DailyStat[]): Totals {
     t.overrunHours += Math.max(0, r.actualHours - r.estHours);
     t.escalations += r.escalations;
     t.reviewWeighted += r.reviewHours * Math.max(1, r.submissions);
+    t.waitHours += r.waitHours ?? 0;
+    t.workHours += r.workHours ?? 0;
+    t.blockedHours += r.blockedHours ?? 0;
     t.days += 1;
   }
   return t;
@@ -193,21 +205,38 @@ export function judge(def: MetricDef, cur: number | null, prev: number | null) {
   return { diff, tone: improved ? ("better" as const) : ("worse" as const) };
 }
 
-/** split of a task's cycle time, estimated from reminders, timers and review waits */
+/** average split of an approved task's cycle time, measured from each task's own timestamps */
 export function timeSplit(t: Totals) {
   const tasks = Math.max(1, t.approved);
-  const ack = t.assigned ? t.ackWeighted / t.assigned : 0;
-  // time to the first OK, plus the usual gap between seeing a task and starting it
-  const waiting = (ack * 1.6) / 60;
-  const working = t.actualHours / tasks;
+  const waiting = t.waitHours / tasks;
+  const working = t.workHours / tasks;
   const review = t.submissions ? t.reviewWeighted / Math.max(1, t.submissions) : 0;
-  // overruns past the estimate are mostly time spent stuck, plus a share per escalation
-  const blocked = (t.overrunHours * 0.55 + t.escalations * 1.5) / tasks;
+  const blocked = t.blockedHours / tasks;
   const parts = [
-    { key: "waiting", label: "Waiting to start", hours: waiting, color: "var(--color-line-strong)" },
-    { key: "working", label: "In progress", hours: working, color: "var(--color-ink)" },
-    { key: "review", label: "Waiting for review", hours: review, color: "var(--color-faint)" },
-    { key: "blocked", label: "Blocked", hours: blocked, color: "var(--color-heat-2)" },
+    {
+      key: "waiting",
+      label: "Waiting to start",
+      hours: waiting,
+      color: "var(--color-line-strong)",
+    },
+    {
+      key: "working",
+      label: "In progress",
+      hours: working,
+      color: "var(--color-ink)",
+    },
+    {
+      key: "review",
+      label: "Waiting for review",
+      hours: review,
+      color: "var(--color-faint)",
+    },
+    {
+      key: "blocked",
+      label: "Blocked",
+      hours: blocked,
+      color: "var(--color-heat-2)",
+    },
   ];
   const total = parts.reduce((s, p) => s + p.hours, 0);
   return { parts, total };

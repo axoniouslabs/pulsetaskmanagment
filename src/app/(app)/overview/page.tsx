@@ -32,7 +32,7 @@ export default function OverviewPage() {
   const name = (id: string) => allPeople.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
   const hour = now.getHours();
   const greet = hour < 12 ? "Good morning" : hour < 17 ? "Good afternoon" : "Good evening";
-  const scopeLabel = role === "owner" ? "the company" : state.departments.find((d) => d.headId === meId)?.name ?? "your team";
+  const scopeLabel = role === "owner" ? "the company" : (state.departments.find((d) => d.headId === meId)?.name ?? "your team");
   // a company that has just been created: guide the owner through the first steps
   const starting = role === "owner" && (state.departments.length === 0 || state.people.length <= 1 || state.tasks.length === 0) && total === 0;
 
@@ -60,7 +60,15 @@ export default function OverviewPage() {
     return (
       <>
         {late >= 1 ? `${late}h past the deadline. ` : "Just went past the deadline. "}
-        {t.acknowledgedAt ? (t.startedAt ? "Started but not submitted." : "Seen but not started.") : <span className="font-medium text-heat-3">Never opened, {t.remindersSent} reminders delivered.</span>}
+        {t.acknowledgedAt ? (
+          t.startedAt ? (
+            "Started but not submitted."
+          ) : (
+            "Seen but not started."
+          )
+        ) : (
+          <span className="font-medium text-heat-3">Never opened, {t.remindersSent} reminders delivered.</span>
+        )}
       </>
     );
   };
@@ -78,25 +86,24 @@ export default function OverviewPage() {
           />
         ) : (
           <>
-          {/* the status line is the hero */}
-          <p className="text-[14px] text-muted">
-            {greet}, {me.name.split(" ")[0]}. {format(now, "EEEE d MMMM")}.
-          </p>
-          <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">
-            {total === 0 ? (
-              "Everything is moving."
-            ) : (
-              <>
-                <Count value={total} /> {total === 1 ? "thing needs" : "things need"} you.
-              </>
-            )}
-          </h1>
-          <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">
-            {total === 0
-              ? `No overdue, ignored or blocked work in ${scopeLabel}. You can close the app.`
-              : `The rest of ${scopeLabel} is on track: ${plural(open.length, "open task")}, ${doneToday.length} done today. Below is only what has stalled, most urgent first.`}
-          </p>
-
+            {/* the status line is the hero */}
+            <p className="text-[14px] text-muted">
+              {greet}, {me.name.split(" ")[0]}. {format(now, "EEEE d MMMM")}.
+            </p>
+            <h1 className="mt-2 font-display text-[34px] font-semibold leading-[1.05] tracking-tight text-text sm:text-[44px]">
+              {total === 0 ? (
+                "Everything is moving."
+              ) : (
+                <>
+                  <Count value={total} /> {total === 1 ? "thing needs" : "things need"} you.
+                </>
+              )}
+            </h1>
+            <p className="mt-3 max-w-[60ch] text-[15px] leading-relaxed text-muted">
+              {total === 0
+                ? `No overdue, ignored or blocked work in ${scopeLabel}. You can close the app.`
+                : `The rest of ${scopeLabel} is on track: ${plural(open.length, "open task")}, ${doneToday.length} done today. Below is only what has stalled, most urgent first.`}
+            </p>
           </>
         )}
 
@@ -140,7 +147,8 @@ export default function OverviewPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-[14.5px] font-medium">{p.name}</p>
                       <p className="text-[13px] text-muted">
-                        {p.title}, {plural(theirs.length, "open task")}. {p.workType === "field" ? "Field staff, last seen on phone " + ago(p.devices[0]?.lastSeen) + "." : ""}
+                        {p.title}, {plural(theirs.length, "open task")}.
+                        {p.workType === "field" ? (p.devices[0]?.lastSeen ? ` Field staff, last seen on phone ${ago(p.devices[0].lastSeen)}.` : " Field staff, phone not set up yet.") : ""}
                         {p.devices.some((d) => !d.healthy) && <span className="font-medium text-heat-2"> Phone isn't receiving notifications.</span>}
                       </p>
                     </div>
@@ -153,13 +161,15 @@ export default function OverviewPage() {
 
           {!starting && (
             <ClearList
-              items={[
-              !a.overdue.length && "Nothing overdue",
-              !a.unseen.length && "Every task has been acknowledged",
-              !a.blocked.length && "Nobody is blocked",
-              !a.slowReview.length && "Reviews are on time",
-              !a.quiet.length && "Everyone has been active today",
-              ].filter(Boolean) as string[]}
+              items={
+                [
+                  !a.overdue.length && "Nothing overdue",
+                  !a.unseen.length && "Every task has been acknowledged",
+                  !a.blocked.length && "Nobody is blocked",
+                  !a.slowReview.length && "Reviews are on time",
+                  !a.quiet.length && "Everyone has been active today",
+                ].filter(Boolean) as string[]
+              }
             />
           )}
         </div>
@@ -218,10 +228,21 @@ export default function OverviewPage() {
                         </button>
                         <p className="mt-1 text-text/80">“{d.reason}”</p>
                         <div className="mt-2.5 flex gap-2">
-                          <Button size="sm" variant="ok" onClick={() => { state.decideDeadline(d.id, true); toast.success("Extension approved"); }}>
+                          <Button
+                            size="sm"
+                            variant="ok"
+                            onClick={() => {
+                              if (state.decideDeadline(d.id, true).ok) toast.success("Extension approved");
+                            }}
+                          >
                             <CalendarClock /> Approve
                           </Button>
-                          <Button size="sm" onClick={() => { state.decideDeadline(d.id, false); toast("Extension declined"); }}>
+                          <Button
+                            size="sm"
+                            onClick={() => {
+                              if (state.decideDeadline(d.id, false).ok) toast("Extension declined");
+                            }}
+                          >
                             Decline
                           </Button>
                         </div>
@@ -305,7 +326,7 @@ function QuestionItem({ id }: { id: string }) {
           </p>
           <p className="mt-0.5 leading-snug text-text">{q.body}</p>
           {task && (
-            <button className="mt-1 flex items-center gap-1 text-[12.5px] text-muted hover:text-text" onClick={() => openTask(task.id)}>
+            <button type="button" className="relative mt-1 flex items-center gap-1 text-[12.5px] text-muted before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:text-text" onClick={() => openTask(task.id)}>
               <MessageCircleQuestion className="size-3.5" /> {task.title}
             </button>
           )}
@@ -315,8 +336,10 @@ function QuestionItem({ id }: { id: string }) {
               onSubmit={(e) => {
                 e.preventDefault();
                 if (!text.trim()) return;
-                answer(q.id, text.trim());
-                toast.success("Answer sent", { description: `${from?.name.split(" ")[0]} has been notified.` });
+                if (!answer(q.id, text.trim()).ok) return;
+                toast.success("Answer sent", {
+                  description: `${from?.name.split(" ")[0]} has been notified.`,
+                });
               }}
             >
               <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} className="min-h-16 text-[13.5px]" placeholder="Your answer" />
@@ -356,9 +379,15 @@ function DepartmentHealth() {
           const blocked = dt.filter((t) => t.status === "blocked").length;
           const segs = [
             { n: dt.filter((t) => heatOf(t) >= 3).length, c: "bg-heat-3" },
-            { n: dt.filter((t) => heatOf(t) === 2 || heatOf(t) === 1).length, c: "bg-heat-1" },
+            {
+              n: dt.filter((t) => heatOf(t) === 2 || heatOf(t) === 1).length,
+              c: "bg-heat-1",
+            },
             { n: blocked, c: "bg-heat-2" },
-            { n: dt.length - dt.filter((t) => heatOf(t) >= 1).length - blocked, c: "bg-ink/70" },
+            {
+              n: dt.length - dt.filter((t) => heatOf(t) >= 1).length - blocked,
+              c: "bg-ink/70",
+            },
           ];
           const head = people.find((p) => p.id === d.headId);
           return (
@@ -369,9 +398,7 @@ function DepartmentHealth() {
                   {dt.length} open{hot ? `, ${hot} stalled` : ""}
                 </span>
               </div>
-              <div className="mt-2 flex h-2 gap-[2px] overflow-hidden rounded-full bg-sunken">
-                {segs.map((s, i) => (s.n > 0 ? <span key={i} className={s.c} style={{ flex: s.n }} /> : null))}
-              </div>
+              <div className="mt-2 flex h-2 gap-[2px] overflow-hidden rounded-full bg-sunken">{segs.map((s, i) => (s.n > 0 ? <span key={i} className={s.c} style={{ flex: s.n }} /> : null))}</div>
               <p className="mt-1.5 flex items-center gap-1.5 text-[12px] text-faint">
                 <Avatar person={head} size="xs" /> {head?.name}
               </p>
@@ -380,21 +407,49 @@ function DepartmentHealth() {
         })}
       </ul>
       <p className="mt-4 flex items-center gap-3 text-[11.5px] text-faint">
-        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-ink/70" />On track</span>
-        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-heat-1" />Slipping</span>
-        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-heat-2" />Blocked</span>
-        <span className="flex items-center gap-1"><span className="size-2 rounded-full bg-heat-3" />Overdue</span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-ink/70" />
+          On track
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-heat-1" />
+          Slipping
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-heat-2" />
+          Blocked
+        </span>
+        <span className="flex items-center gap-1">
+          <span className="size-2 rounded-full bg-heat-3" />
+          Overdue
+        </span>
       </p>
     </Panel>
   );
 }
 
-
 function GettingStarted({ greeting, hasDepartments, hasPeople, hasTasks, onAssign }: { greeting: string; hasDepartments: boolean; hasPeople: boolean; hasTasks: boolean; onAssign: () => void }) {
   const steps = [
-    { done: hasPeople, title: "Add your people", body: "Each person gets a sign-in and a temporary password to share with them. Teams can come later.", href: "/team", action: "Open Team" },
-    { done: hasDepartments, title: "Group them into departments", body: "Each department has a head, who hears about it when work there stalls.", href: "/organisation", action: "Open Organisation" },
-    { done: hasTasks, title: "Assign the first task", body: "Pick a person, a deadline and how often Pulse should remind them.", action: "Assign a task" },
+    {
+      done: hasPeople,
+      title: "Add your people",
+      body: "Each person gets a sign-in and a temporary password to share with them. Teams can come later.",
+      href: "/team",
+      action: "Open Team",
+    },
+    {
+      done: hasDepartments,
+      title: "Group them into departments",
+      body: "Each department has a head, who hears about it when work there stalls.",
+      href: "/organisation",
+      action: "Open Organisation",
+    },
+    {
+      done: hasTasks,
+      title: "Assign the first task",
+      body: "Pick a person, a deadline and how often Pulse should remind them.",
+      action: "Assign a task",
+    },
   ];
   const next = steps.findIndex((s) => !s.done);
   return (
@@ -419,7 +474,10 @@ function GettingStarted({ greeting, hasDepartments, hasPeople, hasTasks, onAssig
               <p className="mt-0.5 text-[13.5px] leading-snug text-muted">{st.body}</p>
               {i === next &&
                 (st.href ? (
-                  <Link href={st.href} className="press mt-3 inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-ink px-3.5 text-[13.5px] font-medium text-white transition-colors hover:bg-ink-soft">
+                  <Link
+                    href={st.href}
+                    className="press mt-3 inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] bg-ink px-3.5 text-[13.5px] font-medium text-white transition-colors hover:bg-ink-soft"
+                  >
                     {st.action}
                   </Link>
                 ) : (

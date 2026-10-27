@@ -1,4 +1,4 @@
-import { getViewer, json } from "@/server/session";
+import { getActor, json } from "@/server/session";
 import { authorize } from "@/domain/permissions";
 import { db } from "@/server/db";
 import { checkFile, removeFile, storeFile } from "@/server/files";
@@ -7,8 +7,9 @@ import { runCommand } from "@/server/run-command";
 
 /** Upload a photo or file and attach it to a task (multipart: file, taskId, proof). */
 export async function POST(req: Request) {
-  const viewer = await getViewer();
-  if (!viewer) return json({ ok: false, error: "Sign in again." }, 401);
+  const actor = await getActor();
+  if (!actor.viewer) return actor.response;
+  const viewer = actor.viewer;
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   const taskId = String(form?.get("taskId") ?? "");

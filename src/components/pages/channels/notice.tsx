@@ -83,6 +83,7 @@ function AckBlock({
   authorFirst: string;
 }) {
   const ack = useApp((s) => s.ackAnnouncement);
+  const remindAnnouncement = useApp((s) => s.remindAnnouncement);
   const people = useApp((s) => s.people);
   const [open, setOpen] = React.useState(false);
 
@@ -98,8 +99,10 @@ function AckBlock({
   const myAck = notice.ackBy[meId];
 
   const remind = () => {
-    toast.success(`Reminder sent to ${plural(notYet.length, "person", "people")}`, {
-      description: "On their phone and PC. Pulse keeps reminding them until they acknowledge.",
+    const r = remindAnnouncement(notice.id);
+    if (!r.ok) return;
+    toast.success(`Reminder sent to ${plural(notYetAll.length, "person", "people")}`, {
+      description: "On their phone and PC, and in their notifications here.",
     });
   };
 
@@ -168,7 +171,9 @@ function AckBlock({
             className="h-10 sm:h-9"
             onClick={() => {
               ack(notice.id);
-              toast.success("Acknowledged", { description: `${authorFirst} can see you've read it.` });
+              toast.success("Acknowledged", {
+                description: `${authorFirst} can see you've read it.`,
+              });
             }}
           >
             <Check /> I&apos;ve read this

@@ -6,24 +6,10 @@ import { toast } from "sonner";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove, sortableKeyboardCoordinates } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import {
-  BellRing,
-  Check,
-  CheckCircle2,
-  GripVertical,
-  LogIn,
-  LogOut,
-  Megaphone,
-  MessageCircleQuestion,
-  Pause,
-  Play,
-  Sparkles,
-  CircleCheckBig,
-  ChevronDown,
-} from "lucide-react";
+import { BellRing, Check, CheckCircle2, GripVertical, LogIn, LogOut, Megaphone, MessageCircleQuestion, Pause, Play, Sparkles, CircleCheckBig, ChevronDown } from "lucide-react";
 import { PushCard, usePushState } from "@/components/app/push-card";
 import { useApp, membersOf } from "@/lib/store";
-import { useNow, useScope } from "@/lib/hooks";
+import { useNow, useScope, useOrgToday } from "@/lib/hooks";
 import { NEXT_UP_SCORE, isOpenWork } from "@/lib/selectors";
 import type { Task } from "@/lib/types";
 import { ago, cn, dueLabel, minutesToLabel, plural } from "@/lib/utils";
@@ -41,13 +27,15 @@ export default function TodayPage() {
   const s = useApp();
   const mine = React.useMemo(() => allTasks.filter((t) => t.assigneeId === meId && !(t.groupClaim && !t.groupClaim.claimed)), [allTasks, meId]);
   const claimable = allTasks.filter((t) => isOpenToClaim(s, t, meId));
-  const toAck = mine.filter((t) => t.status === "assigned").sort((a, b) => NEXT_UP_SCORE(a, now) - NEXT_UP_SCORE(b, now));
-  const working = mine.filter((t) => ["acknowledged", "in_progress"].includes(t.status) && (!t.startAt || new Date(t.startAt) <= now));
-  const waiting = mine.filter((t) => t.status === "blocked" || t.status === "submitted");
+  // work that can't begin yet: a start date still ahead, or another task it waits for that isn't done
+  const notYet = (t: Task) => (!!t.startAt && new Date(t.startAt) > now) || (t.dependsOn ?? []).some((id) => allTasks.some((x) => x.id === id && !["approved", "cancelled"].includes(x.status)));
+  const toAck = mine.filter((t) => t.status === "assigned" && !notYet(t)).sort((a, b) => NEXT_UP_SCORE(a, now) - NEXT_UP_SCORE(b, now));
+  const working = mine.filter((t) => ["acknowledged", "in_progress"].includes(t.status) && !notYet(t));
+  const waiting = mine.filter((t) => t.status === "blocked" || t.status === "submitted" || (["assigned", "acknowledged", "in_progress"].includes(t.status) && notYet(t)));
   const doneToday = mine.filter((t) => t.status === "approved" && t.approvedAt && isToday(new Date(t.approvedAt)));
   const timer = s.timers[meId];
   const timerTask = timer ? mine.find((t) => t.id === timer.taskId) : undefined;
-  const today = format(now, "yyyy-MM-dd");
+  const today = useOrgToday(now);
   const att = s.attendance.find((a) => a.personId === meId && a.date === today);
   const notices = s.announcements.filter((a) => {
     if (!a.requiresAck || a.ackBy[meId] || a.authorId === meId) return false;
@@ -74,8 +62,23 @@ export default function TodayPage() {
   const nextUp = timerTask ?? toAck[0] ?? ordered[0];
   const greet = now.getHours() < 12 ? "Good morning" : now.getHours() < 17 ? "Good afternoon" : "Good evening";
   const leadId = s.teams.find((t) => t.id === me.teamId)?.leadId;
-  const lead = s.people.find((p) => p.id === (leadId === meId ? s.departments.find((d) => d.id === me.departmentId)?.headId ?? "p_imran" : leadId));
-  const [askOpen, setAskOpen] = React.useState(() => typeof window !== "undefined" && window.location.hash === "#ask");
+  // who to ask: the team lead, else the department head, else the owner
+  const headId = s.departments.find((d) => d.id === me.departmentId)?.headId;
+  const ownerId = s.people.find((p) => p.role === "owner")?.id;
+  const lead = s.people.find((p) => p.id === (leadId && leadId !== meId ? leadId : headId && headId !== meId ? headId : ownerId) && p.active !== false);
+  const [askOpen, setAskOpen] = React.useState(false);
+  // "/today#ask" opens the question box, also when already on this page (the search palette uses it)
+  React.useEffect(() => {
+    const check = () => {
+      if (window.location.hash === "#ask") {
+        setAskOpen(true);
+        window.history.replaceState(null, "", window.location.pathname);
+      }
+    };
+    check();
+    window.addEventListener("hashchange", check);
+    return () => window.removeEventListener("hashchange", check);
+  }, []);
   const [showDone, setShowDone] = React.useState(false);
 
   const brief =
@@ -94,7 +97,16 @@ export default function TodayPage() {
           <p className="mt-2 max-w-[60ch] text-[15px] leading-relaxed text-muted">{brief}</p>
           <div className="mt-4 flex flex-wrap items-center gap-2">
             {!att?.checkIn ? (
-              <Button variant="primary" size="lg" onClick={() => { s.checkIn(); toast.success("Checked in", { description: `at ${format(new Date(), "h:mm a")}` }); }}>
+              <Button
+                variant="primary"
+                size="lg"
+                onClick={() => {
+                  if (s.checkIn().ok)
+                    toast.success("Checked in", {
+                      description: `at ${format(new Date(), "h:mm a")}`,
+                    });
+                }}
+              >
                 <LogIn /> Check in
               </Button>
             ) : (
@@ -105,7 +117,16 @@ export default function TodayPage() {
                   {att.status === "late" && !att.checkOut && <span className="text-heat-1">, late</span>}
                 </span>
                 {!att.checkOut && (
-                  <Button variant="ghost" size="sm" onClick={() => { s.checkOut(); toast("Checked out", { description: "Any running timer was stopped." }); }}>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      if (s.checkOut().ok)
+                        toast("Checked out", {
+                          description: "Any running timer was stopped.",
+                        });
+                    }}
+                  >
                     <LogOut /> Check out
                   </Button>
                 )}
@@ -127,7 +148,16 @@ export default function TodayPage() {
               <p className="text-[14px] font-semibold">{n.title}</p>
               <p className="mt-0.5 line-clamp-2 text-[13.5px] text-muted">{n.body}</p>
             </div>
-            <Button size="sm" variant="primary" onClick={() => { s.ackAnnouncement(n.id); toast.success("Acknowledged", { description: `${s.people.find((p) => p.id === n.authorId)?.name.split(" ")[0]} can see you've read it.` }); }}>
+            <Button
+              size="sm"
+              variant="primary"
+              onClick={() => {
+                if (s.ackAnnouncement(n.id).ok)
+                  toast.success("Acknowledged", {
+                    description: `${s.people.find((p) => p.id === n.authorId)?.name.split(" ")[0]} can see you've read it.`,
+                  });
+              }}
+            >
               <Check /> I've read this
             </Button>
           </div>
@@ -138,7 +168,14 @@ export default function TodayPage() {
 
         {toAck.length > 0 && (
           <section>
-            <SectionHeading title={<span className="flex items-center gap-2"><BellRing className="size-4 text-heat-1" /> Needs your OK</span>} aside="Acknowledge so reminders stop" />
+            <SectionHeading
+              title={
+                <span className="flex items-center gap-2">
+                  <BellRing className="size-4 text-heat-1" /> Needs your OK
+                </span>
+              }
+              aside="Acknowledge so reminders stop"
+            />
             <TaskList>
               {toAck.map((t) => (
                 <TaskRow key={t.id} task={t} showAssignee={false} showStatus={false} showActions />
@@ -149,7 +186,9 @@ export default function TodayPage() {
 
         <section>
           <SectionHeading title="Your list" aside={ordered.length > 1 ? "Drag to set your own order" : undefined} />
-          {ordered.length ? <SortableList tasks={ordered} onReorder={(ids) => s.setDayOrder(ids)} /> : (
+          {ordered.length ? (
+            <SortableList tasks={ordered} onReorder={(ids) => s.setDayOrder(ids)} />
+          ) : (
             <Panel>
               <EmptyState icon={CheckCircle2} title="Nothing in progress" body="Tasks you acknowledge or start show up here, in the order you choose." />
             </Panel>
@@ -170,6 +209,9 @@ export default function TodayPage() {
         {waiting.length > 0 && (
           <section>
             <SectionHeading title="Waiting on others" aside="Not counted against you" />
+            {waiting.some((t) => t.status !== "blocked" && t.status !== "submitted") && (
+              <p className="-mt-1 mb-3 text-[13px] text-muted">Some of these can&apos;t start yet: they wait for other work, or their start date is still ahead.</p>
+            )}
             <TaskList>
               {waiting.map((t) => (
                 <TaskRow key={t.id} task={t} showAssignee={false} />
@@ -209,7 +251,9 @@ export default function TodayPage() {
                       <span className="font-medium text-ok">{s.people.find((p) => p.id === q.toId)?.name.split(" ")[0]}:</span> {q.answer}
                     </p>
                   ) : (
-                    <p className="mt-1 text-[12.5px] text-faint">Sent to {s.people.find((p) => p.id === q.toId)?.name.split(" ")[0]} {ago(q.at)}, waiting for an answer</p>
+                    <p className="mt-1 text-[12.5px] text-faint">
+                      Sent to {s.people.find((p) => p.id === q.toId)?.name.split(" ")[0]} {ago(q.at)}, waiting for an answer
+                    </p>
                   )}
                 </li>
               ))}
@@ -255,12 +299,14 @@ function FocusCard({ task, running, startedAt }: { task: Task; running: boolean;
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[13px] text-white/75">
           <span className={cn(new Date(task.dueAt) < now && "font-semibold text-[#ffb4a8]")}>{dueLabel(task.dueAt)}</span>
           <span>{task.priority[0].toUpperCase() + task.priority.slice(1)} priority</span>
-          {task.subtasks.length > 0 && <span>{done} of {task.subtasks.length} steps</span>}
+          {task.subtasks.length > 0 && (
+            <span>
+              {done} of {task.subtasks.length} steps
+            </span>
+          )}
           <span className="tabular">
-            {running
-              ? `${Math.floor(total / 3600)}:${String(Math.floor((total % 3600) / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`
-              : minutesToLabel(task.loggedMinutes)}{" "}
-            of {task.estimateHours}h
+            {running ? `${Math.floor(total / 3600)}:${String(Math.floor((total % 3600) / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}` : minutesToLabel(task.loggedMinutes)} of{" "}
+            {task.estimateHours}h
           </span>
         </div>
         <div className="mt-5 [&_button]:border-white/20 [&_.bg-surface]:bg-white/10 [&_.bg-surface]:text-white">
@@ -277,10 +323,25 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
   if (task.status === "assigned")
     return (
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { if (s.acknowledge(task.id).ok) toast.success("Acknowledged", { description: "Reminders slowed down." }); }}>
+        <Button
+          size="lg"
+          className="bg-white text-ink hover:bg-white/90"
+          onClick={() => {
+            if (s.acknowledge(task.id).ok)
+              toast.success("Acknowledged", {
+                description: "Reminders slowed down.",
+              });
+          }}
+        >
           <Check /> Acknowledge
         </Button>
-        <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { if (s.start(task.id).ok) toast.success("Started", { description: "Timer is running." }); }}>
+        <Button
+          size="lg"
+          className="border border-white/25 bg-white/10 text-white hover:bg-white/15"
+          onClick={() => {
+            if (s.start(task.id).ok) toast.success("Started", { description: "Timer is running." });
+          }}
+        >
           <Play /> Start now
         </Button>
       </div>
@@ -288,7 +349,16 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
   if (task.status === "acknowledged" || (task.status === "in_progress" && !running))
     return (
       <div className="flex flex-wrap gap-2">
-        <Button size="lg" className="bg-white text-ink hover:bg-white/90" onClick={() => { if (s.start(task.id).ok) toast.success(task.startedAt ? "Resumed" : "Started", { description: "Timer is running." }); }}>
+        <Button
+          size="lg"
+          className="bg-white text-ink hover:bg-white/90"
+          onClick={() => {
+            if (s.start(task.id).ok)
+              toast.success(task.startedAt ? "Resumed" : "Started", {
+                description: "Timer is running.",
+              });
+          }}
+        >
           <Play /> {task.startedAt ? "Resume" : "Start"}
         </Button>
         {task.status === "in_progress" && (
@@ -306,7 +376,13 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
       <Button size="lg" className="bg-[#4ade80] text-ink hover:brightness-105" onClick={() => setSubmitOpen(true)}>
         <CircleCheckBig /> {task.requiresApproval ? "Submit for review" : "Mark done"}
       </Button>
-      <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => { if (s.stopTimer().ok) toast("Timer paused"); }}>
+      <Button
+        size="lg"
+        className="border border-white/25 bg-white/10 text-white hover:bg-white/15"
+        onClick={() => {
+          if (s.stopTimer().ok) toast("Timer paused");
+        }}
+      >
         <Pause /> Pause
       </Button>
       <SubmitBridge task={task} open={submitOpen} onClose={() => setSubmitOpen(false)} />
@@ -322,8 +398,12 @@ function SubmitBridge({ task, open, onClose }: { task: Task; open: boolean; onCl
 function SortableList({ tasks, onReorder }: { tasks: Task[]; onReorder: (ids: string[]) => void }) {
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
-    useSensor(TouchSensor, { activationConstraint: { delay: 180, tolerance: 6 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 180, tolerance: 6 },
+    }),
+    useSensor(KeyboardSensor, {
+      coordinateGetter: sortableKeyboardCoordinates,
+    }),
   );
   const ids = tasks.map((t) => t.id);
   const onDragEnd = (e: DragEndEvent) => {
@@ -355,7 +435,12 @@ function SortableTask({ task, index }: { task: Task; index: number }) {
       className={cn("relative flex items-center gap-2 border-b border-line bg-surface py-3 pl-2 pr-4 last:border-b-0", isDragging && "z-10 shadow-pop")}
     >
       <HeatEdge level={heatOf(task)} />
-      <button {...attributes} {...listeners} className="flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded text-faint hover:bg-sunken hover:text-muted active:cursor-grabbing" aria-label={`Move ${task.title}`}>
+      <button
+        {...attributes}
+        {...listeners}
+        className="flex size-8 shrink-0 cursor-grab touch-none items-center justify-center rounded text-faint hover:bg-sunken hover:text-muted active:cursor-grabbing"
+        aria-label={`Move ${task.title}`}
+      >
         <GripVertical className="size-4" />
       </button>
       <span className="tabular w-5 shrink-0 text-[13px] font-semibold text-faint">{index + 1}</span>
@@ -385,7 +470,10 @@ function DaySummary() {
   const { meId, allTasks } = useScope();
   const stats = useApp((s) => s.stats);
   const mine = allTasks.filter((t) => t.assigneeId === meId);
-  const week = stats.filter((x) => x.personId === meId).slice(-6);
+  const week = stats
+    .filter((x) => x.personId === meId)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(-6);
   const approved = week.reduce((s, x) => s + x.approved, 0);
   const onTime = week.reduce((s, x) => s + x.onTime, 0);
   const ackFirst = week.reduce((s, x) => s + x.ackFirst, 0);
@@ -450,43 +538,52 @@ function AskForm({ onOpenChange, defaultTo, tasks }: { onOpenChange: (o: boolean
   const people = useApp((s) => s.people);
   const meId = useApp((s) => s.userIds[s.role]);
   const ask = useApp((s) => s.askQuestion);
-  const [to, setTo] = React.useState(defaultTo ?? "p_imran");
+  const askable = people.filter((p) => p.id !== meId && p.role !== "employee" && p.active !== false);
+  const [to, setTo] = React.useState(() => (askable.some((p) => p.id === defaultTo) ? defaultTo! : (askable[0]?.id ?? "")));
   const [taskId, setTaskId] = React.useState("");
   const [body, setBody] = React.useState("");
   return (
-        <DialogContent title="Ask a question" description="It goes straight to their phone and PC, and they're reminded until they answer.">
-          <Field label="Ask">
-            <Select value={to} onChange={(e) => setTo(e.target.value)}>
-              {people.filter((p) => p.id !== meId && p.role !== "employee").map((p) => (
-                <option key={p.id} value={p.id}>{p.name}, {p.title}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="About a task (optional)" className="mt-4">
-            <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
-              <option value="">Not about a specific task</option>
-              {tasks.map((t) => (
-                <option key={t.id} value={t.id}>{t.title}</option>
-              ))}
-            </Select>
-          </Field>
-          <Field label="Your question" className="mt-4">
-            <Textarea autoFocus value={body} onChange={(e) => setBody(e.target.value)} placeholder="What's unclear?" />
-          </Field>
-          <div className="mt-5 flex justify-end gap-2">
-            <Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button>
-            <Button
-              variant="primary"
-              disabled={!body.trim()}
-              onClick={() => {
-                ask({ toId: to, body: body.trim(), taskId: taskId || undefined });
-                onOpenChange(false);
-                toast.success("Question sent", { description: `${people.find((p) => p.id === to)?.name.split(" ")[0]} has been notified.` });
-              }}
-            >
-              Send question
-            </Button>
-          </div>
-        </DialogContent>
+    <DialogContent title="Ask a question" description="It goes straight to their phone and PC, and they're reminded until they answer.">
+      <Field label="Ask">
+        <Select value={to} onChange={(e) => setTo(e.target.value)}>
+          {askable.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.name}, {p.title}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="About a task (optional)" className="mt-4">
+        <Select value={taskId} onChange={(e) => setTaskId(e.target.value)}>
+          <option value="">Not about a specific task</option>
+          {tasks.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.title}
+            </option>
+          ))}
+        </Select>
+      </Field>
+      <Field label="Your question" className="mt-4">
+        <Textarea autoFocus value={body} onChange={(e) => setBody(e.target.value)} placeholder="What's unclear?" />
+      </Field>
+      <div className="mt-5 flex justify-end gap-2">
+        <Button variant="ghost" onClick={() => onOpenChange(false)}>
+          Cancel
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!body.trim() || !to}
+          onClick={() => {
+            if (!ask({ toId: to, body: body.trim(), taskId: taskId || undefined }).ok) return;
+            onOpenChange(false);
+            toast.success("Question sent", {
+              description: `${people.find((p) => p.id === to)?.name.split(" ")[0] ?? "They"} will be notified.`,
+            });
+          }}
+        >
+          Send question
+        </Button>
+      </div>
+    </DialogContent>
   );
 }

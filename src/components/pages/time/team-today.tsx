@@ -12,7 +12,14 @@ import { Avatar } from "@/components/app/avatar";
 import { approvedLeaveOn, backOn, minutesLate, startLabel, time } from "./lib";
 
 type Kind = "notyet" | "absent" | "late" | "in" | "off" | "leave";
-const ORDER: Record<Kind, number> = { notyet: 0, absent: 1, late: 2, in: 3, off: 4, leave: 5 };
+const ORDER: Record<Kind, number> = {
+  notyet: 0,
+  absent: 1,
+  late: 2,
+  in: 3,
+  off: 4,
+  leave: 5,
+};
 
 interface Row {
   person: Person;
@@ -99,7 +106,7 @@ export function TeamToday({ people, now, scopeLabel }: { people: Person[]; now: 
           {notYet + off > 0 && <span style={{ flex: notYet + off }} />}
         </div>
         <p className="mt-2.5 text-[13px] leading-snug text-muted">
-          Work starts at {startLabel(settings.workStart)}. Check-ins after 9:15 AM count as late.
+          Work starts at {startLabel(settings.workStart)}. Check-ins more than 15 minutes after that count as late.
           {out > 0 && ` ${out} ${out === 1 ? "has" : "have"} checked out.`}
         </p>
       </section>
@@ -144,18 +151,12 @@ function PersonRow({ row, dept }: { row: Row; dept?: string }) {
           : kind === "absent"
             ? "No check-in"
             : "";
-  const tone =
-    kind === "late" ? "text-heat-1" : kind === "absent" ? "text-heat-3" : kind === "leave" || kind === "off" ? "text-faint" : kind === "notyet" ? "text-muted" : "text-text";
+  const tone = kind === "late" ? "text-heat-1" : kind === "absent" ? "text-heat-3" : kind === "leave" || kind === "off" ? "text-faint" : kind === "notyet" ? "text-muted" : "text-text";
 
   return (
     <li className="border-b border-line last:border-b-0">
-      <Link
-        href={`/team?person=${p.id}`}
-        className={cn("relative flex min-h-[60px] items-center gap-3 px-4 py-3 pl-5 transition-colors hover:bg-hover", kind === "leave" && "text-faint")}
-      >
-        {(kind === "late" || kind === "absent") && (
-          <span className={cn("absolute inset-y-1.5 left-0 w-[3px] rounded-r-full", kind === "late" ? "bg-heat-1" : "bg-heat-3")} aria-hidden />
-        )}
+      <Link href={`/team?person=${p.id}`} className={cn("relative flex min-h-[60px] items-center gap-3 px-4 py-3 pl-5 transition-colors hover:bg-hover", kind === "leave" && "text-faint")}>
+        {(kind === "late" || kind === "absent") && <span className={cn("absolute inset-y-1.5 left-0 w-[3px] rounded-r-full", kind === "late" ? "bg-heat-1" : "bg-heat-3")} aria-hidden />}
         <Avatar person={p} size="md" />
         <div className="min-w-0 flex-1">
           <p className={cn("truncate text-[14.5px] font-medium", kind === "leave" ? "text-muted" : "text-text")}>{p.name}</p>

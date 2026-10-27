@@ -36,6 +36,13 @@
       "when": 1793026364502,
       "tag": "0004_subscriptions",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1793116946117,
+      "tag": "0005_stats_time_split",
+      "breakpoints": true
     }
   ]
 }

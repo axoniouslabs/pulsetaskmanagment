@@ -1,14 +1,7 @@
 "use client";
 
 import * as React from "react";
-import {
-  Dialog as D,
-  DropdownMenu as DM,
-  Popover as PO,
-  Tooltip as TT,
-  Switch as SW,
-  Checkbox as CB,
-} from "radix-ui";
+import { Dialog as D, DropdownMenu as DM, Popover as PO, Tooltip as TT, Switch as SW, Checkbox as CB } from "radix-ui";
 import { Check, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { m } from "motion/react";
@@ -50,11 +43,7 @@ export function DialogContent({
         <div className="flex items-start justify-between gap-4 px-5 pb-3 pt-4 sm:px-6 sm:pt-5">
           <div className="min-w-0">
             <D.Title className="font-display text-[19px] font-semibold text-text">{title}</D.Title>
-            {description ? (
-              <D.Description className="mt-1 text-[13.5px] leading-snug text-muted">{description}</D.Description>
-            ) : (
-              <D.Description className="sr-only">{title}</D.Description>
-            )}
+            {description ? <D.Description className="mt-1 text-[13.5px] leading-snug text-muted">{description}</D.Description> : <D.Description className="sr-only">{title}</D.Description>}
           </div>
           {!hideClose && (
             <D.Close className="press -mr-1.5 -mt-0.5 rounded-[var(--radius-sm)] p-1.5 text-faint hover:bg-sunken hover:text-text" aria-label="Close">
@@ -62,34 +51,19 @@ export function DialogContent({
             </D.Close>
           )}
         </div>
-        <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">{children}</div>
+        <div className="thin-scrollbar safe-bottom min-h-0 flex-1 overflow-y-auto px-5 pb-5 sm:px-6 sm:pb-6">{children}</div>
       </D.Content>
     </D.Portal>
   );
 }
 
 /* ---------------- Side sheet: right panel on desktop, full screen on phones ---------------- */
-export function Sheet({
-  open,
-  onOpenChange,
-  title,
-  children,
-  header,
-}: {
-  open: boolean;
-  onOpenChange: (o: boolean) => void;
-  title: string;
-  children: React.ReactNode;
-  header?: React.ReactNode;
-}) {
+export function Sheet({ open, onOpenChange, title, children, header }: { open: boolean; onOpenChange: (o: boolean) => void; title: string; children: React.ReactNode; header?: React.ReactNode }) {
   return (
     <D.Root open={open} onOpenChange={onOpenChange}>
       <D.Portal>
         <D.Overlay className="motion-overlay fixed inset-0 z-40 bg-ink/20 backdrop-blur-[1px]" />
-        <D.Content
-          className="motion-sheet fixed inset-y-0 right-0 z-40 flex w-full flex-col bg-surface shadow-sheet outline-none md:w-[min(640px,92vw)]"
-          aria-describedby={undefined}
-        >
+        <D.Content className="motion-sheet fixed inset-y-0 right-0 z-40 flex w-full flex-col bg-surface shadow-sheet outline-none md:w-[min(640px,92vw)]" aria-describedby={undefined}>
           <D.Title className="sr-only">{title}</D.Title>
           {header}
           <div className="thin-scrollbar min-h-0 flex-1 overflow-y-auto">{children}</div>
@@ -106,14 +80,7 @@ export const MenuTrigger = DM.Trigger;
 export function MenuContent({ children, align = "end", className }: { children: React.ReactNode; align?: "start" | "end" | "center"; className?: string }) {
   return (
     <DM.Portal>
-      <DM.Content
-        align={align}
-        sideOffset={6}
-        className={cn(
-          "motion-menu z-50 min-w-48 rounded-[var(--radius-md)] border border-line bg-surface p-1 shadow-pop",
-          className,
-        )}
-      >
+      <DM.Content align={align} sideOffset={6} className={cn("motion-menu z-50 min-w-48 rounded-[var(--radius-md)] border border-line bg-surface p-1 shadow-pop", className)}>
         {children}
       </DM.Content>
     </DM.Portal>
@@ -131,9 +98,7 @@ export function MenuItem({ className, ...props }: React.ComponentProps<typeof DM
   );
 }
 export const MenuSeparator = () => <DM.Separator className="my-1 h-px bg-line" />;
-export const MenuLabel = ({ children }: { children: React.ReactNode }) => (
-  <DM.Label className="px-2.5 pb-1 pt-2 text-xs font-medium text-faint">{children}</DM.Label>
-);
+export const MenuLabel = ({ children }: { children: React.ReactNode }) => <DM.Label className="px-2.5 pb-1 pt-2 text-xs font-medium text-faint">{children}</DM.Label>;
 
 /* ---------------- Popover ---------------- */
 export const Popover = PO.Root;
@@ -141,12 +106,7 @@ export const PopoverTrigger = PO.Trigger;
 export function PopoverContent({ children, className, align = "end" }: { children: React.ReactNode; className?: string; align?: "start" | "end" | "center" }) {
   return (
     <PO.Portal>
-      <PO.Content
-        align={align}
-        sideOffset={8}
-        collisionPadding={12}
-        className={cn("motion-menu z-50 rounded-[var(--radius-lg)] border border-line bg-surface shadow-pop outline-none", className)}
-      >
+      <PO.Content align={align} sideOffset={8} collisionPadding={12} className={cn("motion-menu z-50 rounded-[var(--radius-lg)] border border-line bg-surface shadow-pop outline-none", className)}>
         {children}
       </PO.Content>
     </PO.Portal>
@@ -173,7 +133,7 @@ export function Switch({ className, ...props }: React.ComponentProps<typeof SW.R
   return (
     <SW.Root
       className={cn(
-        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full bg-line-strong transition-colors duration-200 data-[state=checked]:bg-ink",
+        "relative inline-flex h-[22px] w-[38px] shrink-0 items-center rounded-full bg-line-strong transition-colors duration-200 before:absolute before:-inset-x-1.5 before:-inset-y-3 before:content-[''] data-[state=checked]:bg-ink",
         className,
       )}
       {...props}
@@ -187,7 +147,7 @@ export function Checkbox({ className, ...props }: React.ComponentProps<typeof CB
   return (
     <CB.Root
       className={cn(
-        "flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-surface transition-colors duration-150 hover:border-ink/50 data-[state=checked]:border-ok data-[state=checked]:bg-ok",
+        "relative flex size-[18px] shrink-0 items-center justify-center rounded-[5px] border-[1.5px] border-line-strong bg-surface transition-colors duration-150 before:absolute before:-inset-[7px] before:content-[''] hover:border-ink/50 data-[state=checked]:border-ok data-[state=checked]:bg-ok",
         className,
       )}
       {...props}
@@ -208,9 +168,9 @@ export const Input = React.forwardRef<HTMLInputElement, React.InputHTMLAttribute
 ));
 Input.displayName = "Input";
 
-export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(
-  ({ className, ...props }, ref) => <textarea ref={ref} className={cn(fieldBase, "min-h-20 resize-y py-2.5 leading-relaxed", className)} {...props} />,
-);
+export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(({ className, ...props }, ref) => (
+  <textarea ref={ref} className={cn(fieldBase, "min-h-20 resize-y py-2.5 leading-relaxed", className)} {...props} />
+));
 Textarea.displayName = "Textarea";
 
 export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(({ className, children, ...props }, ref) => (
@@ -218,7 +178,7 @@ export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttrib
     ref={ref}
     className={cn(
       fieldBase,
-      "h-10 appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%235b6b72%22 stroke-width=%222.5%22><path d=%22m6 9 6 6 6-6%22/></svg>')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-9",
+      "h-10 appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%2212%22 viewBox=%220 0 24 24%22 fill=%22none%22 stroke=%22%238a979d%22 stroke-width=%222.5%22><path d=%22m6 9 6 6 6-6%22/></svg>')] bg-[length:12px] bg-[right_12px_center] bg-no-repeat pr-9",
       className,
     )}
     {...props}
@@ -236,7 +196,10 @@ export function Field({ label, hint, children, className, htmlFor }: { label: st
   let control = children;
   if (React.isValidElement<{ id?: string; "aria-describedby"?: string }>(children) && (children.type === Input || children.type === Select || children.type === Textarea)) {
     id = children.props.id ?? htmlFor ?? auto;
-    control = React.cloneElement(children, { id, "aria-describedby": hint ? [children.props["aria-describedby"], hintId].filter(Boolean).join(" ") : children.props["aria-describedby"] });
+    control = React.cloneElement(children, {
+      id,
+      "aria-describedby": hint ? [children.props["aria-describedby"], hintId].filter(Boolean).join(" ") : children.props["aria-describedby"],
+    });
   }
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
@@ -306,7 +269,13 @@ export function Segmented<T extends string>({
 /* ---------------- Progress ---------------- */
 export function Bar({ value, max = 100, tone = "ink", className }: { value: number; max?: number; tone?: "ink" | "ok" | "heat-1" | "heat-2" | "heat-3"; className?: string }) {
   const pctv = Math.max(0, Math.min(100, (value / (max || 1)) * 100));
-  const color = { ink: "bg-ink", ok: "bg-ok", "heat-1": "bg-heat-1", "heat-2": "bg-heat-2", "heat-3": "bg-heat-3" }[tone];
+  const color = {
+    ink: "bg-ink",
+    ok: "bg-ok",
+    "heat-1": "bg-heat-1",
+    "heat-2": "bg-heat-2",
+    "heat-3": "bg-heat-3",
+  }[tone];
   return (
     <div className={cn("h-1.5 w-full overflow-hidden rounded-full bg-sunken", className)}>
       <div className={cn("h-full rounded-full transition-[width] duration-700 ease-[var(--ease-settle)]", color)} style={{ width: `${pctv}%` }} />

@@ -38,6 +38,28 @@ export function computeDailyStats(w: Pick<World, "people" | "tasks" | "activity"
       return before <= 1;
     }).length;
     const reviewHours = approvedToday.filter((t) => t.submittedAt).map((t) => (new Date(t.approvedAt!).getTime() - new Date(t.submittedAt!).getTime()) / 3600000);
+    // where the cycle went, measured from the task's own timestamps and its blocked/unblocked log entries
+    const h = (a: string, b: string) => Math.max(0, (new Date(b).getTime() - new Date(a).getTime()) / 3600000);
+    let waitHours = 0;
+    let workHours = 0;
+    let blockedHours = 0;
+    for (const t of approvedToday) {
+      const feed = (actsByTask.get(t.id) ?? []).slice().sort((a, b) => a.at.localeCompare(b.at));
+      let blocked = 0;
+      let openedAt: string | null = null;
+      for (const a of feed) {
+        if (a.kind === "blocked") openedAt = a.at;
+        else if (a.kind === "unblocked" && openedAt) {
+          blocked += h(openedAt, a.at);
+          openedAt = null;
+        }
+      }
+      const started = t.startedAt ?? t.submittedAt ?? t.approvedAt!;
+      const submitted = t.submittedAt ?? t.approvedAt!;
+      waitHours += h(t.createdAt, started);
+      workHours += Math.max(0, h(started, submitted) - blocked);
+      blockedHours += blocked;
+    }
 
     const row: DailyStat = {
       personId: p.id,
@@ -54,6 +76,9 @@ export function computeDailyStats(w: Pick<World, "people" | "tasks" | "activity"
       actualHours: round1(approvedToday.reduce((s, t) => s + t.loggedMinutes / 60, 0)),
       escalations: count("escalated"),
       reviewHours: reviewHours.length ? round1(reviewHours.reduce((a, b) => a + b, 0) / reviewHours.length) : 0,
+      waitHours: round1(waitHours),
+      workHours: round1(workHours),
+      blockedHours: round1(blockedHours),
     };
     const empty = !row.assigned && !row.approved && !row.remindersSent && !row.submissions && !row.escalations && !row.rejections;
     if (!empty) rows.push(row);

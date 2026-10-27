@@ -7,7 +7,7 @@ import { Plus, Trash2 } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/primitives";
+import { Input, Select } from "@/components/ui/primitives";
 import { SettingRow, useSave } from "./parts";
 
 const DAYS = [
@@ -19,6 +19,29 @@ const DAYS = [
   { n: 6, short: "Sat", long: "Saturday" },
   { n: 0, short: "Sun", long: "Sunday" },
 ];
+
+/** every zone the browser knows, with the company's current one always present */
+const TIME_ZONES: string[] = (() => {
+  try {
+    return (Intl as unknown as { supportedValuesOf?: (k: string) => string[] }).supportedValuesOf?.("timeZone") ?? ["Asia/Karachi"];
+  } catch {
+    return ["Asia/Karachi"];
+  }
+})();
+
+function offsetLabel(tz: string) {
+  try {
+    const part = new Intl.DateTimeFormat("en-GB", {
+      timeZone: tz,
+      timeZoneName: "shortOffset",
+    })
+      .formatToParts(new Date())
+      .find((p) => p.type === "timeZoneName");
+    return part?.value ?? "";
+  } catch {
+    return "";
+  }
+}
 
 export function CompanySettings() {
   const settings = useApp((s) => s.settings);
@@ -34,8 +57,14 @@ export function CompanySettings() {
   }
   const nameError = name.trim() ? null : "Enter the company name. It appears on reports and notices.";
 
-  const [hours, setHours] = React.useState({ start: settings.workStart, end: settings.workEnd });
-  const [prevHours, setPrevHours] = React.useState({ start: settings.workStart, end: settings.workEnd });
+  const [hours, setHours] = React.useState({
+    start: settings.workStart,
+    end: settings.workEnd,
+  });
+  const [prevHours, setPrevHours] = React.useState({
+    start: settings.workStart,
+    end: settings.workEnd,
+  });
   if (settings.workStart !== prevHours.start || settings.workEnd !== prevHours.end) {
     const next = { start: settings.workStart, end: settings.workEnd };
     setPrevHours(next);
@@ -56,10 +85,14 @@ export function CompanySettings() {
   const toggleDay = (n: number) => {
     const on = settings.workDays.includes(n);
     if (on && settings.workDays.length === 1) {
-      toast.error("Keep at least one working day", { description: "Reminders only go out on working days." });
+      toast.error("Keep at least one working day", {
+        description: "Reminders only go out on working days.",
+      });
       return;
     }
-    save({ workDays: on ? settings.workDays.filter((d) => d !== n) : [...settings.workDays, n].sort((a, b) => a - b) });
+    save({
+      workDays: on ? settings.workDays.filter((d) => d !== n) : [...settings.workDays, n].sort((a, b) => a - b),
+    });
   };
 
   return (
@@ -80,10 +113,14 @@ export function CompanySettings() {
           {nameError && <p className="text-[12px] text-heat-3">{nameError}</p>}
         </div>
       </SettingRow>
-      <SettingRow label="Time zone" hint="All deadlines, reminders and reports use this time zone.">
-        <p className="text-[14px] text-text">
-          Asia/Karachi <span className="text-muted">(Pakistan time, UTC+5)</span>
-        </p>
+      <SettingRow htmlFor="org-timezone" label="Time zone" hint="All deadlines, reminders and reports use this time zone.">
+        <Select id="org-timezone" value={settings.timezone} onChange={(e) => save({ timezone: e.target.value }, "Time zone saved")} className="max-w-xs">
+          {Array.from(new Set([settings.timezone, ...TIME_ZONES])).map((tz) => (
+            <option key={tz} value={tz}>
+              {tz.replace(/_/g, " ")} ({offsetLabel(tz)})
+            </option>
+          ))}
+        </Select>
       </SettingRow>
       <SettingRow label="Working days" hint="Reminders set to working hours only go out on these days.">
         <div className="flex flex-wrap gap-1.5" role="group" aria-label="Working days">
@@ -112,7 +149,13 @@ export function CompanySettings() {
           <div className="flex items-center gap-2">
             <Input type="time" aria-label="Start of working hours" value={hours.start} onChange={(e) => commitHours({ ...hours, start: e.target.value })} className="tabular w-32" />
             <span className="text-[13.5px] text-muted">to</span>
-            <Input type="time" aria-label="End of working hours" value={hours.end} onChange={(e) => commitHours({ ...hours, end: e.target.value })} className={cn("tabular w-32", hoursError && "border-heat-3")} />
+            <Input
+              type="time"
+              aria-label="End of working hours"
+              value={hours.end}
+              onChange={(e) => commitHours({ ...hours, end: e.target.value })}
+              className={cn("tabular w-32", hoursError && "border-heat-3")}
+            />
           </div>
           {hoursError && <p className="text-[12px] text-heat-3">{hoursError}</p>}
         </div>
@@ -131,7 +174,10 @@ export function CompanySettings() {
                     aria-label={`Remove ${h.name}`}
                     onClick={() => {
                       removeHoliday(h.date);
-                      toast.success("Holiday removed", { id: "settings-saved", description: h.name });
+                      toast.success("Holiday removed", {
+                        id: "settings-saved",
+                        description: h.name,
+                      });
                     }}
                   >
                     <Trash2 />
@@ -148,7 +194,10 @@ export function CompanySettings() {
               e.preventDefault();
               if (!hDate || !hName.trim() || dup) return;
               addHoliday(hDate, hName.trim());
-              toast.success("Holiday added", { id: "settings-saved", description: `${hName.trim()}, ${format(new Date(`${hDate}T00:00:00`), "d MMM yyyy")}` });
+              toast.success("Holiday added", {
+                id: "settings-saved",
+                description: `${hName.trim()}, ${format(new Date(`${hDate}T00:00:00`), "d MMM yyyy")}`,
+              });
               setHDate("");
               setHName("");
             }}

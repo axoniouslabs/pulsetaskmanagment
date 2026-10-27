@@ -172,8 +172,21 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
         (ch.unitType === "team" && w.teams.some((t) => t.id === ch.unitId && t.leadId === actorId)) ||
         (ch.unitType === "group" && w.groups.some((g) => g.id === ch.unitId && g.ownerId === actorId));
       if (runs) return allow;
-      if (ch.kind === "open" && membersOf(w, ch.unitType, ch.unitId).includes(actorId) && me.role !== "employee") return allow;
+      // an open channel is the unit's own noticeboard: any member may post there
+      if (ch.kind === "open" && membersOf(w, ch.unitType, ch.unitId).includes(actorId)) return allow;
       return deny("Only the head of this unit can post notices here.");
+    }
+    case "remindAnnouncement": {
+      const a = w.announcements.find((x) => x.id === cmd.id);
+      const ch = a && w.channels.find((c) => c.id === a.channelId);
+      if (!ch) return deny("That notice no longer exists.");
+      const runs =
+        isOwner ||
+        a.authorId === actorId ||
+        (ch.unitType === "department" && w.departments.some((d) => d.id === ch.unitId && d.headId === actorId)) ||
+        (ch.unitType === "team" && w.teams.some((t) => t.id === ch.unitId && t.leadId === actorId)) ||
+        (ch.unitType === "group" && w.groups.some((g) => g.id === ch.unitId && g.ownerId === actorId));
+      return runs ? allow : deny("Only whoever posted the notice, or runs this unit, can send a reminder.");
     }
     case "ackAnnouncement": {
       const a = w.announcements.find((x) => x.id === cmd.id);

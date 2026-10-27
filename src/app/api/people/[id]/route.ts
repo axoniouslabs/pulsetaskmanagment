@@ -1,11 +1,12 @@
 import { ZodError } from "zod";
-import { getViewer, json } from "@/server/session";
+import { getActor, json } from "@/server/session";
 import { AdminError, updatePerson } from "@/server/people-admin";
 
 /** Owner edits a person, or deactivates / reactivates them. */
 export async function PATCH(req: Request, ctx: { params: Promise<{ id: string }> }) {
-  const viewer = await getViewer();
-  if (!viewer) return json({ ok: false, error: "Sign in again." }, 401);
+  const actor = await getActor();
+  if (!actor.viewer) return actor.response;
+  const viewer = actor.viewer;
   if (viewer.role !== "owner") return json({ ok: false, error: "Only the owner can change people's details." }, 403);
   const { id } = await ctx.params;
   try {

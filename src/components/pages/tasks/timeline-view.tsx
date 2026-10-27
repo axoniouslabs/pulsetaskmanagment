@@ -13,7 +13,6 @@ import { Avatar } from "@/components/app/avatar";
 const DAY_W = 44;
 const ROW_H = 36;
 const HEAD_H = 28;
-const LEFT_W = 232;
 const DAYS = 21;
 
 /**
@@ -35,7 +34,10 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
     const byPerson = new Map<string, Task[]>();
     for (const t of inRange) byPerson.set(t.assigneeId, [...(byPerson.get(t.assigneeId) ?? []), t]);
     return Array.from(byPerson.entries())
-      .map(([pid, list]) => ({ person: people.find((p) => p.id === pid), tasks: list.sort((a, b) => (a.startAt ?? a.createdAt).localeCompare(b.startAt ?? b.createdAt)) }))
+      .map(([pid, list]) => ({
+        person: people.find((p) => p.id === pid),
+        tasks: list.sort((a, b) => (a.startAt ?? a.createdAt).localeCompare(b.startAt ?? b.createdAt)),
+      }))
       .sort((a, b) => (a.person?.name ?? "").localeCompare(b.person?.name ?? ""));
   }, [tasks, people, from, to]);
 
@@ -53,7 +55,12 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
     const due = new Date(t.dueAt);
     const left = Math.max(0, x(start));
     const right = Math.min(DAYS * DAY_W, x(due));
-    return { left, width: Math.max(10, right - left), clippedLeft: x(start) < 0, clippedRight: x(due) > DAYS * DAY_W };
+    return {
+      left,
+      width: Math.max(10, right - left),
+      clippedLeft: x(start) < 0,
+      clippedRight: x(due) > DAYS * DAY_W,
+    };
   };
 
   const tone = (t: Task) => {
@@ -67,7 +74,13 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
     return "bg-ink text-white";
   };
 
-  const lines: { x1: number; y1: number; x2: number; y2: number; done: boolean }[] = [];
+  const lines: {
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    done: boolean;
+  }[] = [];
   for (const r of layout) {
     if (r.kind !== "task") continue;
     for (const dep of r.task.dependsOn ?? []) {
@@ -77,7 +90,13 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
       const d = layout[di] as { kind: "task"; task: Task };
       const db = bar(d.task);
       const tb = bar(r.task);
-      lines.push({ x1: db.left + db.width, y1: HEAD_H + di * ROW_H + ROW_H / 2, x2: tb.left, y2: HEAD_H + ti * ROW_H + ROW_H / 2, done: d.task.status === "approved" });
+      lines.push({
+        x1: db.left + db.width,
+        y1: HEAD_H + di * ROW_H + ROW_H / 2,
+        x2: tb.left,
+        y2: HEAD_H + ti * ROW_H + ROW_H / 2,
+        done: d.task.status === "approved",
+      });
     }
   }
 
@@ -120,7 +139,7 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
       ) : (
         <div className="thin-scrollbar flex overflow-x-auto">
           {/* names */}
-          <div className="sticky left-0 z-10 shrink-0 border-r border-line bg-surface" style={{ width: LEFT_W }}>
+          <div className="sticky left-0 z-10 w-[150px] shrink-0 border-r border-line bg-surface sm:w-[232px]">
             <div style={{ height: HEAD_H }} className="border-b border-line" />
             {layout.map((r, i) =>
               r.kind === "person" ? (
@@ -173,7 +192,12 @@ export function TimelineView({ tasks, people, now }: { tasks: Task[]; people: Pe
                   <button
                     type="button"
                     onClick={() => openTask(r.task.id)}
-                    className={cn("absolute top-1.5 flex h-[22px] items-center overflow-hidden px-2 text-[11.5px] font-medium shadow-sm transition-[filter] hover:brightness-110", tone(r.task), b.clippedLeft ? "rounded-l-none" : "rounded-l-full", b.clippedRight ? "rounded-r-none" : "rounded-r-full")}
+                    className={cn(
+                      "absolute top-1.5 flex h-[22px] items-center overflow-hidden px-2 text-[11.5px] font-medium shadow-sm transition-[filter] hover:brightness-110",
+                      tone(r.task),
+                      b.clippedLeft ? "rounded-l-none" : "rounded-l-full",
+                      b.clippedRight ? "rounded-r-none" : "rounded-r-full",
+                    )}
                     style={{ left: b.left, width: b.width }}
                     title={`${r.task.title} · ${STATUS_LABEL[r.task.status]} · due ${format(new Date(r.task.dueAt), "EEE d MMM, h:mm a")}`}
                   >

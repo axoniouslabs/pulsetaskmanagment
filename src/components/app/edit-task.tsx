@@ -35,6 +35,8 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
   const candidates = tasks.filter((t) => t.id !== task.id && !deps.includes(t.id) && !["approved", "cancelled", "draft"].includes(t.status)).slice(0, 200);
 
   const save = () => {
+    if (!title.trim()) return setError("Give the task a title.");
+    if (startAt && Number.isNaN(new Date(startAt).getTime())) return setError("Pick a valid start date and time, or clear it.");
     const patch: TaskPatch = {
       title,
       description,
@@ -48,11 +50,21 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
       dependsOn: deps,
     };
     if (interval !== task.reminder.intervalMin || workingOnly !== (task.reminder.window === "working")) {
-      patch.reminder = { intervalMin: interval, window: workingOnly ? "working" : "always" };
+      patch.reminder = {
+        intervalMin: interval,
+        window: workingOnly ? "working" : "always",
+      };
     }
     const r = dispatch({ type: "editTask", taskId: task.id, patch });
     if (!r.ok) return setError(r.error);
-    toast.success("Task updated", task.assigneeId ? { description: `${people.find((p) => p.id === task.assigneeId)?.name.split(" ")[0]} has been told what changed.` } : undefined);
+    toast.success(
+      "Task updated",
+      task.assigneeId
+        ? {
+            description: `${people.find((p) => p.id === task.assigneeId)?.name.split(" ")[0]} has been told what changed.`,
+          }
+        : undefined,
+    );
     onClose();
   };
 
@@ -84,7 +96,9 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
             <Select value={projectId} onChange={(e) => setProjectId(e.target.value)}>
               <option value="">None</option>
               {projects.map((p) => (
-                <option key={p.id} value={p.id}>{p.name}</option>
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
               ))}
             </Select>
           </Field>
@@ -92,9 +106,13 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Remind every">
             <Select value={interval} onChange={(e) => setIntervalMin(Number(e.target.value))}>
-              {Array.from(new Set([...INTERVALS, task.reminder.intervalMin])).sort((a, b) => a - b).map((n) => (
-                <option key={n} value={n}>{n >= 1440 ? "Daily" : n >= 60 ? `${n / 60} hour${n > 60 ? "s" : ""}` : `${n} min`}</option>
-              ))}
+              {Array.from(new Set([...INTERVALS, task.reminder.intervalMin]))
+                .sort((a, b) => a - b)
+                .map((n) => (
+                  <option key={n} value={n}>
+                    {n >= 1440 ? "Daily" : n >= 60 ? `${n / 60} hour${n > 60 ? "s" : ""}` : `${n} min`}
+                  </option>
+                ))}
             </Select>
           </Field>
           <Field label="Repeat">
@@ -121,13 +139,21 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
           <Select value="" onChange={(e) => e.target.value && setDeps((d) => [...d, e.target.value])}>
             <option value="">Add a task it waits for</option>
             {candidates.map((t) => (
-              <option key={t.id} value={t.id}>{t.title}</option>
+              <option key={t.id} value={t.id}>
+                {t.title}
+              </option>
             ))}
           </Select>
           {deps.length > 0 && (
             <div className="flex flex-wrap gap-1.5">
               {deps.map((d) => (
-                <button key={d} type="button" onClick={() => setDeps((x) => x.filter((y) => y !== d))} className="rounded-full bg-sunken px-2.5 py-1 text-[12px] hover:bg-heat-3-tint" aria-label="Remove">
+                <button
+                  key={d}
+                  type="button"
+                  onClick={() => setDeps((x) => x.filter((y) => y !== d))}
+                  className="rounded-full bg-sunken px-2.5 py-1 text-[12px] hover:bg-heat-3-tint"
+                  aria-label="Remove"
+                >
                   {tasks.find((t) => t.id === d)?.title ?? "A task you can't see"} ×
                 </button>
               ))}
@@ -137,8 +163,12 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
         {error && <p className="text-[13px] text-heat-3">{error}</p>}
       </div>
       <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={save} disabled={!title.trim()}>Save changes</Button>
+        <Button variant="ghost" onClick={onClose}>
+          Cancel
+        </Button>
+        <Button variant="primary" onClick={save} disabled={!title.trim()}>
+          Save changes
+        </Button>
       </div>
     </DialogContent>
   );

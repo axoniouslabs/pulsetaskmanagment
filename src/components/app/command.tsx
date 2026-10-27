@@ -34,8 +34,8 @@ export function CommandPalette() {
         e.preventDefault();
         setOpen(!useApp.getState().commandOpen);
       }
-      if (e.key === "n" && !e.metaKey && !e.ctrlKey && !(e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable]")) {
-        if (!useApp.getState().createOpen && !useApp.getState().commandOpen) {
+      if (e.key === "n" && !e.metaKey && !e.ctrlKey && !e.altKey && !(e.target as HTMLElement)?.closest("input,textarea,select,[contenteditable],[role=dialog],[role=menu]")) {
+        if (!useApp.getState().createOpen && !useApp.getState().commandOpen && !document.querySelector("[role=dialog]")) {
           e.preventDefault();
           openCreate();
         }
@@ -57,7 +57,10 @@ export function CommandPalette() {
     <D.Root open={open} onOpenChange={setOpen}>
       <D.Portal>
         <D.Overlay className="motion-overlay fixed inset-0 z-50 bg-ink/25 backdrop-blur-[3px]" />
-        <D.Content className="fixed left-1/2 top-[10vh] z-50 w-[min(600px,calc(100vw-24px))] -translate-x-1/2 overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-pop motion-palette" aria-describedby={undefined}>
+        <D.Content
+          className="fixed left-1/2 top-[10vh] z-50 w-[min(600px,calc(100vw-24px))] -translate-x-1/2 overflow-hidden rounded-[var(--radius-lg)] bg-surface shadow-pop motion-palette"
+          aria-describedby={undefined}
+        >
           <D.Title className="sr-only">Search and commands</D.Title>
           <Command loop>
             <div className="flex items-center gap-3 border-b border-line px-4">
@@ -82,7 +85,7 @@ export function CommandPalette() {
                   </Command.Item>
                 )}
                 {role === "employee" && (
-                  <Command.Item className={item} onSelect={() => go(() => router.push("/today#ask"))}>
+                  <Command.Item className={item} onSelect={() => go(() => (window.location.pathname === "/today" ? (window.location.hash = "#ask") : router.push("/today#ask")))}>
                     <MessageCircleQuestion className="size-4 text-muted" /> Ask my manager a question
                   </Command.Item>
                 )}

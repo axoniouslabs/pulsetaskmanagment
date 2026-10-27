@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/primitives";
 import { Logo } from "@/components/app/logo";
+import { useQueryParam } from "@/lib/hooks";
 import { demoSignIn } from "./actions";
 
 export interface DemoAccount {
@@ -20,9 +21,21 @@ export interface DemoAccount {
 }
 
 const FEATURED: { email: string; label: string; hint: string }[] = [
-  { email: "imran@crescent.pk", label: "Owner", hint: "Sees the whole company. Told only when something stalls." },
-  { email: "saad@crescent.pk", label: "Manager", hint: "Runs Development. Assigns, reviews and unblocks." },
-  { email: "ali@crescent.pk", label: "Employee", hint: "Gets the reminders. Works mostly from the phone." },
+  {
+    email: "imran@crescent.pk",
+    label: "Owner",
+    hint: "Sees the whole company. Told only when something stalls.",
+  },
+  {
+    email: "saad@crescent.pk",
+    label: "Manager",
+    hint: "Runs Development. Assigns, reviews and unblocks.",
+  },
+  {
+    email: "ali@crescent.pk",
+    label: "Employee",
+    hint: "Gets the reminders. Works mostly from the phone.",
+  },
 ];
 
 function nextPath() {
@@ -49,6 +62,9 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
   const [password, setPassword] = React.useState("");
   const [show, setShow] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  // sent here by the app after a sign-in that has no active person behind it
+  const reason = useQueryParam("reason");
+  const notice = reason === "deactivated" ? "Your account has been deactivated. Ask the owner if you think that's a mistake." : null;
   const [busy, setBusy] = React.useState<string | null>(null);
 
   const done = () => window.location.replace(nextPath());
@@ -72,7 +88,11 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
     setError(null);
     if (!email.trim() || !password) return setError("Enter your work email and password.");
     setBusy("form");
-    const { error } = await authClient.signIn.email({ email: email.trim().toLowerCase(), password, rememberMe: true });
+    const { error } = await authClient.signIn.email({
+      email: email.trim().toLowerCase(),
+      password,
+      rememberMe: true,
+    });
     if (error) {
       setBusy(null);
       setError(error.status === 429 ? "Too many attempts. Wait a minute and try again." : "That email and password don't match. Check for typos, or ask your manager to reset your password.");
@@ -158,13 +178,18 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
                 <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
                 <Input type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pr-11" />
               </label>
-              <button type="button" onClick={() => setShow((v) => !v)} className="absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted" aria-label={show ? "Hide password" : "Show password"}>
+              <button
+                type="button"
+                onClick={() => setShow((v) => !v)}
+                className="absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted"
+                aria-label={show ? "Hide password" : "Show password"}
+              >
                 {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
               </button>
             </div>
-            {error && (
+            {(error ?? notice) && (
               <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
-                {error}
+                {error ?? notice}
               </p>
             )}
             <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!!busy}>
@@ -201,7 +226,11 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
                         </span>
                         <span className="mt-0.5 block text-[12.5px] leading-snug text-faint">{f.hint}</span>
                       </span>
-                      {busy === f.email ? <Loader2 className="size-4 animate-spin text-ink" /> : <ArrowRight className="size-4 text-faint transition-transform duration-200 ease-[var(--ease-settle)] group-hover:translate-x-0.5 group-hover:text-ink" />}
+                      {busy === f.email ? (
+                        <Loader2 className="size-4 animate-spin text-ink" />
+                      ) : (
+                        <ArrowRight className="size-4 text-faint transition-transform duration-200 ease-[var(--ease-settle)] group-hover:translate-x-0.5 group-hover:text-ink" />
+                      )}
                     </button>
                   );
                 })}

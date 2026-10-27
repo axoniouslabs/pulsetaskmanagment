@@ -160,11 +160,19 @@ else {
   await np.getByLabel("Work email").fill(email);
   await np.getByLabel("Password", { exact: true }).fill(added.body.password);
   await np.getByRole("button", { name: "Sign in", exact: true }).click();
-  await np.getByText("You're using a temporary password").waitFor({ timeout: 30000 });
-  log("new person signed in and is asked to choose a password");
+  await np.getByRole("heading", { name: /Choose your password/ }).waitFor({ timeout: 30000 });
+  log("new person signed in and must choose a password before anything else");
+  const early = await np.evaluate(async () => (await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ type: "checkIn" }) })).status);
+  early === 403 ? log("the API refuses changes until the temporary password is replaced") : fail(`command on a temporary password returned ${early}`);
+  await np.getByLabel("Temporary password").fill(added.body.password);
+  await np.getByLabel("New password", { exact: true }).fill("their-own-pass-1");
+  await np.getByLabel("New password again").fill("their-own-pass-1");
+  await np.getByRole("button", { name: "Set my password" }).click();
+  await np.locator("main h1:visible").first().waitFor({ timeout: 30000 });
+  log("chose a password and landed in the app");
   const off = await owner.evaluate(async (id) => (await fetch(`/api/people/${id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ active: false }) })).status, added.body.personId);
   const after = await np.evaluate(async () => (await fetch("/api/snapshot")).status);
-  off === 200 && after === 401 ? log("deactivated: their session stopped working") : fail(`deactivate ${off} then snapshot ${after}`);
+  off === 200 && (after === 401 || after === 403) ? log("deactivated: their session stopped working") : fail(`deactivate ${off} then snapshot ${after}`);
   await npCtx.close();
 }
 

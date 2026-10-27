@@ -64,7 +64,11 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
   const sections = React.useMemo(() => {
     if (!groupByDepartment) return [{ id: "all", name: "", rows }];
     return departments
-      .map((d) => ({ id: d.id, name: d.name, rows: rows.filter((r) => r.person.departmentId === d.id) }))
+      .map((d) => ({
+        id: d.id,
+        name: d.name,
+        rows: rows.filter((r) => r.person.departmentId === d.id),
+      }))
       .filter((s) => s.rows.length);
   }, [rows, departments, groupByDepartment]);
 
@@ -94,12 +98,15 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
       </p>
 
       <Panel className="overflow-hidden">
-        <div className="thin-scrollbar overflow-x-auto">
+        <div className="thin-scrollbar relative overflow-x-auto">
           <table className="w-full border-separate border-spacing-0 text-[13px]">
             <caption className="sr-only">Attendance for the last 14 days, one row per person</caption>
             <thead>
               <tr>
-                <th scope="col" className="sticky left-0 z-[2] min-w-[150px] border-b border-line bg-surface px-4 py-2.5 text-left font-medium text-muted shadow-[1px_0_0_var(--color-line)] sm:min-w-[200px]">
+                <th
+                  scope="col"
+                  className="sticky left-0 z-[2] min-w-[150px] border-b border-line bg-surface px-4 py-2.5 text-left font-medium text-muted shadow-[1px_0_0_var(--color-line)] sm:min-w-[200px]"
+                >
                   Person
                 </th>
                 {days.map(({ d, date, sunday }) => (

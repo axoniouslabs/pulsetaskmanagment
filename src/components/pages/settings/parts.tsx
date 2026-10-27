@@ -12,8 +12,7 @@ export function useSave() {
   const update = useApp((s) => s.updateSettings);
   return React.useCallback(
     (patch: Partial<OrgSettings>, message = "Saved") => {
-      update(patch);
-      toast.success(message, { id: "settings-saved", duration: 1600 });
+      if (update(patch).ok) toast.success(message, { id: "settings-saved", duration: 1600 });
     },
     [update],
   );
@@ -64,13 +63,7 @@ export function SettingRow({
   className?: string;
 }) {
   return (
-    <div
-      className={cn(
-        "flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0 sm:px-5",
-        !stacked && "sm:flex-row sm:items-center sm:justify-between sm:gap-6",
-        className,
-      )}
-    >
+    <div className={cn("flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0 sm:px-5", !stacked && "sm:flex-row sm:items-center sm:justify-between sm:gap-6", className)}>
       <div className="min-w-0 sm:max-w-[52ch]">
         <label htmlFor={htmlFor} className="text-[14px] font-medium text-text">
           {label}
@@ -112,13 +105,7 @@ export function NumberSetting({
   }
   const n = Number(draft);
   const error =
-    draft.trim() === "" || !Number.isFinite(n) || !Number.isInteger(n)
-      ? "Enter a whole number."
-      : n < min
-        ? `Use ${min} or more.`
-        : n > max
-          ? `Use ${max} or less.`
-          : (validate?.(n) ?? null);
+    draft.trim() === "" || !Number.isFinite(n) || !Number.isInteger(n) ? "Enter a whole number." : n < min ? `Use ${min} or more.` : n > max ? `Use ${max} or less.` : (validate?.(n) ?? null);
   const commit = () => {
     if (error) return;
     if (n !== value) onCommit(n);
@@ -156,17 +143,7 @@ export function NumberSetting({
   );
 }
 
-export function Chips<T extends string | number>({
-  value,
-  options,
-  onChange,
-  label,
-}: {
-  value: T;
-  options: { value: T; label: string }[];
-  onChange: (v: T) => void;
-  label: string;
-}) {
+export function Chips<T extends string | number>({ value, options, onChange, label }: { value: T; options: { value: T; label: string }[]; onChange: (v: T) => void; label: string }) {
   return (
     <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-1.5">
       {options.map((o) => {

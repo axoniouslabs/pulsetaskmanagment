@@ -12,21 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Bar } from "@/components/ui/primitives";
 import { Panel, SectionHeading } from "@/components/app/page-header";
 import { LeaveDialog } from "./leave-dialog";
-import {
-  LEAVE_LABEL,
-  STATUS_META,
-  approvedLeaveOn,
-  approverFor,
-  backOn,
-  day,
-  leaveDays,
-  leaveRange,
-  minutesLate,
-  startLabel,
-  time,
-  workedMinutes,
-  type DayStatus,
-} from "./lib";
+import { LEAVE_LABEL, STATUS_META, approvedLeaveOn, approverFor, backOn, day, leaveDays, leaveRange, minutesLate, startLabel, time, workedMinutes, type DayStatus } from "./lib";
 
 export function MyTime() {
   const now = useNow(30000);
@@ -67,7 +53,9 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
 
   const doCheckIn = () => {
     checkIn();
-    toast.success("Checked in", { description: `at ${format(new Date(), "h:mm a")}` });
+    toast.success("Checked in", {
+      description: `at ${format(new Date(), "h:mm a")}`,
+    });
   };
   const doCheckOut = () => {
     checkOut();
@@ -122,9 +110,7 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
           </span>
           <div>
             <p className="font-display text-[26px] font-semibold leading-tight">You&apos;re on leave today</p>
-            <p className="mt-1 text-[14px] text-muted">
-              Reminders are paused. Back on {format(backOn(leave, settings), "EEEE d MMM")}.
-            </p>
+            <p className="mt-1 text-[14px] text-muted">Reminders are paused. Back on {format(backOn(leave, settings), "EEEE d MMM")}.</p>
           </div>
         </div>
       ) : (
@@ -133,7 +119,7 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
             <p className="font-display text-[26px] font-semibold leading-tight sm:text-[28px]">{dayOff ? "It's a day off" : "Not checked in yet"}</p>
             <p className="mt-1 max-w-[52ch] text-[14px] leading-snug text-muted">
               {dayOff
-                ? `${holiday ? holiday.name : "Sunday"}. Pulse isn't sending reminders today.`
+                ? `${holiday ? holiday.name : "Not a working day"}. Pulse isn't sending reminders today.`
                 : `Your day starts at ${startLabel(settings.workStart)}. Check in when you start so ${managerName} knows you're here.`}
             </p>
           </div>
@@ -186,23 +172,22 @@ function WeekSheet({ now, today }: { now: Date; today: string }) {
               : date === today
                 ? "upcoming"
                 : "none";
-    return { d, date, rec, holiday, status, isToday: date === today, worked: workedMinutes(rec, now) };
+    return {
+      d,
+      date,
+      rec,
+      holiday,
+      status,
+      isToday: date === today,
+      worked: workedMinutes(rec, now),
+    };
   });
   const total = rows.reduce((s, r) => s + r.worked, 0);
   const lateDays = rows.filter((r) => r.status === "late").length;
 
   const statusText = (r: (typeof rows)[number]) =>
-    r.status === "upcoming"
-      ? r.isToday
-        ? "Not in yet"
-        : "Upcoming"
-      : r.status === "none"
-        ? "No record"
-        : r.status === "holiday"
-          ? r.holiday?.name ?? "Holiday"
-          : STATUS_META[r.status].label;
-  const statusCls = (r: (typeof rows)[number]) =>
-    r.status === "upcoming" || r.status === "none" ? "text-faint" : STATUS_META[r.status].text;
+    r.status === "upcoming" ? (r.isToday ? "Not in yet" : "Upcoming") : r.status === "none" ? "No record" : r.status === "holiday" ? (r.holiday?.name ?? "Holiday") : STATUS_META[r.status].label;
+  const statusCls = (r: (typeof rows)[number]) => (r.status === "upcoming" || r.status === "none" ? "text-faint" : STATUS_META[r.status].text);
 
   return (
     <section>
@@ -210,7 +195,8 @@ function WeekSheet({ now, today }: { now: Date; today: string }) {
         title="This week"
         aside={
           <span className="tabular">
-            {minutesToLabel(total)} worked{lateDays ? <span className="text-heat-1">, late {lateDays === 1 ? "once" : `${lateDays} times`}</span> : ""}
+            {minutesToLabel(total)} worked
+            {lateDays ? <span className="text-heat-1">, late {lateDays === 1 ? "once" : `${lateDays} times`}</span> : ""}
           </span>
         }
       />
@@ -287,13 +273,7 @@ function MyLeave({ today }: { today: string }) {
   const approverName = approver?.name.split(" ")[0] ?? "your manager";
   const [open, setOpen] = React.useState(false);
 
-  const mine = React.useMemo(
-    () =>
-      leaves
-        .filter((l) => l.personId === meId)
-        .sort((a, b) => Number(b.to >= today) - Number(a.to >= today) || b.from.localeCompare(a.from)),
-    [leaves, meId, today],
-  );
+  const mine = React.useMemo(() => leaves.filter((l) => l.personId === meId).sort((a, b) => Number(b.to >= today) - Number(a.to >= today) || b.from.localeCompare(a.from)), [leaves, meId, today]);
 
   return (
     <Panel>
@@ -327,9 +307,7 @@ function MyLeave({ today }: { today: string }) {
           })}
         </ul>
       ) : (
-        <p className="px-5 pb-5 pt-2 text-[13.5px] leading-snug text-muted">
-          You haven&apos;t asked for leave yet. Requests go to {approverName}, and approved days pause your reminders.
-        </p>
+        <p className="px-5 pb-5 pt-2 text-[13.5px] leading-snug text-muted">You haven&apos;t asked for leave yet. Requests go to {approverName}, and approved days pause your reminders.</p>
       )}
       <LeaveDialog open={open} onOpenChange={setOpen} today={today} approverName={approverName} />
     </Panel>
@@ -339,7 +317,10 @@ function MyLeave({ today }: { today: string }) {
 /* ---------- holidays ---------- */
 export function UpcomingHolidays({ now, today }: { now: Date; today: string }) {
   const holidays = useApp((s) => s.settings.holidays);
-  const upcoming = holidays.filter((h) => h.date >= today).sort((a, b) => a.date.localeCompare(b.date)).slice(0, 5);
+  const upcoming = holidays
+    .filter((h) => h.date >= today)
+    .sort((a, b) => a.date.localeCompare(b.date))
+    .slice(0, 5);
   return (
     <Panel className="p-5">
       <SectionHeading title="Upcoming holidays" />

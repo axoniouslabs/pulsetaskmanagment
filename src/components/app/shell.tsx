@@ -18,7 +18,8 @@ import { CreateTaskDialog } from "./create-task";
 import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
-import { EngineAlarm, EngineLive, PasswordNudge } from "./engine-alarm";
+import { EngineAlarm, EngineLive } from "./engine-alarm";
+import { PasswordGate } from "./password-gate";
 import { MotionProvider } from "./motion-provider";
 import { m } from "motion/react";
 import { GLIDE } from "@/lib/motion";
@@ -49,9 +50,10 @@ function useLiveData() {
 function useBadges() {
   const meId = useMeId();
   const role = useApp((s) => s.role);
-  const approvals = useApp((s) =>
-    s.tasks.filter((t) => t.status === "submitted" && (role === "owner" || t.reviewerId === meId)).length +
-    s.deadlineRequests.filter((d) => d.status === "pending" && (role === "owner" || s.tasks.find((t) => t.id === d.taskId)?.reviewerId === meId)).length,
+  const approvals = useApp(
+    (s) =>
+      s.tasks.filter((t) => t.status === "submitted" && (role === "owner" || t.reviewerId === meId)).length +
+      s.deadlineRequests.filter((d) => d.status === "pending" && (role === "owner" || s.tasks.find((t) => t.id === d.taskId)?.reviewerId === meId)).length,
   );
   const channels = useApp(
     (s) =>
@@ -68,6 +70,7 @@ function useBadges() {
 export function AppShell({ children }: { children: React.ReactNode }) {
   const status = useLiveData();
   const hydrated = status === "ready";
+  const mustChoosePassword = useApp((s) => !!s.people.find((p) => p.id === s.viewer?.personId)?.mustChangePassword);
   const role = useApp((s) => s.role);
   const pathname = usePathname();
   const router = useRouter();
@@ -87,44 +90,44 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   if (status === "error") return <LoadError />;
   if (status === "locked") return <Locked />;
+  if (hydrated && mustChoosePassword) return <PasswordGate />;
   if (!hydrated) return <ShellSkeleton />;
 
   return (
     <MotionProvider>
-    <TooltipProvider>
-      <div className="flex min-h-dvh">
-        <Sidebar />
-        <div className="flex min-w-0 flex-1 flex-col">
-          <TopBar />
-          <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
-            <EngineAlarm />
-            <PasswordNudge />
-            {/* each page settles in; keyed so a new page gets its own entrance */}
-            <div key={pathname} className="animate-page-in">
-              {children}
-            </div>
-          </main>
+      <TooltipProvider>
+        <div className="flex min-h-dvh">
+          <Sidebar />
+          <div className="flex min-w-0 flex-1 flex-col">
+            <TopBar />
+            <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
+              <EngineAlarm />
+              {/* each page settles in; keyed so a new page gets its own entrance */}
+              <div key={pathname} className="animate-page-in">
+                {children}
+              </div>
+            </main>
+          </div>
+          <BottomNav />
         </div>
-        <BottomNav />
-      </div>
-      <TaskDetailSheet />
-      <CreateTaskDialog />
-      <CommandPalette />
-      <ReminderEngine />
-      <Toaster
-        position="top-right"
-        offset={16}
-        mobileOffset={{ top: 12, left: 12, right: 12 }}
-        toastOptions={{
-          classNames: {
-            toast: "!rounded-[var(--radius-md)] !border-line !bg-surface !text-text !shadow-pop !font-sans",
-            title: "!text-[14px] !font-semibold !text-text",
-            description: "!text-[13px] !text-muted",
-            actionButton: "!bg-ink !text-white",
-          },
-        }}
-      />
-    </TooltipProvider>
+        <TaskDetailSheet />
+        <CreateTaskDialog />
+        <CommandPalette />
+        <ReminderEngine />
+        <Toaster
+          position="top-right"
+          offset={16}
+          mobileOffset={{ top: 12, left: 12, right: 12 }}
+          toastOptions={{
+            classNames: {
+              toast: "!rounded-[var(--radius-md)] !border-line !bg-surface !text-text !shadow-pop !font-sans",
+              title: "!text-[14px] !font-semibold !text-text",
+              description: "!text-[13px] !text-muted",
+              actionButton: "!bg-ink !text-white",
+            },
+          }}
+        />
+      </TooltipProvider>
     </MotionProvider>
   );
 }
@@ -222,7 +225,11 @@ function NavLink({ item, badges, onClick, group = "side" }: { item: NavItem; bad
       <item.icon className={cn("relative size-[18px] shrink-0 transition-colors duration-150", active ? "text-ink" : "text-faint group-hover:text-muted")} strokeWidth={active ? 2.3 : 2} />
       <span className="relative flex-1 truncate">{item.label}</span>
       {count > 0 && (
-        <span className={cn("tabular relative min-w-5 rounded-full px-1.5 text-center text-[11.5px] font-semibold leading-5", item.badge === "today" ? "bg-heat-1-tint text-heat-1" : "bg-ink text-white")}>{count}</span>
+        <span
+          className={cn("tabular relative min-w-5 rounded-full px-1.5 text-center text-[11.5px] font-semibold leading-5", item.badge === "today" ? "bg-heat-1-tint text-heat-1" : "bg-ink text-white")}
+        >
+          {count}
+        </span>
       )}
     </Link>
   );

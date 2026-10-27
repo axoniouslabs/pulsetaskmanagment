@@ -103,9 +103,18 @@ function AddDepartmentForm({ onDone }: { onDone: () => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim() || !headId || clash) return;
-        addDepartment({ name: name.trim(), headId, description: description.trim() });
+        if (
+          !addDepartment({
+            name: name.trim(),
+            headId,
+            description: description.trim(),
+          }).ok
+        )
+          return;
         onDone();
-        toast.success("Department added", { description: `${name.trim()} is ready. Add a team so people can be moved in.` });
+        toast.success("Department added", {
+          description: `${name.trim()} is ready. Add a team so people can be moved in.`,
+        });
       }}
       className="space-y-4"
     >
@@ -157,9 +166,11 @@ function AddTeamForm({ department, onDone }: { department: Department; onDone: (
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim() || !leadId || clash) return;
-        addTeam({ name: name.trim(), departmentId: department.id, leadId });
+        if (!addTeam({ name: name.trim(), departmentId: department.id, leadId }).ok) return;
         onDone();
-        toast.success("Team added", { description: `${name.trim()} is part of ${department.name}. Move people in from their menu.` });
+        toast.success("Team added", {
+          description: `${name.trim()} is part of ${department.name}. Move people in from their menu.`,
+        });
       }}
       className="space-y-4"
     >
@@ -193,10 +204,16 @@ function AddTeamForm({ department, onDone }: { department: Department; onDone: (
 
 /* ---------------- move a person ---------------- */
 export function MovePersonDialog({ person, ...props }: DialogProps & { person: Person | null }) {
+  const inTeam = useApp((s) => !!person && s.teams.some((t) => t.id === person.teamId));
   return (
     <Dialog open={props.open && !!person} onOpenChange={props.onOpenChange}>
       {props.open && person && (
-        <DialogContent title={`Move ${person.name} to another team`} description="Open tasks stay with them. Reviews and escalations follow the new team from now on.">
+        <DialogContent
+          title={inTeam ? `Move ${person.name} to another team` : `Put ${person.name} in a team`}
+          description={
+            inTeam ? "Open tasks stay with them. Reviews and escalations follow the new team from now on." : "Their reviews and escalations go to that team's lead and department head from now on."
+          }
+        >
           <MoveForm person={person} onDone={() => props.onOpenChange(false)} />
         </DialogContent>
       )}
@@ -212,18 +229,18 @@ function MoveForm({ person, onDone }: { person: Person; onDone: () => void }) {
   const movePerson = useApp((s) => s.movePerson);
   const [teamId, setTeamId] = React.useState("");
   const target = teams.find((t) => t.id === teamId);
-  const preview = target
-    ? escalationChain({ ...person, teamId: target.id, departmentId: target.departmentId }, people, teams, departments, escalation).filter((s) => !s.skipped && s.person)
-    : null;
+  const preview = target ? escalationChain({ ...person, teamId: target.id, departmentId: target.departmentId }, people, teams, departments, escalation).filter((s) => !s.skipped && s.person) : null;
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (!target) return;
-        movePerson(person.id, target.id);
+        if (!movePerson(person.id, target.id).ok) return;
         onDone();
-        toast.success("Moved. Their access changed automatically.", { description: `${firstName(person)} is now in ${target.name}.` });
+        toast.success("Moved. Their access changed automatically.", {
+          description: `${firstName(person)} is now in ${target.name}.`,
+        });
       }}
       className="space-y-4"
     >
@@ -296,16 +313,25 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
   const [description, setDescription] = React.useState("");
   const [members, setMembers] = React.useState<string[]>([]);
   const toggle = (id: string, on: boolean) => setMembers((m) => (on ? [...m, id] : m.filter((x) => x !== id)));
-  const staff = people.filter((p) => p.role !== "owner");
+  const staff = people.filter((p) => p.role !== "owner" && p.active !== false);
 
   return (
     <form
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim() || !members.length) return;
-        addGroup({ name: name.trim(), description: description.trim(), memberIds: members });
+        if (
+          !addGroup({
+            name: name.trim(),
+            description: description.trim(),
+            memberIds: members,
+          }).ok
+        )
+          return;
         onDone();
-        toast.success("Group created", { description: `${plural(members.length, "person", "people")} added, and a channel was opened for them.` });
+        toast.success("Group created", {
+          description: `${plural(members.length, "person", "people")} added, and a channel was opened for them.`,
+        });
       }}
       className="space-y-4"
     >
@@ -380,34 +406,50 @@ function LeaderForm({ target, onDone }: { target: { kind: "head"; unit: Departme
   return (
     <DialogContent
       title={target.kind === "head" ? `Who heads ${target.unit.name}?` : `Who leads ${target.unit.name}?`}
-      description={target.kind === "head" ? "Escalations for this department go to them. If they're an employee, they become a manager." : "Escalations for this team go to them first. They join the team if they aren't in it."}
+      description={
+        target.kind === "head"
+          ? "Escalations for this department go to them. If they're an employee, they become a manager."
+          : "Escalations for this team go to them first. They join the team if they aren't in it."
+      }
     >
       <form
         onSubmit={(e) => {
           e.preventDefault();
           const r =
             target.kind === "head"
-              ? dispatch({ type: "setDepartmentHead", departmentId: target.unit.id, personId: pick })
-              : dispatch({ type: "setTeamLead", teamId: target.unit.id, personId: pick });
+              ? dispatch({
+                  type: "setDepartmentHead",
+                  departmentId: target.unit.id,
+                  personId: pick,
+                })
+              : dispatch({
+                  type: "setTeamLead",
+                  teamId: target.unit.id,
+                  personId: pick,
+                });
           if (!r.ok) return void toast.error(r.error);
-          toast.success("Saved", { description: `${chosen?.name.split(" ")[0]} now ${target.kind === "head" ? "heads" : "leads"} ${target.unit.name}.` });
+          toast.success("Saved", {
+            description: `${chosen?.name.split(" ")[0]} now ${target.kind === "head" ? "heads" : "leads"} ${target.unit.name}.`,
+          });
           onDone();
         }}
       >
-      <Field label="Person">
-        <Select value={pick} onChange={(e) => setPick(e.target.value)}>
-          {sorted.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}, {p.title}
-              {p.departmentId !== depId ? ` (${departments.find((d) => d.id === p.departmentId)?.name ?? "no department"})` : ""}
-            </option>
-          ))}
-        </Select>
-      </Field>
-      {chosen && chosen.departmentId !== depId && (
-        <p className="mt-3 rounded-[var(--radius-sm)] bg-heat-1-tint px-3 py-2 text-[13px] text-text">{chosen.name.split(" ")[0]} will move into this {target.kind === "head" ? "department" : "team"}.</p>
-      )}
-      <Actions onCancel={onDone} submitLabel="Save" disabled={!pick || pick === current} />
+        <Field label="Person">
+          <Select value={pick} onChange={(e) => setPick(e.target.value)}>
+            {sorted.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.name}, {p.title}
+                {p.departmentId !== depId ? ` (${departments.find((d) => d.id === p.departmentId)?.name ?? "no department"})` : ""}
+              </option>
+            ))}
+          </Select>
+        </Field>
+        {chosen && chosen.departmentId !== depId && (
+          <p className="mt-3 rounded-[var(--radius-sm)] bg-heat-1-tint px-3 py-2 text-[13px] text-text">
+            {chosen.name.split(" ")[0]} will move into this {target.kind === "head" ? "department" : "team"}.
+          </p>
+        )}
+        <Actions onCancel={onDone} submitLabel="Save" disabled={!pick || pick === current} />
       </form>
     </DialogContent>
   );

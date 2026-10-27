@@ -25,14 +25,8 @@ export function LeaveAdmin({ people, now, meId, canRequest }: { people: Person[]
   const [asking, setAsking] = React.useState(false);
 
   const ids = React.useMemo(() => new Set(people.map((p) => p.id)), [people]);
-  const pending = React.useMemo(
-    () => leaves.filter((l) => l.status === "pending" && ids.has(l.personId) && l.personId !== meId).sort((a, b) => a.from.localeCompare(b.from)),
-    [leaves, ids, meId],
-  );
-  const upcoming = React.useMemo(
-    () => leaves.filter((l) => l.status === "approved" && ids.has(l.personId) && l.to >= today).sort((a, b) => a.from.localeCompare(b.from)),
-    [leaves, ids, today],
-  );
+  const pending = React.useMemo(() => leaves.filter((l) => l.status === "pending" && ids.has(l.personId) && l.personId !== meId).sort((a, b) => a.from.localeCompare(b.from)), [leaves, ids, meId]);
+  const upcoming = React.useMemo(() => leaves.filter((l) => l.status === "approved" && ids.has(l.personId) && l.to >= today).sort((a, b) => a.from.localeCompare(b.from)), [leaves, ids, today]);
   const myPending = leaves.filter((l) => l.personId === meId && l.status === "pending");
   const myApprover = approverFor({ people: allPeople, teams, departments }, meId);
 
@@ -154,8 +148,10 @@ function PendingRow({ leave: l }: { leave: Leave }) {
           variant="ok"
           className="h-10 sm:h-8"
           onClick={() => {
-            decide(l.id, true);
-            toast.success("Leave approved", { description: `${first} has been told. Reminders pause on those days.` });
+            if (decide(l.id, true).ok)
+              toast.success("Leave approved", {
+                description: `${first} has been told. Reminders pause on those days.`,
+              });
           }}
         >
           <Check /> Approve
@@ -164,8 +160,10 @@ function PendingRow({ leave: l }: { leave: Leave }) {
           size="sm"
           className="h-10 sm:h-8"
           onClick={() => {
-            decide(l.id, false);
-            toast("Leave declined", { description: `${first} has been told.` });
+            if (decide(l.id, false).ok)
+              toast("Leave declined", {
+                description: `${first} has been told.`,
+              });
           }}
         >
           Decline

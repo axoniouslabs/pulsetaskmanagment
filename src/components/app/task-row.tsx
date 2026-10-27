@@ -49,12 +49,25 @@ export function TaskRow({
       layout="position"
       initial={{ opacity: 0, y: -6 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, height: 0, paddingTop: 0, paddingBottom: 0, transition: { duration: 0.22, ease: EASE_EXIT } }}
+      exit={{
+        opacity: 0,
+        height: 0,
+        paddingTop: 0,
+        paddingBottom: 0,
+        transition: { duration: 0.22, ease: EASE_EXIT },
+      }}
       transition={SETTLE}
       role="button"
       tabIndex={0}
-      onClick={() => openTask(task.id)}
+      // only the row itself opens the task: not its buttons, and not the dialogs those
+      // buttons open (React bubbles portal events up to here)
+      onClick={(e) => {
+        const t = e.target as HTMLElement;
+        if (!e.currentTarget.contains(t) || t.closest("button, a, input, textarea, select, [role=menuitem], [role=dialog]")) return;
+        openTask(task.id);
+      }}
       onKeyDown={(e) => {
+        if (e.target !== e.currentTarget) return;
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
           openTask(task.id);
@@ -70,7 +83,9 @@ export function TaskRow({
       <div className="flex min-w-0 flex-1 items-start gap-3">
         <StatusIcon status={task.status} className="mt-[1px]" />
         <div className="min-w-0 flex-1">
-          <p className={cn("truncate text-[14.5px] font-medium leading-snug text-text", (task.status === "approved" || task.status === "cancelled") && "text-muted line-through decoration-line-strong")}>
+          <p
+            className={cn("truncate text-[14.5px] font-medium leading-snug text-text", (task.status === "approved" || task.status === "cancelled") && "text-muted line-through decoration-line-strong")}
+          >
             {task.title}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">

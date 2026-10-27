@@ -1,12 +1,13 @@
 import type { Command } from "@/domain/commands";
-import { getViewer, json } from "@/server/session";
+import { getActor, json } from "@/server/session";
 import { validateCommand } from "@/server/validate";
 import { runCommand } from "@/server/run-command";
 
 /** Every button in Pulse ends up here. */
 export async function POST(req: Request) {
-  const viewer = await getViewer();
-  if (!viewer) return json({ ok: false, error: "Your session ended. Sign in again." }, 401);
+  const actor = await getActor();
+  if (!actor.viewer) return actor.response;
+  const viewer = actor.viewer;
 
   let cmd: Command;
   try {

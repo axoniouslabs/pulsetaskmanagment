@@ -13,16 +13,35 @@ const CHANNELS: { key: ChannelKey; label: string; short: string }[] = [
   { key: "email", label: "Email", short: "Email" },
 ];
 
-const CATEGORIES: { key: string; label: string; hint?: string; locked?: boolean }[] = [
+const CATEGORIES: {
+  key: string;
+  label: string;
+  hint?: string;
+  locked?: boolean;
+}[] = [
   { key: "assigned", label: "New task", hint: "Someone assigns you work" },
   { key: "reminder", label: "Reminders", hint: "Until you acknowledge" },
-  { key: "escalation", label: "Escalations", hint: "Work you are accountable for", locked: true },
+  {
+    key: "escalation",
+    label: "Escalations",
+    hint: "Work you are accountable for",
+    locked: true,
+  },
   { key: "blocked", label: "Blocked", hint: "Someone is waiting on you" },
   { key: "submitted", label: "Submitted for review" },
   { key: "review", label: "Approved or sent back" },
   { key: "mention", label: "Mentions" },
-  { key: "announcement", label: "Notices", hint: "Including ones that need your OK", locked: true },
-  { key: "digest", label: "Digests", hint: "Morning brief and evening summary" },
+  {
+    key: "announcement",
+    label: "Notices",
+    hint: "Including ones that need your OK",
+    locked: true,
+  },
+  {
+    key: "digest",
+    label: "Digests",
+    hint: "Morning brief and evening summary",
+  },
 ];
 
 const defaultOn = (cat: string, ch: ChannelKey) => (ch === "email" ? cat === "digest" : true);
@@ -36,7 +55,7 @@ export function NotificationMatrix() {
 
   return (
     <>
-      <div className="thin-scrollbar overflow-x-auto">
+      <div className="thin-scrollbar relative overflow-x-auto">
         <table className="w-full text-[13.5px]">
           <thead>
             <tr className="border-b border-line text-[12.5px] text-muted">
@@ -85,7 +104,10 @@ export function NotificationMatrix() {
                             aria-label={`${cat.label} by ${ch.label}`}
                             onCheckedChange={(v) => {
                               setPref(`${ch.key}:${cat.key}`, v === true);
-                              toast.success("Saved", { id: "settings-saved", duration: 1600 });
+                              toast.success("Saved", {
+                                id: "settings-saved",
+                                duration: 1600,
+                              });
                             }}
                           />
                         </label>

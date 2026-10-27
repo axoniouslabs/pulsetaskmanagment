@@ -100,12 +100,12 @@ function TaskDetail({ task }: { task: Task }) {
           </Banner>
         )}
         {task.status === "in_progress" && task.lastRejectionReason && task.rejections > 0 && (
-          <Banner tone="heat-1" icon={Undo2} title={`Sent back by ${reviewer?.name.split(" ")[0]}`}>
+          <Banner tone="heat-1" icon={Undo2} title={`Sent back by ${reviewer?.name.split(" ")[0] ?? "the reviewer"}`}>
             {task.lastRejectionReason}
           </Banner>
         )}
         {task.status === "submitted" && (
-          <Banner tone="info" icon={Send} title={`Submitted ${ago(task.submittedAt)}, waiting for ${reviewer?.name.split(" ")[0]}`}>
+          <Banner tone="info" icon={Send} title={`Submitted ${ago(task.submittedAt)}, waiting for ${reviewer?.name.split(" ")[0] ?? "the reviewer"}`}>
             {task.submissionNote || "No note added."}
           </Banner>
         )}
@@ -142,11 +142,18 @@ function TaskDetail({ task }: { task: Task }) {
           <Fact label="Time">
             <span className="tabular">
               {minutesToLabel(task.loggedMinutes)} of {task.estimateHours}h
-              {timer?.taskId === task.id && <span className="ml-2 inline-flex items-center gap-1 text-ok"><span className="size-1.5 animate-pulse-dot rounded-full bg-ok" />running</span>}
+              {timer?.taskId === task.id && (
+                <span className="ml-2 inline-flex items-center gap-1 text-ok">
+                  <span className="size-1.5 animate-pulse-dot rounded-full bg-ok" />
+                  running
+                </span>
+              )}
             </span>
           </Fact>
           <Fact label="Created">
-            <span className="text-muted">{formatWhen(task.createdAt, { withDay: true })} by {person(task.createdById)?.name.split(" ")[0]}</span>
+            <span className="text-muted">
+              {formatWhen(task.createdAt, { withDay: true })} by {person(task.createdById)?.name.split(" ")[0]}
+            </span>
           </Fact>
         </dl>
 
@@ -170,7 +177,11 @@ function TaskDetail({ task }: { task: Task }) {
               value={tab}
               onChange={setTab}
               options={[
-                { value: "comments", label: "Comments", count: task.comments.length },
+                {
+                  value: "comments",
+                  label: "Comments",
+                  count: task.comments.length,
+                },
                 { value: "history", label: "History" },
               ]}
             />
@@ -200,7 +211,7 @@ function Banner({ tone, icon: Icon, title, children }: { tone: "heat-1" | "heat-
       <Icon className="mt-0.5 size-[18px] shrink-0" />
       <div className="min-w-0">
         <p className="text-[14px] font-semibold">{title}</p>
-        <p className="mt-0.5 text-[13.5px] leading-snug text-text/85">{children}</p>
+        <div className="mt-0.5 text-[13.5px] leading-snug text-text/85">{children}</div>
       </div>
     </div>
   );
@@ -233,10 +244,26 @@ function ReminderPanel({ task }: { task: Task }) {
   const snoozed = task.snoozedUntil && new Date(task.snoozedUntil) > new Date();
   const steps = [
     { level: 0, who: "Assignee only", when: "Normal" },
-    { level: 1, who: "Assignee, more prominent", when: `${settings.escalation.l1Ignored} ignored` },
-    { level: 2, who: "+ Team lead", when: `${settings.escalation.l2Ignored} ignored or 2h left` },
-    { level: 3, who: "+ Department head", when: `${settings.escalation.l3Ignored} ignored or overdue` },
-    { level: 4, who: "Owner, flagged", when: `${settings.escalation.l4HoursPastDue}h overdue, no reply` },
+    {
+      level: 1,
+      who: "Assignee, more prominent",
+      when: `${settings.escalation.l1Ignored} ignored`,
+    },
+    {
+      level: 2,
+      who: "+ Team lead",
+      when: `${settings.escalation.l2Ignored} ignored or 2h left`,
+    },
+    {
+      level: 3,
+      who: "+ Department head",
+      when: `${settings.escalation.l3Ignored} ignored or overdue`,
+    },
+    {
+      level: 4,
+      who: "Owner, flagged",
+      when: `${settings.escalation.l4HoursPastDue}h overdue, no reply`,
+    },
   ];
   return (
     <section className="rounded-[var(--radius-lg)] border border-line">
@@ -262,7 +289,18 @@ function ReminderPanel({ task }: { task: Task }) {
                           : "No reminders"}
             </p>
             <p className="mt-0.5 text-[12.5px] text-muted">
-              {rule.window === "working" ? "Working hours only" : "Any time"}, up to {rule.dailyCap} a day, by {rule.channels.map((c) => ({ push: "phone & PC", inapp: "in-app", email: "email", whatsapp: "WhatsApp" })[c]).join(", ")}
+              {rule.window === "working" ? "Working hours only" : "Any time"}, up to {rule.dailyCap} a day, by{" "}
+              {rule.channels
+                .map(
+                  (c) =>
+                    ({
+                      push: "phone & PC",
+                      inapp: "in-app",
+                      email: "email",
+                      whatsapp: "WhatsApp",
+                    })[c],
+                )
+                .join(", ")}
             </p>
           </div>
         </div>
@@ -378,9 +416,14 @@ function Files({ task }: { task: Task }) {
     if (!files.length) return;
     setBusy(true);
     for (const f of files) {
-      const res = await uploadToTask(task.id, f, { proof: r.isAssignee && task.requiresProof && f.type.startsWith("image/") });
+      const res = await uploadToTask(task.id, f, {
+        proof: r.isAssignee && task.requiresProof && f.type.startsWith("image/"),
+      });
       if (!res.ok) toast.error(`${f.name}: ${res.error}`);
-      else toast.success("Added", { description: `${f.name}. The time it was added is recorded.` });
+      else
+        toast.success("Added", {
+          description: `${f.name}. The time it was added is recorded.`,
+        });
     }
     setBusy(false);
   };
@@ -444,7 +487,9 @@ function Comments({ task }: { task: Task }) {
       recorder.current = await startRecording();
       setRecording(0);
     } catch {
-      toast.error("Pulse can't use the microphone", { description: "Allow microphone access for this site, then try again." });
+      toast.error("Pulse can't use the microphone", {
+        description: "Allow microphone access for this site, then try again.",
+      });
     }
   };
   const discardVoice = () => {
@@ -514,7 +559,9 @@ function Comments({ task }: { task: Task }) {
                 Recording {Math.floor(recording / 60)}:{String(recording % 60).padStart(2, "0")}
               </span>
               <span className="flex-1" />
-              <Button size="sm" variant="ghost" onClick={discardVoice}>Discard</Button>
+              <Button size="sm" variant="ghost" onClick={discardVoice}>
+                Discard
+              </Button>
               <Button size="sm" variant="primary" onClick={() => void sendVoice()}>
                 <Square className="fill-current" /> Send
               </Button>
@@ -605,15 +652,18 @@ export function ActivityLine({ a, showTask }: { a: Activity; showTask?: boolean 
       </span>
       <div className="min-w-0 flex-1 pt-0.5">
         <p className="text-[13.5px] leading-snug text-text">
-          <span className="font-medium">{a.actorId === "system" ? "Pulse" : actor?.name ?? "Someone"}</span>{" "}
-          <span className="text-text/85">{a.text}</span>
+          <span className="font-medium">{a.actorId === "system" ? "Pulse" : (actor?.name ?? "Someone")}</span> <span className="text-text/85">{a.text}</span>
         </p>
         <p className="mt-0.5 text-[12px] text-faint">
           {formatWhen(a.at, { withDay: true })}
           {task && (
             <>
               {" in "}
-              <button className="text-muted underline-offset-2 hover:text-text hover:underline" onClick={() => openTask(task.id)}>
+              <button
+                type="button"
+                className="relative text-muted underline-offset-2 before:absolute before:-inset-x-1 before:-inset-y-2 before:content-[''] hover:text-text hover:underline"
+                onClick={() => openTask(task.id)}
+              >
                 {task.title}
               </button>
             </>

@@ -8,30 +8,14 @@
  *
  * Column names are snake_case in the database (drizzle `casing: "snake_case"`).
  */
-import {
-  bigint,
-  boolean,
-  customType,
-  doublePrecision,
-  index,
-  integer,
-  jsonb,
-  pgTable,
-  text,
-  timestamp,
-  uniqueIndex,
-} from "drizzle-orm/pg-core";
-import type {
-  Attachment,
-  Comment,
-  OrgSettings,
-  ReminderRule,
-  Subtask,
-} from "@/lib/types";
+import { bigint, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import type { Attachment, Comment, OrgSettings, ReminderRule, Subtask } from "@/lib/types";
 import type { EngineState } from "@/domain/engine";
 import type { NewTaskInput } from "@/domain/commands";
 
-const bytea = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "bytea" });
+const bytea = customType<{ data: Buffer; driverData: Buffer }>({
+  dataType: () => "bytea",
+});
 
 const ts = (name?: string) => (name ? timestamp(name, { withTimezone: true, mode: "date" }) : timestamp({ withTimezone: true, mode: "date" }));
 
@@ -165,7 +149,14 @@ export const payments = pgTable(
 /** retired (support contact for renewals); kept so no data is dropped, never read */
 export const platformSettings = pgTable("platform_settings", {
   id: text().primaryKey(),
-  data: jsonb().$type<{ supportName?: string; supportPhone?: string; supportEmail?: string }>().notNull().default({}),
+  data: jsonb()
+    .$type<{
+      supportName?: string;
+      supportPhone?: string;
+      supportEmail?: string;
+    }>()
+    .notNull()
+    .default({}),
   updatedAt: ts().notNull().defaultNow(),
 });
 
@@ -492,6 +483,9 @@ export const dailyStats = pgTable(
     actualHours: doublePrecision().notNull(),
     escalations: integer().notNull(),
     reviewHours: doublePrecision().notNull(),
+    waitHours: doublePrecision().notNull().default(0),
+    workHours: doublePrecision().notNull().default(0),
+    blockedHours: doublePrecision().notNull().default(0),
   },
   (t) => [uniqueIndex().on(t.personId, t.date), index().on(t.orgId, t.date)],
 );

@@ -67,6 +67,8 @@ export interface LoadOptions {
   stats?: boolean;
   /** skip notifications entirely (the engine only appends new ones) */
   skipNotifications?: boolean;
+  /** the complete activity log, not just the last 30 days (exports) */
+  allActivity?: boolean;
 }
 
 /** await lazily-built queries one at a time (drizzle queries run when awaited) */
@@ -98,7 +100,10 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
     c.select().from(S.announcements).where(eq(S.announcements.orgId, orgId)).orderBy(desc(S.announcements.at)),
     c.select().from(S.questions).where(eq(S.questions.orgId, orgId)).orderBy(desc(S.questions.at)),
     c.select().from(S.deadlineRequests).where(eq(S.deadlineRequests.orgId, orgId)).orderBy(desc(S.deadlineRequests.at)),
-    c.select().from(S.attendance).where(and(eq(S.attendance.orgId, orgId), gte(S.attendance.date, since30))),
+    c
+      .select()
+      .from(S.attendance)
+      .where(and(eq(S.attendance.orgId, orgId), gte(S.attendance.date, since30))),
     c.select().from(S.leaves).where(eq(S.leaves.orgId, orgId)),
     c.select().from(S.timers).where(eq(S.timers.orgId, orgId)),
     c.select().from(S.templates).where(eq(S.templates.orgId, orgId)).orderBy(S.templates.name),
@@ -109,7 +114,13 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
     if (!r.mustChangePassword) delete p.mustChangePassword;
     p.devices = deviceRows
       .filter((d) => d.personId === r.id)
-      .map((d) => ({ id: d.id, kind: d.kind as Person["devices"][number]["kind"], label: d.label, lastSeen: d.lastSeen.toISOString(), healthy: d.healthy }));
+      .map((d) => ({
+        id: d.id,
+        kind: d.kind as Person["devices"][number]["kind"],
+        label: d.label,
+        lastSeen: d.lastSeen.toISOString(),
+        healthy: d.healthy,
+      }));
     w.prefs[r.id] = r.prefs ?? {};
     if (r.dayOrder?.length) w.dayOrder[r.id] = r.dayOrder;
     return p;
@@ -126,22 +137,40 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   w.attendance = att.map((r) => fromRow(r, ["orgId", "id"]));
   w.leaves = leaves.map((r) => fromRow(r, ["orgId"]));
   w.templates = tpls.map((r) => fromRow(r, ["orgId"]));
-  for (const t of timerRows) w.timers[t.personId] = { taskId: t.taskId, startedAt: t.startedAt.toISOString() };
+  for (const t of timerRows)
+    w.timers[t.personId] = {
+      taskId: t.taskId,
+      startedAt: t.startedAt.toISOString(),
+    };
 
   if (opts.activity) {
-    const rows = await c.select().from(S.activity).where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, subDays(new Date(), 30)))).orderBy(desc(S.activity.at)).limit(1500);
+    const rows = opts.allActivity
+      ? await c.select().from(S.activity).where(eq(S.activity.orgId, orgId)).orderBy(desc(S.activity.at))
+      : await c
+          .select()
+          .from(S.activity)
+          .where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, subDays(new Date(), 30))))
+          .orderBy(desc(S.activity.at))
+          .limit(1500);
     w.activity = rows.map((r) => fromRow(r, ["orgId"]));
   }
   if (!opts.skipNotifications) {
-    const nWhere = opts.notificationsFor
-      ? and(eq(S.notifications.orgId, orgId), eq(S.notifications.recipientId, opts.notificationsFor))
-      : eq(S.notifications.orgId, orgId);
-    const nRows = await c.select().from(S.notifications).where(nWhere).orderBy(desc(S.notifications.at)).limit(opts.notificationsFor ? 200 : 2000);
+    const nWhere = opts.notificationsFor ? and(eq(S.notifications.orgId, orgId), eq(S.notifications.recipientId, opts.notificationsFor)) : eq(S.notifications.orgId, orgId);
+    const nRows = await c
+      .select()
+      .from(S.notifications)
+      .where(nWhere)
+      .orderBy(desc(S.notifications.at))
+      .limit(opts.notificationsFor ? 200 : 2000);
     w.notifications = nRows.map((r) => fromRow(r, ["orgId", "pushedAt", "deliveredAt", "seenAt"]));
   }
 
   if (opts.stats) {
-    const rows = await c.select().from(S.dailyStats).where(and(eq(S.dailyStats.orgId, orgId), gte(S.dailyStats.date, since30)));
+    const rows = await c
+      .select()
+      .from(S.dailyStats)
+      .where(and(eq(S.dailyStats.orgId, orgId), gte(S.dailyStats.date, since30)))
+      .orderBy(S.dailyStats.date);
     w.stats = rows.map((r) => fromRow<DailyStat>(r, ["orgId", "id"]));
   }
   return w;
@@ -181,7 +210,10 @@ export async function persist(tx: Tx, before: World, after: World) {
       const row = toRow(x as unknown as Record<string, unknown>, name, columns, extra);
       delete row.id;
       if (name === "tasks") row.updatedAt = new Date();
-      await tx.update(table).set(row as never).where(eq((table as typeof S.tasks).id, x.id));
+      await tx
+        .update(table)
+        .set(row as never)
+        .where(eq((table as typeof S.tasks).id, x.id));
     }
   };
 
@@ -205,7 +237,11 @@ export async function persist(tx: Tx, before: World, after: World) {
       await tx
         .insert(S.templates)
         .values(row as never)
-        .onConflictDoUpdate({ target: S.templates.id, set: { name: x.name, input: x.input }, setWhere: eq(S.templates.orgId, orgId) });
+        .onConflictDoUpdate({
+          target: S.templates.id,
+          set: { name: x.name, input: x.input },
+          setWhere: eq(S.templates.orgId, orgId),
+        });
     }
     const kept = new Set(after.templates.map((x) => x.id));
     const gone = before.templates.filter((x) => !kept.has(x.id)).map((x) => x.id);
@@ -249,8 +285,28 @@ export async function persist(tx: Tx, before: World, after: World) {
   for (const a of after.attendance) {
     const key = attKey(a);
     if (ab.get(key) === JSON.stringify(a)) continue;
-    const row = { id: key, orgId, personId: a.personId, date: a.date, checkIn: a.checkIn ? new Date(a.checkIn) : null, checkOut: a.checkOut ? new Date(a.checkOut) : null, breakMin: a.breakMin, status: a.status };
-    await tx.insert(S.attendance).values(row).onConflictDoUpdate({ target: S.attendance.id, set: { checkIn: row.checkIn, checkOut: row.checkOut, breakMin: row.breakMin, status: row.status } });
+    const row = {
+      id: key,
+      orgId,
+      personId: a.personId,
+      date: a.date,
+      checkIn: a.checkIn ? new Date(a.checkIn) : null,
+      checkOut: a.checkOut ? new Date(a.checkOut) : null,
+      breakMin: a.breakMin,
+      status: a.status,
+    };
+    await tx
+      .insert(S.attendance)
+      .values(row)
+      .onConflictDoUpdate({
+        target: S.attendance.id,
+        set: {
+          checkIn: row.checkIn,
+          checkOut: row.checkOut,
+          breakMin: row.breakMin,
+          status: row.status,
+        },
+      });
   }
 
   // timers
@@ -260,25 +316,63 @@ export async function persist(tx: Tx, before: World, after: World) {
     const a = after.timers[personId];
     if (JSON.stringify(a ?? null) === JSON.stringify(b ?? null)) continue;
     if (!a) await tx.delete(S.timers).where(eq(S.timers.personId, personId));
-    else await tx.insert(S.timers).values({ personId, orgId, taskId: a.taskId, startedAt: new Date(a.startedAt) }).onConflictDoUpdate({ target: S.timers.personId, set: { taskId: a.taskId, startedAt: new Date(a.startedAt) } });
+    else
+      await tx
+        .insert(S.timers)
+        .values({
+          personId,
+          orgId,
+          taskId: a.taskId,
+          startedAt: new Date(a.startedAt),
+        })
+        .onConflictDoUpdate({
+          target: S.timers.personId,
+          set: { taskId: a.taskId, startedAt: new Date(a.startedAt) },
+        });
   }
 
   // settings
   if (JSON.stringify(before.settings) !== JSON.stringify(after.settings)) {
     const { name, timezone, ...rest } = after.settings;
-    await tx.update(S.organizations).set({ name, timezone, settings: { ...rest, name, timezone } }).where(eq(S.organizations.id, orgId));
+    await tx
+      .update(S.organizations)
+      .set({ name, timezone, settings: { ...rest, name, timezone } })
+      .where(eq(S.organizations.id, orgId));
   }
 
   // activity: append only
   const seenAct = new Set(before.activity.map((a) => a.id));
   const newActs = after.activity.filter((a) => !seenAct.has(a.id));
-  if (newActs.length) await tx.insert(S.activity).values(newActs.map((a) => ({ id: a.id, orgId, at: new Date(a.at), actorId: a.actorId, kind: a.kind, taskId: a.taskId ?? null, text: a.text })));
+  if (newActs.length)
+    await tx.insert(S.activity).values(
+      newActs.map((a) => ({
+        id: a.id,
+        orgId,
+        at: new Date(a.at),
+        actorId: a.actorId,
+        kind: a.kind,
+        taskId: a.taskId ?? null,
+        text: a.text,
+      })),
+    );
 
   // notifications: new ones, and read flags
   const nb = new Map(before.notifications.map((n) => [n.id, n]));
   const newNotes = after.notifications.filter((n) => !nb.has(n.id));
   if (newNotes.length)
-    await tx.insert(S.notifications).values(newNotes.map((n) => ({ id: n.id, orgId, recipientId: n.recipientId, at: new Date(n.at), kind: n.kind, title: n.title, body: n.body, taskId: n.taskId ?? null, read: n.read })));
+    await tx.insert(S.notifications).values(
+      newNotes.map((n) => ({
+        id: n.id,
+        orgId,
+        recipientId: n.recipientId,
+        at: new Date(n.at),
+        kind: n.kind,
+        title: n.title,
+        body: n.body,
+        taskId: n.taskId ?? null,
+        read: n.read,
+      })),
+    );
   const nowRead = after.notifications.filter((n) => n.read && nb.get(n.id) && !nb.get(n.id)!.read).map((n) => n.id);
   if (nowRead.length) await tx.update(S.notifications).set({ read: true, seenAt: new Date() }).where(inArray(S.notifications.id, nowRead));
 
@@ -326,7 +420,6 @@ export async function lockOrg(tx: Tx, orgId: string) {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${orgId}))`);
 }
 
-
 /* ------------------------------------------------------------------ */
 /* reminder engine bookkeeping                                         */
 /* ------------------------------------------------------------------ */
@@ -342,6 +435,10 @@ export async function saveEngineState(c: Conn, orgId: string, state: EngineState
 
 /** activity for the given org-local dates (plus a day either side), for report rollups */
 export async function loadActivitySince(c: Conn, orgId: string, since: Date) {
-  const rows = await c.select().from(S.activity).where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, since))).orderBy(desc(S.activity.at));
+  const rows = await c
+    .select()
+    .from(S.activity)
+    .where(and(eq(S.activity.orgId, orgId), gte(S.activity.at, since)))
+    .orderBy(desc(S.activity.at));
   return rows.map((r) => fromRow<World["activity"][number]>(r, ["orgId"]));
 }

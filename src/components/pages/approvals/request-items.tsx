@@ -45,16 +45,20 @@ export function ExtensionItem({ request, task, now }: { request: DeadlineRequest
           <Button
             variant="ok"
             onClick={() => {
-              decide(request.id, true);
-              toast.success("Approved", { description: `Now due ${newDue}. ${first} has been told.` });
+              if (decide(request.id, true).ok)
+                toast.success("Approved", {
+                  description: `Now due ${newDue}. ${first} has been told.`,
+                });
             }}
           >
             <CalendarCheck /> Approve
           </Button>
           <Button
             onClick={() => {
-              decide(request.id, false);
-              toast("Declined", { description: `The deadline stays ${oldDue}. ${first} has been told.` });
+              if (decide(request.id, false).ok)
+                toast("Declined", {
+                  description: `The deadline stays ${oldDue}. ${first} has been told.`,
+                });
             }}
           >
             Decline
@@ -68,7 +72,11 @@ export function ExtensionItem({ request, task, now }: { request: DeadlineRequest
           <p className="pt-1 text-[13.5px] leading-snug text-muted">
             <span className="font-medium text-text">{by?.name}</span> asked for more time {ago(request.at, now)}
           </p>
-          <button type="button" onClick={() => openTask(task.id)} className="mt-1.5 block text-left text-[16px] font-semibold leading-snug text-text underline-offset-4 hover:underline">
+          <button
+            type="button"
+            onClick={() => openTask(task.id)}
+            className="relative mt-1.5 block text-left text-[16px] font-semibold leading-snug text-text underline-offset-4 before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:underline"
+          >
             {task.title}
           </button>
           <div className="mt-1.5">
@@ -99,7 +107,11 @@ export function ExtensionItem({ request, task, now }: { request: DeadlineRequest
 }
 
 /* ---------------- leave ---------------- */
-const LEAVE_LABEL: Record<Leave["type"], string> = { sick: "Sick leave", annual: "Annual leave", casual: "Casual leave" };
+const LEAVE_LABEL: Record<Leave["type"], string> = {
+  sick: "Sick leave",
+  annual: "Annual leave",
+  casual: "Casual leave",
+};
 
 export function LeaveItem({ leave, tasks, now }: { leave: Leave; tasks: Task[]; now: Date }) {
   const person = useApp((s) => s.people.find((p) => p.id === leave.personId));
@@ -110,9 +122,7 @@ export function LeaveItem({ leave, tasks, now }: { leave: Leave; tasks: Task[]; 
   const to = parseISO(leave.to);
   const days = differenceInCalendarDays(to, from) + 1;
   const startsIn = differenceInCalendarDays(from, now);
-  const clashes = tasks.filter(
-    (t) => t.assigneeId === leave.personId && isActive(t) && new Date(t.dueAt) >= startOfDay(from) && new Date(t.dueAt) <= endOfDay(to),
-  );
+  const clashes = tasks.filter((t) => t.assigneeId === leave.personId && isActive(t) && new Date(t.dueAt) >= startOfDay(from) && new Date(t.dueAt) <= endOfDay(to));
   const range = days === 1 ? format(from, "EEE d MMM") : `${format(from, "EEE d MMM")} to ${format(to, "EEE d MMM")}`;
   const when = startsIn < 0 ? "already started" : startsIn === 0 ? "starts today" : startsIn === 1 ? "starts tomorrow" : `starts in ${startsIn} days`;
 
@@ -123,16 +133,17 @@ export function LeaveItem({ leave, tasks, now }: { leave: Leave; tasks: Task[]; 
           <Button
             variant="ok"
             onClick={() => {
-              decide(leave.id, true);
-              toast.success("Approved", { description: `${first} has been told.${clashes.length ? " Remember to hand over their tasks." : ""}` });
+              if (decide(leave.id, true).ok)
+                toast.success("Approved", {
+                  description: `${first} has been told.${clashes.length ? " Remember to hand over their tasks." : ""}`,
+                });
             }}
           >
             <CheckCircle2 /> Approve
           </Button>
           <Button
             onClick={() => {
-              decide(leave.id, false);
-              toast("Declined", { description: `${first} has been told.` });
+              if (decide(leave.id, false).ok) toast("Declined", { description: `${first} has been told.` });
             }}
           >
             Decline
@@ -174,7 +185,8 @@ export function LeaveItem({ leave, tasks, now }: { leave: Leave; tasks: Task[]; 
             </div>
           ) : (
             <p className="mt-3 flex items-center gap-1.5 text-[13px] text-muted">
-              <CheckCircle2 className="size-4 text-ok" /> Nothing of {first}&rsquo;s is due during this time.
+              <CheckCircle2 className="size-4 text-ok" /> Nothing of {first}
+              &rsquo;s is due during this time.
             </p>
           )}
         </div>

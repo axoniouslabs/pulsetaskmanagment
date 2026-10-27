@@ -8,21 +8,9 @@
  */
 import { format } from "date-fns";
 import { TZDate } from "@date-fns/tz";
-import type {
-  Activity,
-  ActivityKind,
-  AppNotification,
-  HeatLevel,
-  Leave,
-  NotificationKind,
-  OrgSettings,
-  Priority,
-  ReminderRule,
-  Task,
-  TaskStatus,
-  TaskTemplate,
-} from "@/lib/types";
-import { headOf, leadOf, membersOf, ownerOf, type World } from "./world";
+import type { Activity, ActivityKind, AppNotification, HeatLevel, Leave, NotificationKind, OrgSettings, Priority, ReminderRule, Task, TaskStatus, TaskTemplate } from "@/lib/types";
+import { backupFor, headOf, leadOf, membersOf, ownerOf, type World } from "./world";
+import { isAway, localDate } from "./time";
 
 export interface NewTaskInput {
   title: string;
@@ -66,7 +54,12 @@ export interface TaskPatch {
 export type Command =
   | { type: "createTask"; id: string; input: NewTaskInput }
   | { type: "editTask"; taskId: string; patch: TaskPatch }
-  | { type: "saveTemplate"; id: string; name: string; input: TaskTemplate["input"] }
+  | {
+      type: "saveTemplate";
+      id: string;
+      name: string;
+      input: TaskTemplate["input"];
+    }
   | { type: "deleteTemplate"; id: string }
   | { type: "publishDraft"; taskId: string }
   | { type: "claimTask"; taskId: string }
@@ -75,23 +68,52 @@ export type Command =
   | { type: "snooze"; taskId: string; minutes: number }
   | { type: "block"; taskId: string; reason: string; blockerOwnerId?: string }
   | { type: "unblock"; taskId: string; note?: string }
-  | { type: "submit"; taskId: string; note: string; proofName?: string }
+  | { type: "submit"; taskId: string; note: string }
   | { type: "approve"; taskId: string; note?: string }
   | { type: "reject"; taskId: string; reason: string }
   | { type: "cancel"; taskId: string; reason: string }
   | { type: "reassign"; taskId: string; toId: string; reason: string }
   | { type: "changeDeadline"; taskId: string; newDueAt: string; reason: string }
-  | { type: "requestDeadline"; taskId: string; newDueAt: string; reason: string }
+  | {
+      type: "requestDeadline";
+      taskId: string;
+      newDueAt: string;
+      reason: string;
+    }
   | { type: "decideDeadline"; requestId: string; approve: boolean }
   | { type: "toggleSubtask"; taskId: string; subtaskId: string }
   | { type: "addSubtask"; taskId: string; title: string }
-  | { type: "addComment"; taskId: string; body: string; kind?: "text" | "voice"; durationSec?: number }
-  | { type: "addAttachment"; taskId: string; name: string; kind: "image" | "file"; fileId?: string; url?: string; sizeKb?: number; contentType?: string; proof?: boolean }
+  | {
+      type: "addComment";
+      taskId: string;
+      body: string;
+      kind?: "text" | "voice";
+      durationSec?: number;
+    }
+  | {
+      type: "addAttachment";
+      taskId: string;
+      name: string;
+      kind: "image" | "file";
+      fileId?: string;
+      url?: string;
+      sizeKb?: number;
+      contentType?: string;
+      proof?: boolean;
+    }
   | { type: "stopTimer" }
   | { type: "markRead"; id: string }
   | { type: "markAllRead" }
-  | { type: "postAnnouncement"; channelId: string; title: string; body: string; requiresAck: boolean; ackDueAt?: string }
+  | {
+      type: "postAnnouncement";
+      channelId: string;
+      title: string;
+      body: string;
+      requiresAck: boolean;
+      ackDueAt?: string;
+    }
   | { type: "ackAnnouncement"; id: string }
+  | { type: "remindAnnouncement"; id: string }
   | { type: "readAnnouncement"; id: string }
   | { type: "askQuestion"; toId: string; body: string; taskId?: string }
   | { type: "answerQuestion"; id: string; answer: string }
@@ -144,10 +166,26 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
   const first = (id: string) => w.people.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
 
   const log = (kind: ActivityKind, text: string, taskId?: string, actorId?: string) =>
-    acts.push({ id: ctx.uid("act"), at: nowIso, actorId: actorId ?? me, kind, text, taskId });
+    acts.push({
+      id: ctx.uid("act"),
+      at: nowIso,
+      actorId: actorId ?? me,
+      kind,
+      text,
+      taskId,
+    });
   const note = (recipientId: string, kind: NotificationKind, title: string, body: string, taskId?: string) => {
     if (recipientId === me) return;
-    notes.push({ id: ctx.uid("n"), at: nowIso, recipientId, kind, title, body, taskId, read: false });
+    notes.push({
+      id: ctx.uid("n"),
+      at: nowIso,
+      recipientId,
+      kind,
+      title,
+      body,
+      taskId,
+      read: false,
+    });
   };
 
   const task = (id: string): Task => w.tasks.find((t) => t.id === id) ?? fail("That task no longer exists.");
@@ -183,20 +221,35 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const assignee = w.people.find((p) => p.id === input.assigneeId) ?? fail("Pick who owns this task.");
       if (!input.title.trim()) fail("Add a title so the assignee knows what to do.");
       if (w.tasks.some((t) => t.id === cmd.id)) fail("This task was already created.");
-      const reviewerId = me === input.assigneeId ? leadOf(w, input.assigneeId) ?? headOf(w, input.assigneeId) ?? ownerOf(w) ?? me : me;
+      const reviewerId = me === input.assigneeId ? (leadOf(w, input.assigneeId) ?? headOf(w, input.assigneeId) ?? ownerOf(w) ?? me) : me;
       const deps = (input.dependsOn ?? []).filter((id) => w.tasks.some((x) => x.id === id));
+      // the person is away today: the work goes to whoever covers for them, and they stay a watcher
+      let routedFrom: string | undefined;
+      let assigneeId = input.assigneeId;
+      if (!input.draft && !input.claim && assigneeId !== me && isAway(w, assigneeId, localDate(now, tz))) {
+        const cover = backupFor(w, assigneeId);
+        if (cover && cover !== me) {
+          routedFrom = assigneeId;
+          assigneeId = cover;
+        }
+      }
       let claim: Task["groupClaim"];
       if (input.claim) {
         const c = input.claim;
         const unit = c.unitType === "team" ? w.teams.find((x) => x.id === c.unitId) : w.groups.find((x) => x.id === c.unitId);
         if (!unit) fail("Pick the team or group to offer this task to.");
-        claim = { unitName: unit!.name, claimed: false, unitType: c.unitType, unitId: c.unitId };
+        claim = {
+          unitName: unit!.name,
+          claimed: false,
+          unitType: c.unitType,
+          unitId: c.unitId,
+        };
       }
       const t: Task = {
         id: cmd.id,
         title: input.title.trim(),
         description: input.description?.trim() ?? "",
-        assigneeId: input.assigneeId,
+        assigneeId,
         createdById: me,
         reviewerId,
         projectId: input.projectId || undefined,
@@ -217,7 +270,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         subtasks: (input.subtasks ?? []).filter(Boolean).map((title) => ({ id: ctx.uid("s"), title, done: false })),
         comments: [],
         attachments: [],
-        watcherIds: [],
+        watcherIds: routedFrom ? [routedFrom] : [],
         tags: input.tags ?? [],
         rejections: 0,
         statusChangedAt: nowIso,
@@ -228,15 +281,20 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         groupClaim: claim,
       };
       w.tasks.unshift(t);
+      if (routedFrom) {
+        log("reassigned", `${first(routedFrom)} is away, so this went to ${first(assigneeId)} instead. ${first(routedFrom)} is watching it.`, t.id);
+        note(assigneeId, "assigned", `${first(me)} assigned you a task (covering for ${first(routedFrom)})`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
+        note(me, "assigned", `${first(routedFrom)} is away: ${first(assigneeId)} got the task`, t.title, t.id);
+      }
       if (input.draft) log("created", "Saved as draft", t.id);
       else if (claim) {
         log("assigned", `Offered to ${claim.unitName}: the first to claim it owns it`, t.id);
         for (const r of membersOf(w, claim.unitType!, claim.unitId!)) {
           note(r, "assigned", `Open task for ${claim.unitName}`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}. Claim it if you can take it.`, t.id);
         }
-      } else {
-        log("assigned", `Assigned to ${first(input.assigneeId)}`, t.id);
-        note(input.assigneeId, "assigned", `${first(me)} assigned you a task`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
+      } else if (!routedFrom) {
+        log("assigned", `Assigned to ${first(assigneeId)}`, t.id);
+        note(assigneeId, "assigned", `${first(me)} assigned you a task`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
       }
       if (deps.length) log("created", `Waits for: ${deps.map((d) => `"${w.tasks.find((x) => x.id === d)?.title}"`).join(", ")}`, t.id);
       break;
@@ -299,7 +357,14 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (!cmd.input.title.trim()) fail("A template needs a task title.");
       const existing = w.templates.find((x) => x.id === cmd.id);
       if (existing) Object.assign(existing, { name, input: cmd.input });
-      else w.templates.push({ id: cmd.id, name, createdById: me, createdAt: nowIso, input: cmd.input });
+      else
+        w.templates.push({
+          id: cmd.id,
+          name,
+          createdById: me,
+          createdAt: nowIso,
+          input: cmd.input,
+        });
       w.templates.sort((a, b) => a.name.localeCompare(b.name));
       log("created", `Saved the template "${name}"`);
       break;
@@ -314,7 +379,11 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "publishDraft": {
       const t = task(cmd.taskId);
       if (t.status !== "draft") fail("This task is already published.");
-      set(t, { status: "assigned", statusChangedAt: nowIso, createdAt: nowIso });
+      set(t, {
+        status: "assigned",
+        statusChangedAt: nowIso,
+        createdAt: nowIso,
+      });
       log("assigned", `Published and assigned to ${first(t.assigneeId)}`, t.id);
       note(t.assigneeId, "assigned", `${first(me)} assigned you a task`, t.title, t.id);
       break;
@@ -339,7 +408,12 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "acknowledge": {
       const t = task(cmd.taskId);
       if (t.status !== "assigned") break; // already acknowledged on another device: nothing to do
-      set(t, { status: "acknowledged", acknowledgedAt: nowIso, statusChangedAt: nowIso, snoozedUntil: undefined });
+      set(t, {
+        status: "acknowledged",
+        acknowledgedAt: nowIso,
+        statusChangedAt: nowIso,
+        snoozedUntil: undefined,
+      });
       log("acknowledged", "Acknowledged", t.id);
       deescalate(t);
       break;
@@ -370,7 +444,10 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const max = w.settings.snoozeMaxPerDay;
       if (t.snoozesToday >= max) fail(`You can snooze a task ${max} times a day. Acknowledge it or mark it blocked.`);
       if (![15, 30, 60].includes(cmd.minutes)) fail("Snooze for 15, 30 or 60 minutes.");
-      set(t, { snoozedUntil: new Date(now.getTime() + cmd.minutes * 60000).toISOString(), snoozesToday: t.snoozesToday + 1 });
+      set(t, {
+        snoozedUntil: new Date(now.getTime() + cmd.minutes * 60000).toISOString(),
+        snoozesToday: t.snoozesToday + 1,
+      });
       log("snoozed", `Snoozed reminders for ${cmd.minutes} min`, t.id);
       break;
     }
@@ -402,7 +479,14 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       if (t.status !== "blocked") break;
       const back: TaskStatus = t.startedAt ? "in_progress" : t.blockedFrom && t.blockedFrom !== "blocked" ? t.blockedFrom : "acknowledged";
-      set(t, { status: back, blockedReason: undefined, blockedOwnerId: undefined, blockedAt: undefined, blockedFrom: undefined, statusChangedAt: nowIso });
+      set(t, {
+        status: back,
+        blockedReason: undefined,
+        blockedOwnerId: undefined,
+        blockedAt: undefined,
+        blockedFrom: undefined,
+        statusChangedAt: nowIso,
+      });
       log("unblocked", cmd.note ? `Blocker cleared: ${cmd.note}` : "Blocker cleared", t.id);
       note(t.assigneeId, "unblocked", "You can continue", `${t.title}${cmd.note ? `: ${cmd.note}` : ""}`, t.id);
       break;
@@ -411,20 +495,31 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "submit": {
       const t = task(cmd.taskId);
       if (t.status !== "in_progress") fail("Start the task before submitting it.");
-      const hasProof = t.attachments.some((a) => a.isProof) || !!cmd.proofName;
+      const hasProof = t.attachments.some((a) => a.isProof);
       if (t.requiresProof && !hasProof) fail("This task needs a photo or file as proof before you can submit it.");
+      if (t.requiresResult && !cmd.note.trim()) fail("This task asks for a short result report. Write what the outcome was, then submit.");
       if (w.timers[t.assigneeId]?.taskId === t.id) stopTimerFor(t.assigneeId);
-      if (cmd.proofName) {
-        t.attachments.push({ id: ctx.uid("a"), name: cmd.proofName, kind: "image", sizeKb: 380, at: nowIso, byId: me, isProof: true, hue: 160 });
-      }
       const noteText = cmd.note.trim();
       if (!t.requiresApproval) {
-        set(t, { status: "approved", submittedAt: nowIso, approvedAt: nowIso, statusChangedAt: nowIso, submissionNote: noteText, escalationLevel: 0 });
+        set(t, {
+          status: "approved",
+          submittedAt: nowIso,
+          approvedAt: nowIso,
+          statusChangedAt: nowIso,
+          submissionNote: noteText,
+          escalationLevel: 0,
+        });
         log("submitted", noteText ? `Submitted: ${noteText}` : "Submitted", t.id);
         log("approved", "Auto-approved (routine task)", t.id, "system");
         releaseDependents(t);
       } else {
-        set(t, { status: "submitted", submittedAt: nowIso, statusChangedAt: nowIso, submissionNote: noteText, escalationLevel: 0 });
+        set(t, {
+          status: "submitted",
+          submittedAt: nowIso,
+          statusChangedAt: nowIso,
+          submissionNote: noteText,
+          escalationLevel: 0,
+        });
         log("submitted", noteText ? `Submitted: ${noteText}` : "Submitted for review", t.id);
         note(t.reviewerId, "submitted", `${first(t.assigneeId)} submitted work for review`, t.title, t.id);
       }
@@ -434,7 +529,12 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     case "approve": {
       const t = task(cmd.taskId);
       if (t.status !== "submitted") fail("Only submitted work can be approved.");
-      set(t, { status: "approved", approvedAt: nowIso, statusChangedAt: nowIso, escalationLevel: 0 });
+      set(t, {
+        status: "approved",
+        approvedAt: nowIso,
+        statusChangedAt: nowIso,
+        escalationLevel: 0,
+      });
       log("approved", cmd.note ? `Approved with note: ${cmd.note}` : "Approved", t.id);
       note(t.assigneeId, "approved", `${first(me)} approved your work`, cmd.note ? `${t.title}. "${cmd.note}"` : t.title, t.id);
       releaseDependents(t);
@@ -445,7 +545,13 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       if (t.status !== "submitted") fail("Only submitted work can be sent back.");
       const reason = cmd.reason.trim() || fail("Say what needs to change so it gets fixed the first time.");
-      set(t, { status: "in_progress", rejections: t.rejections + 1, lastRejectionReason: reason, statusChangedAt: nowIso, submittedAt: undefined });
+      set(t, {
+        status: "in_progress",
+        rejections: t.rejections + 1,
+        lastRejectionReason: reason,
+        statusChangedAt: nowIso,
+        submittedAt: undefined,
+      });
       log("rejected", `Sent back: ${reason}`, t.id);
       note(t.assigneeId, "rejected", `${first(me)} sent your work back`, `${t.title}: ${reason}`, t.id);
       break;
@@ -467,6 +573,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const to = w.people.find((p) => p.id === cmd.toId) ?? fail("Pick who should take this task.");
       const from = t.assigneeId;
       if (from === to.id) fail(`${to.name.split(" ")[0]} already owns this task.`);
+      if (!cmd.reason.trim()) fail("Say why it's being handed over. It's recorded on the task.");
       if (w.timers[from]?.taskId === t.id) stopTimerFor(from);
       set(t, {
         assigneeId: to.id,
@@ -498,7 +605,15 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       const reason = cmd.reason.trim() || fail("Say why you need more time.");
       if (new Date(cmd.newDueAt) <= new Date(t.dueAt)) fail("Pick a time after the current deadline.");
-      w.deadlineRequests.unshift({ id: ctx.uid("dr"), taskId: t.id, byId: me, newDueAt: cmd.newDueAt, reason, at: nowIso, status: "pending" });
+      w.deadlineRequests.unshift({
+        id: ctx.uid("dr"),
+        taskId: t.id,
+        byId: me,
+        newDueAt: cmd.newDueAt,
+        reason,
+        at: nowIso,
+        status: "pending",
+      });
       log("deadline_requested", `Asked to move the deadline to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}: ${reason}`, t.id);
       note(t.reviewerId, "deadline", `${first(me)} asked for more time`, `${t.title}: ${reason}`, t.id);
       break;
@@ -540,7 +655,14 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       const body = cmd.body.trim() || fail("Write something first.");
       const kind = cmd.kind ?? "text";
-      t.comments.push({ id: ctx.uid("c"), authorId: me, body, at: nowIso, kind, durationSec: cmd.durationSec });
+      t.comments.push({
+        id: ctx.uid("c"),
+        authorId: me,
+        body,
+        at: nowIso,
+        kind,
+        durationSec: cmd.durationSec,
+      });
       log("commented", kind === "voice" ? `Voice note (${cmd.durationSec ?? 0}s)` : body, t.id);
       for (const p of w.people) if (body.includes(`@${p.name.split(" ")[0]}`)) note(p.id, "mention", `${first(me)} mentioned you`, `${t.title}: ${body}`, t.id);
       if (t.assigneeId === me && t.escalationLevel > 0) deescalate(t);
@@ -621,12 +743,29 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (a && !a.readBy[me]) a.readBy[me] = nowIso;
       break;
     }
+    case "remindAnnouncement": {
+      const a = w.announcements.find((x) => x.id === cmd.id) ?? fail("That notice no longer exists.");
+      if (!a.requiresAck) fail("This notice doesn't ask for an acknowledgment.");
+      const ch = w.channels.find((c) => c.id === a.channelId) ?? fail("That channel no longer exists.");
+      const waiting = membersOf(w, ch.unitType, ch.unitId).filter((id) => !a.ackBy[id] && id !== a.authorId);
+      if (!waiting.length) fail("Everyone has already acknowledged this notice.");
+      for (const r of waiting) note(r, "announcement", `${first(me)} is waiting for your OK`, `Please read and acknowledge "${a.title}".`);
+      log("announcement", `Reminded ${waiting.length} ${waiting.length === 1 ? "person" : "people"} to acknowledge "${a.title}"`);
+      break;
+    }
 
     /* ---------------- questions ---------------- */
     case "askQuestion": {
       const body = cmd.body.trim() || fail("Write your question first.");
       if (!w.people.some((p) => p.id === cmd.toId)) fail("Pick who to ask.");
-      w.questions.unshift({ id: ctx.uid("q"), fromId: me, toId: cmd.toId, body, taskId: cmd.taskId, at: nowIso });
+      w.questions.unshift({
+        id: ctx.uid("q"),
+        fromId: me,
+        toId: cmd.toId,
+        body,
+        taskId: cmd.taskId,
+        at: nowIso,
+      });
       log("question", `Asked ${first(cmd.toId)}: ${body}`, cmd.taskId);
       note(cmd.toId, "question", `${first(me)} asked you a question`, body, cmd.taskId);
       break;
@@ -649,7 +788,14 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const late = local.getHours() * 60 + local.getMinutes() > sh * 60 + sm + 15;
       const existing = w.attendance.find((a) => a.personId === me && a.date === date);
       if (existing?.checkIn && !existing.checkOut) fail("You're already checked in.");
-      const rec = { personId: me, date, checkIn: existing?.checkIn ?? nowIso, checkOut: undefined, breakMin: existing?.breakMin ?? 0, status: existing?.status && existing.checkIn ? existing.status : late ? ("late" as const) : ("present" as const) };
+      const rec = {
+        personId: me,
+        date,
+        checkIn: existing?.checkIn ?? nowIso,
+        checkOut: undefined,
+        breakMin: existing?.breakMin ?? 0,
+        status: existing?.status && existing.checkIn ? existing.status : late ? ("late" as const) : ("present" as const),
+      };
       if (existing) Object.assign(existing, rec);
       else w.attendance.push(rec);
       log("check_in", "Checked in");
@@ -668,7 +814,15 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const { from, to, type, note: n } = cmd.input;
       if (!from || !to || to < from) fail("Pick a start date and an end date on or after it.");
       const approver = leadOf(w, me) ?? headOf(w, me) ?? ownerOf(w);
-      w.leaves.unshift({ id: ctx.uid("lv"), personId: me, from, to, type, note: n, status: "pending" });
+      w.leaves.unshift({
+        id: ctx.uid("lv"),
+        personId: me,
+        from,
+        to,
+        type,
+        note: n,
+        status: "pending",
+      });
       if (approver) note(approver, "deadline", `${first(me)} asked for leave`, `${type} leave, ${from}${to !== from ? ` to ${to}` : ""}`);
       break;
     }
@@ -715,27 +869,57 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         fail(`${first(head.id)} already heads a department or leads a team. Pick someone else, or give that role away first.`);
       }
       const id = ctx.uid("d");
-      w.departments.push({ id, name, headId: head.id, description: cmd.description.trim() });
+      w.departments.push({
+        id,
+        name,
+        headId: head.id,
+        description: cmd.description.trim(),
+      });
       // the head works in the department they run, with a manager's view of it
       if (head.role === "employee") head.role = "manager";
       head.departmentId = id;
       head.teamId = "";
-      w.channels.push({ id: ctx.uid("c"), name, kind: "open", unitType: "department", unitId: id, description: `Day-to-day coordination for ${name}` });
+      w.channels.push({
+        id: ctx.uid("c"),
+        name,
+        kind: "open",
+        unitType: "department",
+        unitId: id,
+        description: `Day-to-day coordination for ${name}`,
+      });
       log("created", `Created the ${name} department`);
       break;
     }
     case "addTeam": {
       const name = cmd.name.trim() || fail("Give the team a name.");
       if (!w.departments.some((d) => d.id === cmd.departmentId)) fail("Pick a department.");
-      w.teams.push({ id: ctx.uid("t"), name, departmentId: cmd.departmentId, leadId: cmd.leadId });
+      w.teams.push({
+        id: ctx.uid("t"),
+        name,
+        departmentId: cmd.departmentId,
+        leadId: cmd.leadId,
+      });
       log("created", `Created the ${name} team`);
       break;
     }
     case "addGroup": {
       const name = cmd.name.trim() || fail("Give the group a name.");
       const id = ctx.uid("g");
-      w.groups.push({ id, name, description: cmd.description.trim(), memberIds: cmd.memberIds, ownerId: me });
-      w.channels.push({ id: ctx.uid("c"), name, kind: "open", unitType: "group", unitId: id, description: cmd.description.trim() });
+      w.groups.push({
+        id,
+        name,
+        description: cmd.description.trim(),
+        memberIds: cmd.memberIds,
+        ownerId: me,
+      });
+      w.channels.push({
+        id: ctx.uid("c"),
+        name,
+        kind: "open",
+        unitType: "group",
+        unitId: id,
+        description: cmd.description.trim(),
+      });
       log("created", `Created the group "${name}"`);
       break;
     }
@@ -781,6 +965,19 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
       p.onLeave = cmd.onLeave;
       log(cmd.onLeave ? "reminders_paused" : "check_in", cmd.onLeave ? `Marked ${first(p.id)} on leave. Their reminders stopped.` : `${first(p.id)} is back from leave`);
+      if (cmd.onLeave) {
+        // nothing goes quietly overdue: whoever marked them away sees what's open
+        const open = w.tasks.filter((t) => t.assigneeId === p.id && ["assigned", "acknowledged", "in_progress", "blocked"].includes(t.status));
+        const dueSoon = open.filter((t) => new Date(t.dueAt).getTime() - now.getTime() < 48 * 60 * 60000);
+        if (open.length) {
+          note(
+            me,
+            "deadline",
+            `${first(p.id)} has ${open.length} open ${open.length === 1 ? "task" : "tasks"}`,
+            `${dueSoon.length ? `${dueSoon.length} due within two days. ` : ""}Hand them over from Tasks so nothing goes overdue while they're away.`,
+          );
+        }
+      }
       break;
     }
     case "setPref": {

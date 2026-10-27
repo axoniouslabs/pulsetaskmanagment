@@ -3,7 +3,6 @@
 import * as React from "react";
 import { AlertTriangle } from "lucide-react";
 import { Tip } from "@/components/ui/primitives";
-import Link from "next/link";
 import { useApp } from "@/lib/store";
 
 const STALE_MIN = 10;
@@ -12,22 +11,6 @@ const STALE_MIN = 10;
  * The "reminders stopped" alarm. Pulse's whole promise is that it follows up by
  * itself, so if the engine hasn't run recently the owner must know at once.
  */
-/** nudges anyone still on a password someone else chose */
-export function PasswordNudge() {
-  const me = useApp((s) => s.people.find((p) => p.id === s.viewer?.personId));
-  if (!me?.mustChangePassword) return null;
-  return (
-    <div className="mb-4 flex flex-col gap-2 rounded-[var(--radius-lg)] border border-ink/15 bg-ink-tint/60 px-4 py-3 text-[13.5px] sm:flex-row sm:items-center">
-      <p className="flex-1 text-ink">
-        <span className="font-semibold">You&apos;re using a temporary password.</span> Choose your own so only you can sign in.
-      </p>
-      <Link href="/settings#account" className="font-semibold text-ink underline underline-offset-4">
-        Change password
-      </Link>
-    </div>
-  );
-}
-
 export function EngineAlarm() {
   const role = useApp((s) => s.role);
   const last = useApp((s) => s.engineLastTickAt);

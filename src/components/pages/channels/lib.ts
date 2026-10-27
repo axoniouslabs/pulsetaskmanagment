@@ -13,7 +13,10 @@ export interface Org {
 }
 
 /** plain-text type shown under each channel name */
-export function channelType(c: ChannelSpace): { label: string; icon: LucideIcon } {
+export function channelType(c: ChannelSpace): {
+  label: string;
+  icon: LucideIcon;
+} {
   if (c.kind === "announcement") return { label: "Notices", icon: Megaphone };
   if (c.kind === "task_feed") return { label: "Task feed", icon: Activity };
   if (c.unitType === "group") return { label: "Group", icon: UsersRound };
@@ -34,14 +37,16 @@ export function channelLead(org: Org, c: ChannelSpace): string | undefined {
 }
 
 /**
- * Who may post: the owner anywhere except task feeds; a manager only in
- * open channels for a unit they lead. Company-wide notices are owner-only.
+ * Who may post: the owner anywhere except task feeds; whoever runs a unit in its
+ * announcement channel; any member in an open channel. Company-wide notices are owner-only.
  */
 export function canPostIn(org: Org, c: ChannelSpace, role: Role, meId: string) {
   if (c.kind === "task_feed") return false;
   if (role === "owner") return true;
-  if (role !== "manager" || c.kind !== "open") return false;
-  return channelLead(org, c) === meId;
+  const runsIt = channelLead(org, c) === meId;
+  // open channels: any member posts; announcement channels: only whoever runs the unit
+  if (c.kind === "open") return runsIt || channelMembers(org, c).includes(meId);
+  return runsIt;
 }
 
 /** everyone a notice is meant for (members minus the author) */

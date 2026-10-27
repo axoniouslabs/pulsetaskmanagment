@@ -73,7 +73,15 @@ export function LoadView({
   }, [people, tasks, days, leaves, now]);
 
   const { groups, loose } = groupByTeam(people, teams, departments);
-  const sections = [...groups.map((g) => ({ key: g.team.id, title: g.team.name, sub: g.department?.name, people: g.people })), ...(loose.length ? [{ key: "none", title: "No team yet", sub: undefined, people: loose }] : [])];
+  const sections = [
+    ...groups.map((g) => ({
+      key: g.team.id,
+      title: g.team.name,
+      sub: g.department?.name,
+      people: g.people,
+    })),
+    ...(loose.length ? [{ key: "none", title: "No team yet", sub: undefined, people: loose }] : []),
+  ];
 
   const all = [...rows.values()];
   const overloaded = all.filter((r) => r.over);
@@ -101,12 +109,15 @@ export function LoadView({
       </Panel>
 
       <div className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
-        <div className="thin-scrollbar overflow-x-auto">
+        <div className="thin-scrollbar relative overflow-x-auto">
           <table className="w-full min-w-[600px] border-separate border-spacing-0 text-[13px]">
             <caption className="sr-only">Committed hours per person for the next {days.length} working days</caption>
             <thead>
               <tr>
-                <th scope="col" className="sticky left-0 z-20 w-[150px] min-w-[150px] border-b border-line bg-surface px-4 py-2.5 text-left text-[12.5px] font-medium text-muted sm:w-[230px] sm:min-w-[230px]">
+                <th
+                  scope="col"
+                  className="sticky left-0 z-20 w-[150px] min-w-[150px] border-b border-line bg-surface px-4 py-2.5 text-left text-[12.5px] font-medium text-muted sm:w-[230px] sm:min-w-[230px]"
+                >
                   Person
                 </th>
                 {days.map((d) => {
@@ -155,7 +166,11 @@ export function LoadView({
                           ) : (
                             <td key={c.day.toISOString()} className="border-b border-line p-1 transition-colors group-last:border-b-0 group-hover:bg-hover">
                               <div
-                                className={cn("tabular flex h-10 min-w-12 items-center justify-center rounded-[var(--radius-sm)] text-[13px] font-semibold transition-[filter] group-hover:brightness-[0.98]", LOAD_STYLE[c.tone].cell, c.hours < 0.05 && "font-normal text-faint")}
+                                className={cn(
+                                  "tabular flex h-10 min-w-12 items-center justify-center rounded-[var(--radius-sm)] text-[13px] font-semibold transition-[filter] group-hover:brightness-[0.98]",
+                                  LOAD_STYLE[c.tone].cell,
+                                  c.hours < 0.05 && "font-normal text-faint",
+                                )}
                                 title={`${p.name.split(" ")[0]}, ${format(c.day, "EEEE")}: ${fmtHours(c.hours)} of ${p.capacityHours} hours`}
                               >
                                 {fmtHours(c.hours)}
@@ -186,29 +201,13 @@ export function LoadView({
             On leave
           </li>
         </ul>
-        <p className="max-w-[46ch] text-[12.5px] leading-snug text-faint sm:text-right">
-          Numbers are committed hours. Each open task&apos;s remaining estimate is spread evenly until its deadline.
-        </p>
+        <p className="max-w-[46ch] text-[12.5px] leading-snug text-faint sm:text-right">Numbers are committed hours. Each open task&apos;s remaining estimate is spread evenly until its deadline.</p>
       </div>
     </div>
   );
 }
 
-function SummaryLine({
-  label,
-  hint,
-  people,
-  empty,
-  tone,
-  onOpen,
-}: {
-  label: string;
-  hint: string;
-  people: Person[];
-  empty: string;
-  tone: LoadTone;
-  onOpen: (id: string) => void;
-}) {
+function SummaryLine({ label, hint, people, empty, tone, onOpen }: { label: string; hint: string; people: Person[]; empty: string; tone: LoadTone; onOpen: (id: string) => void }) {
   return (
     <div className="flex flex-col gap-2 px-4 py-3.5 sm:flex-row sm:items-center sm:gap-4 sm:px-5">
       <div className="flex min-w-0 items-start gap-2.5 sm:w-[300px] sm:shrink-0">

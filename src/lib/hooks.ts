@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { localDate } from "@/domain/time";
 import { useApp } from "./store";
 import { scopePeople, scopeTasks } from "./selectors";
 
@@ -16,7 +17,17 @@ export function useScope() {
   const me = React.useMemo(() => people.find((p) => p.id === meId)!, [people, meId]);
   const scopedPeople = React.useMemo(() => scopePeople({ people, teams, departments }, role, meId), [people, teams, departments, role, meId]);
   const scopedTasks = React.useMemo(() => scopeTasks({ people, teams, departments, tasks, groups }, role, meId), [people, teams, departments, tasks, groups, role, meId]);
-  return { role, meId, me, people: scopedPeople, tasks: scopedTasks, allPeople: people, allTasks: tasks, teams, departments };
+  return {
+    role,
+    meId,
+    me,
+    people: scopedPeople,
+    tasks: scopedTasks,
+    allPeople: people,
+    allTasks: tasks,
+    teams,
+    departments,
+  };
 }
 
 /** re-render every `ms` so relative times ("3 min ago") stay fresh */
@@ -34,6 +45,12 @@ const subscribeUrl = (cb: () => void) => {
   window.addEventListener("popstate", cb);
   return () => window.removeEventListener("popstate", cb);
 };
+/** today's date key (yyyy-mm-dd) in the company's time zone, which is what attendance records use */
+export function useOrgToday(now: Date) {
+  const tz = useApp((s) => s.settings.timezone);
+  return localDate(now, tz);
+}
+
 export function useQueryParam(name: string) {
   return React.useSyncExternalStore(
     subscribeUrl,

@@ -4,7 +4,7 @@ import { format } from "date-fns";
 import { toast } from "sonner";
 import { Download, LogIn, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
-import { useNow, useScope } from "@/lib/hooks";
+import { useNow, useScope, useOrgToday } from "@/lib/hooks";
 import { Button } from "@/components/ui/button";
 import { exportAttendanceCsv } from "./lib";
 
@@ -21,11 +21,15 @@ export function ExportButton() {
     const ids = new Set(people.filter((p) => p.role !== "owner").map((p) => p.id));
     const rows = attendance.filter((a) => ids.has(a.personId) && a.date.startsWith(month) && a.status !== "weekend");
     if (!rows.length) {
-      toast("Nothing to export yet", { description: `There's no attendance for ${format(now, "MMMM")} so far.` });
+      toast("Nothing to export yet", {
+        description: `There's no attendance for ${format(now, "MMMM")} so far.`,
+      });
       return;
     }
     exportAttendanceCsv({ rows, people: allPeople, departments, now });
-    toast.success("Attendance exported", { description: `attendance-${month}.csv, ${rows.length} rows for ${format(now, "MMMM yyyy")}.` });
+    toast.success("Attendance exported", {
+      description: `attendance-${month}.csv, ${rows.length} rows for ${format(now, "MMMM yyyy")}.`,
+    });
   };
 
   return (
@@ -39,7 +43,7 @@ export function ExportButton() {
 export function CheckInChip() {
   const now = useNow();
   const meId = useApp((s) => s.userIds[s.role]);
-  const today = format(now, "yyyy-MM-dd");
+  const today = useOrgToday(now);
   const att = useApp((s) => s.attendance.find((a) => a.personId === meId && a.date === today));
   const checkIn = useApp((s) => s.checkIn);
   const checkOut = useApp((s) => s.checkOut);
@@ -51,7 +55,9 @@ export function CheckInChip() {
         className="h-10 sm:h-9"
         onClick={() => {
           checkIn();
-          toast.success("Checked in", { description: `at ${format(new Date(), "h:mm a")}` });
+          toast.success("Checked in", {
+            description: `at ${format(new Date(), "h:mm a")}`,
+          });
         }}
       >
         <LogIn /> Check in
@@ -69,7 +75,9 @@ export function CheckInChip() {
           className="h-10 sm:h-9"
           onClick={() => {
             checkOut();
-            toast("Checked out", { description: "Any running timer was stopped." });
+            toast("Checked out", {
+              description: "Any running timer was stopped.",
+            });
           }}
         >
           <LogOut /> Check out

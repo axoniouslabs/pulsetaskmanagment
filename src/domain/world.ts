@@ -77,8 +77,19 @@ export const emptyWorld = (): World => ({
     workDays: [1, 2, 3, 4, 5, 6],
     workStart: "09:00",
     workEnd: "18:00",
-    defaultReminder: { intervalMin: 30, window: "working", dailyCap: 12, channels: ["push", "inapp"], quietAfterAckMin: 60 },
-    escalation: { l1Ignored: 3, l2Ignored: 5, l3Ignored: 8, l4HoursPastDue: 24 },
+    defaultReminder: {
+      intervalMin: 30,
+      window: "working",
+      dailyCap: 12,
+      channels: ["push", "inapp"],
+      quietAfterAckMin: 60,
+    },
+    escalation: {
+      l1Ignored: 3,
+      l2Ignored: 5,
+      l3Ignored: 8,
+      l4HoursPastDue: 24,
+    },
     approvalByDefault: true,
     snoozeMaxPerDay: 3,
     reviewSlaHours: 24,
@@ -133,6 +144,13 @@ export const headOf = (w: Pick<World, "people" | "departments">, personId: strin
   const p = w.people.find((x) => x.id === personId);
   const dep = w.departments.find((d) => d.id === p?.departmentId);
   return dep?.headId && dep.headId !== personId ? activeId(w, dep.headId) : undefined;
+};
+
+/** who covers for someone who is away: their named backup, else team lead, else department head, else the owner */
+export const backupFor = (w: Pick<World, "people" | "teams" | "departments">, personId: string) => {
+  const p = w.people.find((x) => x.id === personId);
+  const ok = (id?: string) => (id && id !== personId && w.people.some((x) => x.id === id && x.active !== false && !x.onLeave) ? id : undefined);
+  return ok(p?.backupId) ?? ok(leadOf(w, personId)) ?? ok(headOf(w, personId)) ?? ok(ownerOf(w));
 };
 
 export const ownerOf = (w: Pick<World, "people">) => (w.people.find((p) => p.role === "owner" && p.active !== false) ?? w.people.find((p) => p.role === "owner"))?.id;

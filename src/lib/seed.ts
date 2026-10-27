@@ -33,6 +33,10 @@ export interface DailyStat {
   actualHours: number;
   escalations: number;
   reviewHours: number;
+  /** measured per task approved that day, summed: assignment→start, start→submit (minus blocked), and blocked */
+  waitHours: number;
+  workHours: number;
+  blockedHours: number;
 }
 
 export interface SeedData {
@@ -112,16 +116,7 @@ export function createSeed(realNow = new Date()): SeedData {
   const at = (hh: number, mm = 0, dayOffset = 0) => iso(addMinutes(addDays(today, dayOffset), hh * 60 + mm));
 
   /* ---------------- people & structure ---------------- */
-  const P = (
-    id: string,
-    name: string,
-    role: Person["role"],
-    title: string,
-    departmentId: string,
-    teamId: string,
-    hue: number,
-    extra: Partial<Person> = {},
-  ): Person => ({
+  const P = (id: string, name: string, role: Person["role"], title: string, departmentId: string, teamId: string, hue: number, extra: Partial<Person> = {}): Person => ({
     id,
     name,
     initials: name
@@ -182,22 +177,87 @@ export function createSeed(realNow = new Date()): SeedData {
   ];
 
   const departments: Department[] = [
-    { id: "d_sales", name: "Sales", headId: "p_hina", description: "Field visits, dealers and inbound leads" },
-    { id: "d_ops", name: "Operations", headId: "p_sana", description: "Warehouse, stock and deliveries" },
-    { id: "d_acc", name: "Accounts", headId: "p_nadia", description: "Billing, payments and tax" },
-    { id: "d_dev", name: "Development", headId: "p_saad", description: "Dealer app, website and design" },
-    { id: "d_admin", name: "Admin & HR", headId: "p_farah", description: "Office, hiring, payroll inputs and facilities" },
+    {
+      id: "d_sales",
+      name: "Sales",
+      headId: "p_hina",
+      description: "Field visits, dealers and inbound leads",
+    },
+    {
+      id: "d_ops",
+      name: "Operations",
+      headId: "p_sana",
+      description: "Warehouse, stock and deliveries",
+    },
+    {
+      id: "d_acc",
+      name: "Accounts",
+      headId: "p_nadia",
+      description: "Billing, payments and tax",
+    },
+    {
+      id: "d_dev",
+      name: "Development",
+      headId: "p_saad",
+      description: "Dealer app, website and design",
+    },
+    {
+      id: "d_admin",
+      name: "Admin & HR",
+      headId: "p_farah",
+      description: "Office, hiring, payroll inputs and facilities",
+    },
   ];
 
   const teams: Team[] = [
-    { id: "t_field", name: "Field Sales", departmentId: "d_sales", leadId: "p_usman" },
-    { id: "t_inside", name: "Inside Sales", departmentId: "d_sales", leadId: "p_hina" },
-    { id: "t_dispatch", name: "Dispatch", departmentId: "d_ops", leadId: "p_zain" },
-    { id: "t_ware", name: "Warehouse", departmentId: "d_ops", leadId: "p_sana" },
-    { id: "t_billing", name: "Billing", departmentId: "d_acc", leadId: "p_omar" },
-    { id: "t_product", name: "Product", departmentId: "d_dev", leadId: "p_saad" },
-    { id: "t_design", name: "Design", departmentId: "d_dev", leadId: "p_mehwish" },
-    { id: "t_admin", name: "Office", departmentId: "d_admin", leadId: "p_farah" },
+    {
+      id: "t_field",
+      name: "Field Sales",
+      departmentId: "d_sales",
+      leadId: "p_usman",
+    },
+    {
+      id: "t_inside",
+      name: "Inside Sales",
+      departmentId: "d_sales",
+      leadId: "p_hina",
+    },
+    {
+      id: "t_dispatch",
+      name: "Dispatch",
+      departmentId: "d_ops",
+      leadId: "p_zain",
+    },
+    {
+      id: "t_ware",
+      name: "Warehouse",
+      departmentId: "d_ops",
+      leadId: "p_sana",
+    },
+    {
+      id: "t_billing",
+      name: "Billing",
+      departmentId: "d_acc",
+      leadId: "p_omar",
+    },
+    {
+      id: "t_product",
+      name: "Product",
+      departmentId: "d_dev",
+      leadId: "p_saad",
+    },
+    {
+      id: "t_design",
+      name: "Design",
+      departmentId: "d_dev",
+      leadId: "p_mehwish",
+    },
+    {
+      id: "t_admin",
+      name: "Office",
+      departmentId: "d_admin",
+      leadId: "p_farah",
+    },
   ];
 
   const groups: Group[] = [
@@ -236,10 +296,7 @@ export function createSeed(realNow = new Date()): SeedData {
   let n = 0;
   const T = (t: Partial<Task> & Pick<Task, "title" | "assigneeId" | "dueAt">): Task => {
     const assignee = people.find((p) => p.id === t.assigneeId)!;
-    const reviewer =
-      t.reviewerId ??
-      teams.find((tm) => tm.id === assignee.teamId)?.leadId ??
-      "p_imran";
+    const reviewer = t.reviewerId ?? teams.find((tm) => tm.id === assignee.teamId)?.leadId ?? "p_imran";
     const createdAt = t.createdAt ?? h(-30);
     return {
       id: `task_${++n}`,
@@ -271,14 +328,17 @@ export function createSeed(realNow = new Date()): SeedData {
     };
   };
   let sn = 0;
-  const sub = (title: string, done = false) => ({ id: `s_${++sn}`, title, done });
+  const sub = (title: string, done = false) => ({
+    id: `s_${++sn}`,
+    title,
+    done,
+  });
 
   const tasks: Task[] = [
     /* ---- Ali (default employee) ---- */
     T({
       title: "Fix OTP login failing for dealers on Jazz numbers",
-      description:
-        "Dealers on Jazz SIMs are not receiving the login OTP since this morning. Check the SMS gateway logs, add a fallback to WhatsApp OTP if the SMS fails twice.",
+      description: "Dealers on Jazz SIMs are not receiving the login OTP since this morning. Check the SMS gateway logs, add a fallback to WhatsApp OTP if the SMS fails twice.",
       assigneeId: "p_ali",
       reviewerId: "p_saad",
       projectId: "pr_app",
@@ -330,15 +390,22 @@ export function createSeed(realNow = new Date()): SeedData {
       estimateHours: 6,
       loggedMinutes: 145,
       remindersSent: 2,
-      subtasks: [
-        sub("Read price list from Accounts sheet", true),
-        sub("Cache prices on the phone for offline", true),
-        sub("Show 'updated 2 min ago' label"),
-        sub("Test with 3 dealers"),
-      ],
+      subtasks: [sub("Read price list from Accounts sheet", true), sub("Cache prices on the phone for offline", true), sub("Show 'updated 2 min ago' label"), sub("Test with 3 dealers")],
       comments: [
-        { id: "c1", authorId: "p_saad", body: "Keep the old price visible until the new one is confirmed.", at: h(-5), kind: "text" },
-        { id: "c2", authorId: "p_ali", body: "Done. Old price shows with a strike-through for 24 hours.", at: h(-4), kind: "text" },
+        {
+          id: "c1",
+          authorId: "p_saad",
+          body: "Keep the old price visible until the new one is confirmed.",
+          at: h(-5),
+          kind: "text",
+        },
+        {
+          id: "c2",
+          authorId: "p_ali",
+          body: "Done. Old price shows with a strike-through for 24 hours.",
+          at: h(-4),
+          kind: "text",
+        },
       ],
     }),
     T({
@@ -373,8 +440,26 @@ export function createSeed(realNow = new Date()): SeedData {
       estimateHours: 1,
       loggedMinutes: 55,
       attachments: [
-        { id: "a1", name: "checkout-1.png", kind: "image", sizeKb: 412, at: h(-3), byId: "p_ali", isProof: true, hue: 190 },
-        { id: "a2", name: "checkout-2.png", kind: "image", sizeKb: 398, at: h(-3), byId: "p_ali", isProof: true, hue: 160 },
+        {
+          id: "a1",
+          name: "checkout-1.png",
+          kind: "image",
+          sizeKb: 412,
+          at: h(-3),
+          byId: "p_ali",
+          isProof: true,
+          hue: 190,
+        },
+        {
+          id: "a2",
+          name: "checkout-2.png",
+          kind: "image",
+          sizeKb: 398,
+          at: h(-3),
+          byId: "p_ali",
+          isProof: true,
+          hue: 160,
+        },
       ],
     }),
     T({
@@ -569,7 +654,17 @@ export function createSeed(realNow = new Date()): SeedData {
       statusChangedAt: h(-27),
       submissionNote: "Renewed with Adamjee. Policy PDF attached.",
       dueAt: h(10),
-      attachments: [{ id: "a3", name: "policy-LHR4471.pdf", kind: "file", sizeKb: 880, at: h(-27), byId: "p_zain", isProof: true }],
+      attachments: [
+        {
+          id: "a3",
+          name: "policy-LHR4471.pdf",
+          kind: "file",
+          sizeKb: 880,
+          at: h(-27),
+          byId: "p_zain",
+          isProof: true,
+        },
+      ],
     }),
     T({
       title: "Prepare GST summary for September",
@@ -907,8 +1002,7 @@ export function createSeed(realNow = new Date()): SeedData {
   /* ---------------- activity (append-only log) ---------------- */
   const activity: Activity[] = [];
   let a = 0;
-  const log = (atIso: string, actorId: string, kind: Activity["kind"], text: string, taskId?: string) =>
-    activity.push({ id: `act_${++a}`, at: atIso, actorId, kind, text, taskId });
+  const log = (atIso: string, actorId: string, kind: Activity["kind"], text: string, taskId?: string) => activity.push({ id: `act_${++a}`, at: atIso, actorId, kind, text, taskId });
   const name = (id: string) => people.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
 
   for (const t of tasks) {
@@ -945,16 +1039,31 @@ export function createSeed(realNow = new Date()): SeedData {
     const dateStr = format(day, "yyyy-MM-dd");
     for (const p of people) {
       if (day.getDay() === 0) {
-        attendance.push({ personId: p.id, date: dateStr, breakMin: 0, status: "weekend" });
+        attendance.push({
+          personId: p.id,
+          date: dateStr,
+          breakMin: 0,
+          status: "weekend",
+        });
         continue;
       }
       if (p.id === "p_zoya" && d === 0) {
-        attendance.push({ personId: p.id, date: dateStr, breakMin: 0, status: "leave" });
+        attendance.push({
+          personId: p.id,
+          date: dateStr,
+          breakMin: 0,
+          status: "leave",
+        });
         continue;
       }
       const roll = r();
       if (roll < 0.03 && d > 0) {
-        attendance.push({ personId: p.id, date: dateStr, breakMin: 0, status: "absent" });
+        attendance.push({
+          personId: p.id,
+          date: dateStr,
+          breakMin: 0,
+          status: "absent",
+        });
         continue;
       }
       const jitter = r();
@@ -974,27 +1083,113 @@ export function createSeed(realNow = new Date()): SeedData {
   }
 
   const leaves: Leave[] = [
-    { id: "lv1", personId: "p_zoya", from: format(today, "yyyy-MM-dd"), to: format(addDays(today, 1), "yyyy-MM-dd"), type: "sick", status: "approved", note: "Fever, doctor's note shared" },
-    { id: "lv2", personId: "p_faisal", from: format(addDays(today, 6), "yyyy-MM-dd"), to: format(addDays(today, 8), "yyyy-MM-dd"), type: "annual", status: "pending", note: "Sister's wedding in Sahiwal" },
-    { id: "lv3", personId: "p_mariam", from: format(subDays(today, 9), "yyyy-MM-dd"), to: format(subDays(today, 9), "yyyy-MM-dd"), type: "casual", status: "approved" },
-    { id: "lv4", personId: "p_danish", from: format(addDays(today, 12), "yyyy-MM-dd"), to: format(addDays(today, 12), "yyyy-MM-dd"), type: "casual", status: "pending", note: "University exam" },
+    {
+      id: "lv1",
+      personId: "p_zoya",
+      from: format(today, "yyyy-MM-dd"),
+      to: format(addDays(today, 1), "yyyy-MM-dd"),
+      type: "sick",
+      status: "approved",
+      note: "Fever, doctor's note shared",
+    },
+    {
+      id: "lv2",
+      personId: "p_faisal",
+      from: format(addDays(today, 6), "yyyy-MM-dd"),
+      to: format(addDays(today, 8), "yyyy-MM-dd"),
+      type: "annual",
+      status: "pending",
+      note: "Sister's wedding in Sahiwal",
+    },
+    {
+      id: "lv3",
+      personId: "p_mariam",
+      from: format(subDays(today, 9), "yyyy-MM-dd"),
+      to: format(subDays(today, 9), "yyyy-MM-dd"),
+      type: "casual",
+      status: "approved",
+    },
+    {
+      id: "lv4",
+      personId: "p_danish",
+      from: format(addDays(today, 12), "yyyy-MM-dd"),
+      to: format(addDays(today, 12), "yyyy-MM-dd"),
+      type: "casual",
+      status: "pending",
+      note: "University exam",
+    },
   ];
 
   /* ---------------- channels & announcements ---------------- */
   const channels: ChannelSpace[] = [
-    { id: "c_all", name: "Company notices", kind: "announcement", unitType: "org", unitId: "org", description: "Policies and notices for everyone" },
-    { id: "c_sales", name: "Sales", kind: "open", unitType: "department", unitId: "d_sales", description: "Day-to-day coordination for the sales department" },
-    { id: "c_ops", name: "Operations", kind: "open", unitType: "department", unitId: "d_ops", description: "Warehouse and dispatch" },
-    { id: "c_acc", name: "Accounts", kind: "open", unitType: "department", unitId: "d_acc", description: "Billing and payments" },
-    { id: "c_dev", name: "Development", kind: "open", unitType: "department", unitId: "d_dev", description: "Dealer app, website and design" },
-    { id: "c_admin", name: "Admin & HR", kind: "open", unitType: "department", unitId: "d_admin", description: "Office, hiring and payroll" },
-    { id: "c_launch", name: "Dealer app v2.3 launch", kind: "open", unitType: "group", unitId: "g_launch", description: "Release squad" },
-    { id: "c_devfeed", name: "Development task feed", kind: "task_feed", unitType: "department", unitId: "d_dev", description: "Automatic stream of task events" },
+    {
+      id: "c_all",
+      name: "Company notices",
+      kind: "announcement",
+      unitType: "org",
+      unitId: "org",
+      description: "Policies and notices for everyone",
+    },
+    {
+      id: "c_sales",
+      name: "Sales",
+      kind: "open",
+      unitType: "department",
+      unitId: "d_sales",
+      description: "Day-to-day coordination for the sales department",
+    },
+    {
+      id: "c_ops",
+      name: "Operations",
+      kind: "open",
+      unitType: "department",
+      unitId: "d_ops",
+      description: "Warehouse and dispatch",
+    },
+    {
+      id: "c_acc",
+      name: "Accounts",
+      kind: "open",
+      unitType: "department",
+      unitId: "d_acc",
+      description: "Billing and payments",
+    },
+    {
+      id: "c_dev",
+      name: "Development",
+      kind: "open",
+      unitType: "department",
+      unitId: "d_dev",
+      description: "Dealer app, website and design",
+    },
+    {
+      id: "c_admin",
+      name: "Admin & HR",
+      kind: "open",
+      unitType: "department",
+      unitId: "d_admin",
+      description: "Office, hiring and payroll",
+    },
+    {
+      id: "c_launch",
+      name: "Dealer app v2.3 launch",
+      kind: "open",
+      unitType: "group",
+      unitId: "g_launch",
+      description: "Release squad",
+    },
+    {
+      id: "c_devfeed",
+      name: "Development task feed",
+      kind: "task_feed",
+      unitType: "department",
+      unitId: "d_dev",
+      description: "Automatic stream of task events",
+    },
   ];
 
   const everyone = people.map((p) => p.id);
-  const ackSome = (ids: string[], hoursAgo: number) =>
-    Object.fromEntries(ids.map((id, i) => [id, h(-hoursAgo + i * 0.3)]));
+  const ackSome = (ids: string[], hoursAgo: number) => Object.fromEntries(ids.map((id, i) => [id, h(-hoursAgo + i * 0.3)]));
 
   const announcements: Announcement[] = [
     {
@@ -1006,8 +1201,14 @@ export function createSeed(realNow = new Date()): SeedData {
       body: "If you cannot continue a task because you are waiting on someone, tap Blocked and write one line. Reminders stop and your manager is told straight away. Being blocked never counts against you.",
       requiresAck: true,
       ackDueAt: h(4),
-      ackBy: ackSome(everyone.filter((id) => !["p_kamran", "p_faisal", "p_hamza", "p_ali"].includes(id)), 19),
-      readBy: ackSome(everyone.filter((id) => !["p_kamran", "p_faisal"].includes(id)), 19),
+      ackBy: ackSome(
+        everyone.filter((id) => !["p_kamran", "p_faisal", "p_hamza", "p_ali"].includes(id)),
+        19,
+      ),
+      readBy: ackSome(
+        everyone.filter((id) => !["p_kamran", "p_faisal"].includes(id)),
+        19,
+      ),
       pinned: true,
     },
     {
@@ -1019,7 +1220,10 @@ export function createSeed(realNow = new Date()): SeedData {
       body: "Casual leave now needs one day's notice in the app. Sick leave can be marked the same morning. The full policy is pinned in this channel.",
       requiresAck: true,
       ackDueAt: h(-22),
-      ackBy: ackSome(everyone.filter((id) => id !== "p_kamran"), 60),
+      ackBy: ackSome(
+        everyone.filter((id) => id !== "p_kamran"),
+        60,
+      ),
       readBy: ackSome(everyone, 66),
     },
     {
@@ -1061,8 +1265,7 @@ export function createSeed(realNow = new Date()): SeedData {
     an.at = snapDue(an.at, k * 5 + 2);
     if (an.ackDueAt) an.ackDueAt = snapDue(an.ackDueAt, k * 5 + 4);
     const postedAt = new Date(an.at).getTime();
-    const stamp = (map: Record<string, string>) =>
-      Object.fromEntries(Object.keys(map).map((id, i) => [id, iso(new Date(Math.min(now.getTime(), postedAt + (i + 1) * 7 * 60000)))]));
+    const stamp = (map: Record<string, string>) => Object.fromEntries(Object.keys(map).map((id, i) => [id, iso(new Date(Math.min(now.getTime(), postedAt + (i + 1) * 7 * 60000)))]));
     an.ackBy = stamp(an.ackBy);
     an.readBy = stamp(an.readBy);
   });
@@ -1070,21 +1273,61 @@ export function createSeed(realNow = new Date()): SeedData {
 
   /* ---------------- questions & deadline requests ---------------- */
   const questions: Question[] = [
-    { id: "q1", fromId: "p_rabia", toId: "p_imran", taskId: "task_14", body: "Should the rack B count include the damaged cartons kept aside?", at: m(-34) },
-    { id: "q2", fromId: "p_ali", toId: "p_saad", taskId: "task_1", body: "Can I use the WhatsApp API key from the old project for the OTP fallback?", at: m(-20) },
-    { id: "q3", fromId: "p_ayesha", toId: "p_hina", taskId: "task_15", body: "Can I send last quarter's rates to Shan Foods with a note?", at: h(-5), answer: "No, wait for Omar's new rates. I've asked him to prioritise it.", answeredAt: h(-4.8) },
+    {
+      id: "q1",
+      fromId: "p_rabia",
+      toId: "p_imran",
+      taskId: "task_14",
+      body: "Should the rack B count include the damaged cartons kept aside?",
+      at: m(-34),
+    },
+    {
+      id: "q2",
+      fromId: "p_ali",
+      toId: "p_saad",
+      taskId: "task_1",
+      body: "Can I use the WhatsApp API key from the old project for the OTP fallback?",
+      at: m(-20),
+    },
+    {
+      id: "q3",
+      fromId: "p_ayesha",
+      toId: "p_hina",
+      taskId: "task_15",
+      body: "Can I send last quarter's rates to Shan Foods with a note?",
+      at: h(-5),
+      answer: "No, wait for Omar's new rates. I've asked him to prioritise it.",
+      answeredAt: h(-4.8),
+    },
   ];
   for (const q of questions) log(q.at, q.fromId, "question", `Asked ${name(q.toId)}: ${q.body}`, q.taskId);
 
   const deadlineRequests: DeadlineRequest[] = [
-    { id: "dr1", taskId: "task_10", byId: "p_hamza", newDueAt: at(13, 0, 1), reason: "Two shops were closed, I will revisit them tomorrow morning.", at: m(-40), status: "pending" },
+    {
+      id: "dr1",
+      taskId: "task_10",
+      byId: "p_hamza",
+      newDueAt: at(13, 0, 1),
+      reason: "Two shops were closed, I will revisit them tomorrow morning.",
+      at: m(-40),
+      status: "pending",
+    },
   ];
 
   /* ---------------- notifications ---------------- */
   const notifications: AppNotification[] = [];
   let nn = 0;
   const notify = (recipientId: string, kind: AppNotification["kind"], title: string, body: string, atIso: string, taskId?: string, read = false) =>
-    notifications.push({ id: `n_${++nn}`, recipientId, kind, title, body, at: atIso, taskId, read });
+    notifications.push({
+      id: `n_${++nn}`,
+      recipientId,
+      kind,
+      title,
+      body,
+      at: atIso,
+      taskId,
+      read,
+    });
 
   // owner
   notify("p_imran", "escalation", "Kamran has not responded for 27 hours", "Collect payment cheque from Gulberg distributor is level 4. 16 reminders delivered, none opened.", m(-24), "task_9");
@@ -1109,9 +1352,26 @@ export function createSeed(realNow = new Date()): SeedData {
   const stats: DailyStat[] = [];
   const sr = rng(7);
   const reliability: Record<string, number> = {
-    p_kamran: 0.55, p_faisal: 0.62, p_hamza: 0.7, p_mariam: 0.78, p_ali: 0.9, p_danish: 0.8,
-    p_ayesha: 0.92, p_rabia: 0.85, p_zoya: 0.88, p_omar: 0.9, p_zain: 0.82, p_mehwish: 0.93,
-    p_hina: 0.9, p_usman: 0.86, p_sana: 0.88, p_nadia: 0.91, p_saad: 0.87, p_imran: 0.95, p_farah: 0.9, p_waqas: 0.8,
+    p_kamran: 0.55,
+    p_faisal: 0.62,
+    p_hamza: 0.7,
+    p_mariam: 0.78,
+    p_ali: 0.9,
+    p_danish: 0.8,
+    p_ayesha: 0.92,
+    p_rabia: 0.85,
+    p_zoya: 0.88,
+    p_omar: 0.9,
+    p_zain: 0.82,
+    p_mehwish: 0.93,
+    p_hina: 0.9,
+    p_usman: 0.86,
+    p_sana: 0.88,
+    p_nadia: 0.91,
+    p_saad: 0.87,
+    p_imran: 0.95,
+    p_farah: 0.9,
+    p_waqas: 0.8,
   };
   for (let d = 27; d >= 0; d--) {
     const day = subDays(today, d);
@@ -1139,6 +1399,9 @@ export function createSeed(realNow = new Date()): SeedData {
         actualHours: Math.round(est * (0.85 + (1 - rel) * 0.9 + sr() * 0.3) * 10) / 10,
         escalations: sr() < (1 - rel) * 0.5 ? 1 : 0,
         reviewHours: Math.round((2 + sr() * 14) * 10) / 10,
+        waitHours: Math.round(approved * (1 + (1 - rel) * 6 + sr() * 3) * 10) / 10,
+        workHours: Math.round(approved * (3 + sr() * 6) * 10) / 10,
+        blockedHours: Math.round(approved * (sr() < 0.25 ? 2 + sr() * 6 : 0) * 10) / 10,
       });
     }
   }
@@ -1151,13 +1414,21 @@ export function createSeed(realNow = new Date()): SeedData {
     workStart: "09:00",
     workEnd: "18:00",
     defaultReminder: { ...DEFAULT_REMINDER },
-    escalation: { l1Ignored: 3, l2Ignored: 5, l3Ignored: 8, l4HoursPastDue: 24 },
+    escalation: {
+      l1Ignored: 3,
+      l2Ignored: 5,
+      l3Ignored: 8,
+      l4HoursPastDue: 24,
+    },
     approvalByDefault: true,
     snoozeMaxPerDay: 3,
     reviewSlaHours: 24,
     holidays: [
       { date: format(addDays(today, 15), "yyyy-MM-dd"), name: "Iqbal Day" },
-      { date: format(addDays(today, 70), "yyyy-MM-dd"), name: "Quaid-e-Azam Day" },
+      {
+        date: format(addDays(today, 70), "yyyy-MM-dd"),
+        name: "Quaid-e-Azam Day",
+      },
     ],
     digestMorning: "09:00",
     digestEvening: "18:30",

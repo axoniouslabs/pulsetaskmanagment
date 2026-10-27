@@ -35,7 +35,7 @@ interface Actions {
   snooze: (taskId: string, minutes: number) => ActionResult;
   block: (taskId: string, reason: string, blockerOwnerId?: string) => ActionResult;
   unblock: (taskId: string, note?: string) => ActionResult;
-  submit: (taskId: string, note: string, proofName?: string) => ActionResult;
+  submit: (taskId: string, note: string) => ActionResult;
   approve: (taskId: string, note?: string) => ActionResult;
   reject: (taskId: string, reason: string) => ActionResult;
   cancel: (taskId: string, reason: string) => ActionResult;
@@ -58,6 +58,7 @@ interface Actions {
 
   postAnnouncement: (input: { channelId: string; title: string; body: string; requiresAck: boolean; ackDueAt?: string }) => ActionResult;
   ackAnnouncement: (id: string) => ActionResult;
+  remindAnnouncement: (id: string) => ActionResult;
   readAnnouncement: (id: string) => ActionResult;
 
   askQuestion: (input: { toId: string; body: string; taskId?: string }) => ActionResult;
@@ -114,10 +115,7 @@ export interface AppState extends World, Actions {
 /* ------------------------------------------------------------------ */
 
 const newId = (prefix: string) => {
-  const rand =
-    typeof crypto !== "undefined" && "randomUUID" in crypto
-      ? crypto.randomUUID().replace(/-/g, "").slice(0, 14)
-      : Math.random().toString(16).slice(2, 16);
+  const rand = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID().replace(/-/g, "").slice(0, 14) : Math.random().toString(16).slice(2, 16);
   return `${prefix}_${Date.now().toString(36)}${rand}`;
 };
 
@@ -153,15 +151,22 @@ function send(cmd: Command) {
       if (res.status === 401) return goToLogin();
       if (!res.ok) {
         const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (res.status === 423) toast.error("Pulse is paused", { id: "paused", description: body.error });
-        else toast.error(res.status === 422 || res.status === 403 ? body.error ?? "That didn't go through." : "Couldn't save that change", {
-          description: res.status >= 500 ? "Pulse had a problem saving. Your screen has been refreshed; please try again." : undefined,
-        });
+        if (res.status === 423)
+          toast.error("Pulse is paused", {
+            id: "paused",
+            description: body.error,
+          });
+        else
+          toast.error(res.status === 422 || res.status === 403 ? (body.error ?? "That didn't go through.") : "Couldn't save that change", {
+            description: res.status >= 500 ? "Pulse had a problem saving. Your screen has been refreshed; please try again." : undefined,
+          });
         localVersion++;
       }
     })
     .catch(() => {
-      toast.error("You're offline", { description: "That change wasn't saved. Check your connection and try again." });
+      toast.error("You're offline", {
+        description: "That change wasn't saved. Check your connection and try again.",
+      });
       localVersion++;
     })
     .finally(() => {
@@ -171,7 +176,13 @@ function send(cmd: Command) {
 }
 
 const worldOf = (s: AppState): World => {
-  const w = { orgId: s.orgId, settings: s.settings, timers: s.timers, prefs: s.prefs, dayOrder: s.dayOrder } as World;
+  const w = {
+    orgId: s.orgId,
+    settings: s.settings,
+    timers: s.timers,
+    prefs: s.prefs,
+    dayOrder: s.dayOrder,
+  } as World;
   for (const k of WORLD_KEYS) (w as unknown as Record<string, unknown>)[k] = s[k];
   return w;
 };
@@ -185,7 +196,11 @@ const NOBODY: Record<Role, string> = { owner: "", manager: "", employee: "" };
 export const useApp = create<AppState>()((set, get) => {
   const dispatch = (cmd: Command): ActionResult => {
     const s = get();
-    if (!s.viewer) return { ok: false, error: "You're signed out. Sign in again to continue." };
+    if (!s.viewer)
+      return {
+        ok: false,
+        error: "You're signed out. Sign in again to continue.",
+      };
     const { world, result } = tryCommand(worldOf(s), cmd, {
       actorId: s.viewer.personId,
       now: new Date(Date.now() + s.serverOffsetMs),
@@ -228,9 +243,23 @@ export const useApp = create<AppState>()((set, get) => {
       try {
         const res = await fetch("/api/snapshot", { cache: "no-store" });
         if (res.status === 401) return goToLogin();
+        if (res.status === 403) {
+          // the account exists but the person was deactivated: sign out and explain on the sign-in page
+          const { authClient } = await import("./auth-client");
+          await authClient.signOut().catch(() => {});
+          window.location.replace("/login?reason=deactivated");
+          return;
+        }
         if (res.status === 423) {
-          const d = (await res.json()) as { locked: { company: string; message: string }; platformAdmin?: boolean };
-          return set({ status: "locked", locked: d.locked, platformAdmin: !!d.platformAdmin });
+          const d = (await res.json()) as {
+            locked: { company: string; message: string };
+            platformAdmin?: boolean;
+          };
+          return set({
+            status: "locked",
+            locked: d.locked,
+            platformAdmin: !!d.platformAdmin,
+          });
         }
         if (!res.ok) throw new Error(String(res.status));
         const data = (await res.json()) as {
@@ -285,7 +314,7 @@ export const useApp = create<AppState>()((set, get) => {
     snooze: (taskId, minutes) => run({ type: "snooze", taskId, minutes }),
     block: (taskId, reason, blockerOwnerId) => run({ type: "block", taskId, reason, blockerOwnerId }),
     unblock: (taskId, note) => run({ type: "unblock", taskId, note }),
-    submit: (taskId, note, proofName) => run({ type: "submit", taskId, note, proofName }),
+    submit: (taskId, note) => run({ type: "submit", taskId, note }),
     approve: (taskId, note) => run({ type: "approve", taskId, note }),
     reject: (taskId, reason) => run({ type: "reject", taskId, reason }),
     cancel: (taskId, reason) => run({ type: "cancel", taskId, reason }),
@@ -308,6 +337,7 @@ export const useApp = create<AppState>()((set, get) => {
 
     postAnnouncement: (input) => run({ type: "postAnnouncement", ...input }),
     ackAnnouncement: (id) => run({ type: "ackAnnouncement", id }),
+    remindAnnouncement: (id) => run({ type: "remindAnnouncement", id }),
     readAnnouncement: (id) => {
       const s = get();
       const a = s.announcements.find((x) => x.id === id);
@@ -349,7 +379,10 @@ export const useApp = create<AppState>()((set, get) => {
 if (typeof window !== "undefined") {
   try {
     const raw = localStorage.getItem("pulse-local");
-    if (raw) useApp.setState({ local: { ...useApp.getState().local, ...JSON.parse(raw) } });
+    if (raw)
+      useApp.setState({
+        local: { ...useApp.getState().local, ...JSON.parse(raw) },
+      });
   } catch {}
 }
 

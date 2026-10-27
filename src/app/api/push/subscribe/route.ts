@@ -1,7 +1,7 @@
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 import { db, schema as S } from "@/server/db";
-import { getViewer, json } from "@/server/session";
+import { getActor, json } from "@/server/session";
 import { newId } from "@/server/ids";
 
 const body = z.object({
@@ -20,8 +20,9 @@ function describe(ua: string): { kind: "windows" | "android" | "iphone" | "brows
 
 /** Save (or renew) this browser's push subscription for the signed-in person. */
 export async function POST(req: Request) {
-  const viewer = await getViewer();
-  if (!viewer) return json({ ok: false, error: "Sign in again." }, 401);
+  const actor = await getActor();
+  if (!actor.viewer) return actor.response;
+  const viewer = actor.viewer;
   const parsed = body.safeParse(await req.json().catch(() => null));
   if (!parsed.success) return json({ ok: false, error: "That subscription didn't look right." }, 400);
   const { endpoint, keys } = parsed.data;
@@ -41,8 +42,9 @@ export async function POST(req: Request) {
 
 /** Stop sending push to this browser. */
 export async function DELETE(req: Request) {
-  const viewer = await getViewer();
-  if (!viewer) return json({ ok: false, error: "Sign in again." }, 401);
+  const actor = await getActor();
+  if (!actor.viewer) return actor.response;
+  const viewer = actor.viewer;
   const { endpoint, deviceId } = ((await req.json().catch(() => ({}))) ?? {}) as { endpoint?: string; deviceId?: string };
   if (endpoint) await db.delete(S.devices).where(and(eq(S.devices.endpoint, endpoint), eq(S.devices.personId, viewer.personId)));
   if (deviceId) await db.delete(S.devices).where(and(eq(S.devices.id, deviceId), eq(S.devices.personId, viewer.personId)));

@@ -30,19 +30,7 @@ interface TipItem {
   payload?: Record<string, unknown>;
 }
 
-export function ChartTip({
-  active,
-  payload,
-  label,
-  unit = "",
-  labelKey,
-}: {
-  active?: boolean;
-  payload?: readonly TipItem[];
-  label?: string | number;
-  unit?: string;
-  labelKey?: string;
-}) {
+export function ChartTip({ active, payload, label, unit = "", labelKey }: { active?: boolean; payload?: readonly TipItem[]; label?: string | number; unit?: string; labelKey?: string }) {
   if (!active || !payload?.length) return null;
   const heading = labelKey ? String(payload[0]?.payload?.[labelKey] ?? label) : label;
   return (
@@ -124,7 +112,14 @@ export function ThroughputChart({ data }: { data: DayPoint[] }) {
     <ChartPanel
       title="Throughput per day"
       aside={`${approved} approved of ${assigned} assigned`}
-      legend={<Legend items={[{ label: "Approved", color: C.ink }, { label: "Assigned", color: C.muted, line: true }]} />}
+      legend={
+        <Legend
+          items={[
+            { label: "Approved", color: C.ink },
+            { label: "Assigned", color: C.muted, line: true },
+          ]}
+        />
+      }
     >
       <div className="h-[220px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -134,7 +129,20 @@ export function ThroughputChart({ data }: { data: DayPoint[] }) {
             <YAxis {...axisProps} allowDecimals={false} width={44} />
             <Tooltip cursor={{ fill: "var(--color-hover)" }} content={<ChartTip labelKey="full" />} />
             <Bar dataKey="approved" name="Approved" fill={C.ink} radius={[4, 4, 0, 0]} maxBarSize={28} isAnimationActive={false} />
-            <Line dataKey="assigned" name="Assigned" stroke={C.muted} strokeWidth={2} dot={false} activeDot={{ r: 4, strokeWidth: 2, stroke: "#fff" }} type="monotone" isAnimationActive={false} />
+            <Line
+              dataKey="assigned"
+              name="Assigned"
+              stroke={C.muted}
+              strokeWidth={2}
+              dot={false}
+              activeDot={{
+                r: 4,
+                strokeWidth: 2,
+                stroke: "var(--color-surface)",
+              }}
+              type="monotone"
+              isAnimationActive={false}
+            />
           </ComposedChart>
         </ResponsiveContainer>
       </div>
@@ -156,11 +164,7 @@ export function TimeSplitChart({ totals }: { totals: Totals }) {
     <ChartPanel
       title="Where time goes"
       aside={total ? `About ${hoursLabel(total)} per task, assigned to approved` : undefined}
-      footnote={
-        <>
-          Estimate, worked out from time to acknowledge, logged hours, review waits and overruns.
-        </>
-      }
+      footnote={<>Measured on each approved task: assignment to start, start to submission, time blocked, and time waiting for review.</>}
     >
       {total ? (
         <>
@@ -199,11 +203,22 @@ export function EstimateChart({ data, unitLabel }: { data: { label: string; full
     <ChartPanel
       title="Estimate vs actual hours"
       aside={`Per ${unitLabel}`}
-      legend={<Legend items={[{ label: "Estimated", color: C.light }, { label: "Actual", color: C.ink }]} />}
+      legend={
+        <Legend
+          items={[
+            { label: "Estimated", color: C.light },
+            { label: "Actual", color: C.ink },
+          ]}
+        />
+      }
       footnote={
         est ? (
           <>
-            Work took <span className="font-medium text-text">{Math.abs(over)}% {over >= 0 ? "longer" : "less"}</span> than estimated ({Math.round(actual)}h logged against {Math.round(est)}h planned).
+            Work took{" "}
+            <span className="font-medium text-text">
+              {Math.abs(over)}% {over >= 0 ? "longer" : "less"}
+            </span>{" "}
+            than estimated ({Math.round(actual)}h logged against {Math.round(est)}h planned).
             {over > 20 ? " Estimates are optimistic; plan bigger tasks with more room." : ""}
           </>
         ) : undefined
@@ -226,16 +241,12 @@ export function EstimateChart({ data, unitLabel }: { data: { label: string; full
 }
 
 /* ---------- departments ---------- */
-export function DepartmentChart({
-  data,
-  format,
-  domainMax,
-}: {
-  data: { name: string; value: number | null }[];
-  format: (v: number | null) => string;
-  domainMax?: number;
-}) {
-  const rows = data.map((d) => ({ name: d.name, value: d.value ?? 0, label: format(d.value) }));
+export function DepartmentChart({ data, format, domainMax }: { data: { name: string; value: number | null }[]; format: (v: number | null) => string; domainMax?: number }) {
+  const rows = data.map((d) => ({
+    name: d.name,
+    value: d.value ?? 0,
+    label: format(d.value),
+  }));
   return (
     <div style={{ height: Math.max(140, rows.length * 44 + 20) }}>
       <ResponsiveContainer width="100%" height="100%">
@@ -243,12 +254,17 @@ export function DepartmentChart({
           <CartesianGrid horizontal={false} stroke={C.grid} />
           <XAxis type="number" {...axisProps} domain={[0, domainMax ?? "auto"]} hide />
           <YAxis type="category" dataKey="name" {...axisProps} width={92} tick={{ fill: "var(--color-text)", fontSize: 13 }} />
-          <Tooltip cursor={{ fill: "var(--color-hover)" }} content={({ active, payload }) => (active && payload?.length ? (
-            <div className="rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-[12.5px] shadow-pop">
-              <p className="font-medium text-text">{String(payload[0].payload.name)}</p>
-              <p className="tabular text-muted">{String(payload[0].payload.label)}</p>
-            </div>
-          ) : null)} />
+          <Tooltip
+            cursor={{ fill: "var(--color-hover)" }}
+            content={({ active, payload }) =>
+              active && payload?.length ? (
+                <div className="rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-[12.5px] shadow-pop">
+                  <p className="font-medium text-text">{String(payload[0].payload.name)}</p>
+                  <p className="tabular text-muted">{String(payload[0].payload.label)}</p>
+                </div>
+              ) : null
+            }
+          />
           <Bar dataKey="value" fill={C.ink} radius={[0, 4, 4, 0]} maxBarSize={18} isAnimationActive={false}>
             <LabelList dataKey="label" position="right" fill="var(--color-text)" fontSize={12.5} />
           </Bar>

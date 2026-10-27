@@ -4,6 +4,7 @@ import * as React from "react";
 import { format } from "date-fns";
 import { UserPlus, Users } from "lucide-react";
 import { useApp } from "@/lib/store";
+import { plural } from "@/lib/utils";
 import { useNow, useQueryParam, useScope } from "@/lib/hooks";
 import { Segmented } from "@/components/ui/primitives";
 import { EmptyState, PageHeader, Panel } from "@/components/app/page-header";
@@ -56,8 +57,8 @@ export default function TeamPage() {
 
   const scopeNote =
     role === "owner"
-      ? `${team.length} people across ${departments.length} departments.`
-      : `${team.length} people in ${departments.find((d) => d.headId === meId)?.name ?? "your department"}.`;
+      ? `${plural(team.length, "person", "people")} across ${plural(departments.length, "department")}.`
+      : `${plural(team.length, "person", "people")} in ${departments.find((d) => d.headId === meId)?.name ?? "your department"}.`;
 
   return (
     <div>
@@ -85,7 +86,18 @@ export default function TeamPage() {
 
       {team.length === 0 ? (
         <Panel>
-          <EmptyState icon={Users} title="Nobody here yet" body="Add people to a team in Organisation, then assign them tasks to see their load." />
+          <EmptyState
+            icon={Users}
+            title="Nobody here yet"
+            body={role === "owner" ? "Add your people here. Each gets a sign-in and a temporary password to share with them." : "Nobody is in your department yet. Ask the owner to add people."}
+            action={
+              role === "owner" ? (
+                <Button variant="primary" onClick={() => setAdding(true)}>
+                  <UserPlus /> Add person
+                </Button>
+              ) : undefined
+            }
+          />
         </Panel>
       ) : (
         <>

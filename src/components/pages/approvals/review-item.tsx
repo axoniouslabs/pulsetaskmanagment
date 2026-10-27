@@ -48,7 +48,7 @@ export function ReviewItem({ task, now, slaHours, meId }: { task: Task; now: Dat
             <button
               type="button"
               onClick={() => openTask(task.id)}
-              className="mt-1.5 block text-left text-[17px] font-semibold leading-snug text-text underline-offset-4 hover:underline"
+              className="relative mt-1.5 block text-left text-[17px] font-semibold leading-snug text-text underline-offset-4 before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:underline"
             >
               {task.title}
             </button>
@@ -116,10 +116,7 @@ function WaitBadge({ submittedAt, heat, slaHours, now }: { submittedAt?: string;
   if (!submittedAt) return null;
   const hrs = (now.getTime() - new Date(submittedAt).getTime()) / 3600000;
   const left = Math.max(0, Math.ceil(slaHours - hrs));
-  const tip =
-    heat > 0
-      ? `Past the ${slaHours}-hour review time. Pulse has escalated it to the owner.`
-      : `Reviews are due within ${slaHours} hours. About ${left}h left before it is escalated.`;
+  const tip = heat > 0 ? `Past the ${slaHours}-hour review time. Pulse has escalated it to the owner.` : `Reviews are due within ${slaHours} hours. About ${left}h left before it is escalated.`;
   return (
     <Tip label={tip}>
       <span
@@ -180,9 +177,7 @@ function History({ task }: { task: Task }) {
             <RotateCcw className="size-3.5 text-heat-1" />
             Sent back {TIMES[n - 1] ?? `${n} times`} before.
           </p>
-          <p className="mt-0.5 text-[12.5px] leading-snug text-text/80">
-            Unclear instructions are the usual cause.{task.lastRejectionReason ? ` Last time: ${task.lastRejectionReason}` : ""}
-          </p>
+          <p className="mt-0.5 text-[12.5px] leading-snug text-text/80">Unclear instructions are the usual cause.{task.lastRejectionReason ? ` Last time: ${task.lastRejectionReason}` : ""}</p>
         </div>
       )}
     </div>
