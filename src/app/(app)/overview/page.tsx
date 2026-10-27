@@ -24,6 +24,12 @@ export default function OverviewPage() {
   const state = useApp();
   const a = React.useMemo(() => attention(state, tasks, people, now), [state, tasks, people, now]);
   const total = a.overdue.length + a.unseen.length + a.blocked.length + a.slowReview.length + a.quiet.length;
+  // overdue work, one group per person, the person with the most first (spec §11)
+  const overdueBy = React.useMemo(() => {
+    const by = new Map<string, Task[]>();
+    for (const t of a.overdue) by.set(t.assigneeId, [...(by.get(t.assigneeId) ?? []), t]);
+    return [...by.entries()].sort((x, y) => y[1].length - x[1].length).map(([id, list]) => ({ person: allPeople.find((p) => p.id === id), tasks: list }));
+  }, [a.overdue, allPeople]);
   const open = tasks.filter(isOpenWork);
   const doneToday = tasks.filter((t) => t.status === "approved" && t.approvedAt && isToday(new Date(t.approvedAt)));
   const waitingMe = tasks.filter((t) => t.status === "submitted" && (role === "owner" || t.reviewerId === meId));
@@ -109,9 +115,20 @@ export default function OverviewPage() {
 
         <div className="mt-8 space-y-8">
           {a.overdue.length > 0 && (
-            <Block title="Overdue" count={a.overdue.length} tone={4}>
-              {a.overdue.map((t) => (
-                <TaskRow key={t.id} task={t} reason={reasonFor(t, "overdue")} showStatus={false} showActions />
+            <Block title="Overdue" count={a.overdue.length} tone={4} note={overdueBy.length > 1 ? `Grouped by person, most overdue work first.` : undefined}>
+              {overdueBy.map(({ person, tasks: list }) => (
+                <React.Fragment key={person?.id ?? "unknown"}>
+                  {overdueBy.length > 1 && (
+                    <div className="flex items-center gap-2 border-b border-line bg-hover px-4 py-2 text-[13px]">
+                      {person && <Avatar person={person} size="xs" />}
+                      <span className="font-semibold text-text">{person?.name ?? "Someone"}</span>
+                      <span className="tabular text-muted">{plural(list.length, "overdue task")}</span>
+                    </div>
+                  )}
+                  {list.map((t) => (
+                    <TaskRow key={t.id} task={t} reason={reasonFor(t, "overdue")} showStatus={false} showActions showAssignee={overdueBy.length <= 1} />
+                  ))}
+                </React.Fragment>
               ))}
             </Block>
           )}
@@ -326,7 +343,11 @@ function QuestionItem({ id }: { id: string }) {
           </p>
           <p className="mt-0.5 leading-snug text-text">{q.body}</p>
           {task && (
-            <button type="button" className="relative mt-1 flex items-center gap-1 text-[12.5px] text-muted before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:text-text" onClick={() => openTask(task.id)}>
+            <button
+              type="button"
+              className="relative mt-1 flex items-center gap-1 text-[12.5px] text-muted before:absolute before:-inset-y-2 before:inset-x-0 before:content-[''] hover:text-text"
+              onClick={() => openTask(task.id)}
+            >
               <MessageCircleQuestion className="size-3.5" /> {task.title}
             </button>
           )}

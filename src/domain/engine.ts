@@ -14,10 +14,11 @@
  * L2 tells the team lead, L3 the department head (also any overdue task),
  * L4 the owner when it's still not acknowledged long after the deadline.
  */
-import { addDays, addMonths, addWeeks, differenceInMinutes } from "date-fns";
+import { addDays, differenceInMinutes } from "date-fns";
 import type { Activity, ActivityKind, AppNotification, HeatLevel, NotificationKind, Task } from "@/lib/types";
 import { headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
-import { isAway, isWorkDay, isWorkingTimeFor, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
+import { isAway, isWorkDay, isWorkingTimeFor, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes, zonedInstant } from "./time";
+import { describeRule, nextDue, ruleOf } from "./repeat";
 
 export interface EngineState {
   lastTickAt?: string;
@@ -37,6 +38,12 @@ export interface EngineState {
   capLogged?: { date: string; ids: string[] };
   /** per person: the local date their morning brief last went out (people can be in different time zones) */
   morningFor?: Record<string, string>;
+  /** skipped reminders already logged today ("taskId:reason"), so each reason shows once a day */
+  skipLogged?: { date: string; keys: string[] };
+  /** the last date absences were recorded for */
+  absentDay?: string;
+  /** the UTC date old records were last cleared (data retention) */
+  retentionDay?: string;
 }
 
 export interface TickResult {
@@ -135,24 +142,51 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         log("check_in", `${first(p.id)} is back from leave. Reminders resume.`);
       }
     }
+    // yesterday: anyone with a working day who never checked in and wasn't away is marked absent
+    const yesterday = next.day;
+    if (yesterday && next.absentDay !== yesterday) {
+      next.absentDay = yesterday;
+      for (const p of w.people) {
+        if (p.active === false || p.role === "owner") continue;
+        const sc = scheduleFor(w, p.id);
+        const dow = new Date(`${yesterday}T12:00:00Z`).getUTCDay();
+        if (!sc.workDays.includes(dow) || sc.holidays.some((h) => h.date === yesterday) || isAway(w, p.id, yesterday)) continue;
+        if (w.leaves.some((x) => x.personId === p.id && x.status === "approved" && x.from <= yesterday && x.to >= yesterday)) continue;
+        if (w.attendance.some((a) => a.personId === p.id && a.date === yesterday)) continue;
+        w.attendance.push({ personId: p.id, date: yesterday, breakMin: 0, status: "absent" });
+      }
+    }
     next.day = l.date;
   }
   rollupDates.push(l.date);
 
   /* ---------- 2. tasks ---------- */
-  const escalate = (t: Task, level: HeatLevel, why: string, opts: { overdue?: boolean } = {}) => {
+  /** the escalation thresholds for a task: tighter for urgent work (spec §15) */
+  const ladder = (t: Task) => (t.priority === "urgent" ? (s.urgentEscalation ?? { l1Ignored: 2, l2Ignored: 3, l3Ignored: 5, l4HoursPastDue: 12 }) : s.escalation);
+  const escalate = (t: Task, level: HeatLevel, why: string, opts: { overdue?: boolean; unit?: boolean } = {}) => {
     if (level <= t.escalationLevel) return;
     t.escalationLevel = level;
     log("escalated", `Escalated to level ${level}: ${why}`, t.id);
     const who = first(t.assigneeId);
-    const lead = leadOf(w, t.assigneeId);
-    const head = headOf(w, t.assigneeId);
+    // work offered to a unit: escalation goes to whoever runs the unit, then up
+    const unitHead = opts.unit && t.groupClaim?.unitType && t.groupClaim.unitId ? unitHeadOf(w, t.groupClaim.unitType, t.groupClaim.unitId) : undefined;
+    const lead = unitHead ?? leadOf(w, t.assigneeId);
+    const head = unitHead ? (headOf(w, unitHead) ?? ownerOf(w)) : headOf(w, t.assigneeId);
     const owner = ownerOf(w);
     const audience = level === 4 ? [owner, head, lead] : level === 3 ? [lead, head, opts.overdue ? owner : (head ?? owner)] : level === 2 ? [lead ?? head ?? owner] : [];
-    const title = level === 4 ? `${who} has not responded for ${Math.round(minsSince(t.dueAt) / 60)} hours past the deadline` : `${who}: ${why}`;
-    for (const r of Array.from(new Set(audience.filter((x): x is string => !!x && x !== t.assigneeId)))) {
-      note(r, "escalation", title, `${t.title} is now level ${level}.`, t.id);
-    }
+    const title = opts.unit ? `Nobody in ${t.groupClaim?.unitName ?? "the team"} has claimed it: ${t.title}` : level === 4 ? `${who} has not responded for ${Math.round(minsSince(t.overdueAt ?? t.dueAt) / 60)} hours past the deadline` : `${who}: ${why}`;
+    const told = Array.from(new Set(audience.filter((x): x is string => !!x && x !== t.assigneeId)));
+    for (const r of told) note(r, "escalation", title, `${t.title} is now level ${level}.`, t.id);
+    // the person themselves hears that it has gone up (spec §16), not just the people above them
+    if (level >= 2 && !opts.unit && told.length) note(t.assigneeId, "escalation", `${t.title} has been escalated`, `${told.map(first).join(" and ")} ${told.length === 1 ? "has" : "have"} been told. Acknowledge, start or mark it blocked to bring it back down.`, t.id);
+  };
+  // every reminder that doesn't go out, and why, is in the history once a day (spec §7)
+  const skipped = { ...(next.skipLogged?.date === l.date ? next.skipLogged : { date: l.date, keys: [] as string[] }) };
+  const skip = (t: Task, reason: string, text: string) => {
+    const key = `${t.id}:${reason}`;
+    if (skipped.keys.includes(key)) return;
+    skipped.keys = [...skipped.keys, key];
+    log("reminders_paused", `Reminder skipped: ${text}`, t.id);
   };
 
   for (const t of w.tasks) {
@@ -170,11 +204,12 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     if (t.status === "assigned") {
       // ladder first: lateness counts even when reminders are paused by the window
       if (!away && working) {
-        if (overdue && overdueMin >= s.escalation.l4HoursPastDue * 60)
+        if (overdue && overdueMin >= ladder(t).l4HoursPastDue * 60)
           escalate(t, 4, "still not acknowledged long after the deadline", {
             overdue: true,
+            unit: unclaimed,
           });
-        else if (overdue) escalate(t, 3, unclaimed ? "past the deadline and nobody claimed it" : "past the deadline and not acknowledged", { overdue: true });
+        else if (overdue) escalate(t, 3, unclaimed ? "past the deadline and nobody claimed it" : "past the deadline and not acknowledged", { overdue: true, unit: unclaimed });
         else if (-overdueMin <= NOT_STARTED_SOON_MIN) escalate(t, 2, "due within 2 hours and not started");
         else {
           // a quarter of the time to the deadline gone with no response: mark it, before any reminder count does
@@ -199,15 +234,29 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         if (!(windowOpen && intervalOk && underCap) || !t.groupClaim?.unitType || !t.groupClaim.unitId) continue;
         const members = membersOf(w, t.groupClaim.unitType, t.groupClaim.unitId).filter((id) => !isAway(w, id, l.date));
         if (!members.length) continue;
+        // every round nobody claims it counts, and it climbs to whoever runs the unit
+        if (t.remindersSent > 0) t.remindersIgnored += 1;
         t.remindersSent += 1;
         t.remindersToday = (t.remindersToday ?? 0) + 1;
         t.lastReminderAt = nowIso;
+        if (t.remindersIgnored >= ladder(t).l2Ignored) escalate(t, 2, `nobody claimed it after ${t.remindersSent} reminders`, { unit: true });
         for (const id of members)
           note(id, "reminder", `Still unclaimed: ${t.title}`, `Offered to ${t.groupClaim.unitName}. The first to claim it owns it.${overdue ? " It is past its deadline." : ""}`, t.id);
         log("reminder_sent", `Reminded ${members.length} people in ${t.groupClaim.unitName} that nobody has claimed this yet`, t.id);
         continue;
       }
-      if (!(windowOpen && !away && !snoozed && intervalOk && underCap)) continue;
+      if (!(windowOpen && !away && !snoozed && intervalOk && underCap)) {
+        if (intervalOk && underCap) {
+          const sc = scheduleFor(w, t.assigneeId);
+          const pl = localNow(now, sc.timezone);
+          const dayOff = !sc.workDays.includes(pl.dow) || sc.holidays.some((h) => h.date === pl.date);
+          if (away) skip(t, "away", `${first(t.assigneeId)} is on leave or away today`);
+          else if (snoozed) skip(t, "snooze", `${first(t.assigneeId)} snoozed it until ${new Intl.DateTimeFormat("en-GB", { timeZone: sc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(t.snoozedUntil!))}`);
+          else if (dayOff) skip(t, "dayoff", sc.holidays.some((h) => h.date === pl.date) ? "today is a holiday" : `today is a day off for ${first(t.assigneeId)}`);
+          else skip(t, "hours", `outside ${first(t.assigneeId)}'s working hours (${sc.workStart} to ${sc.workEnd})`);
+        }
+        continue;
+      }
 
       const count = t.remindersSent + 1;
       // a reminder that couldn't reach any device isn't held against the person
@@ -228,7 +277,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       log("reminder_sent", `Reminder ${count} sent to ${first(t.assigneeId)}${hasHealthyDevice(t.assigneeId) ? "" : " (no working device: in-app only, not counted as ignored)"}`, t.id);
 
       const ig = t.remindersIgnored;
-      const e = s.escalation;
+      const e = ladder(t);
       if (ig >= e.l3Ignored) escalate(t, 3, `${ig} reminders ignored`);
       else if (ig >= e.l2Ignored) escalate(t, 2, `${ig} reminders ignored`);
       else if (ig >= e.l1Ignored) escalate(t, 1, `${ig} reminders ignored`);
@@ -238,7 +287,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     if (t.status === "acknowledged" || t.status === "in_progress") {
       if (away || !(t.reminder.window === "always" || working)) continue;
       if (overdue) {
-        if (overdueMin >= s.escalation.l4HoursPastDue * 60) escalate(t, 4, "a full day past the deadline", { overdue: true });
+        if (overdueMin >= ladder(t).l4HoursPastDue * 60) escalate(t, 4, "a full day past the deadline", { overdue: true });
         else if (t.escalationLevel < 3) {
           t.escalationLevel = 3;
           log("escalated", "Past the deadline", t.id);
@@ -292,23 +341,29 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
 
     if (t.status === "submitted" && t.submittedAt) {
+      // the same ladder runs for reviewers: the manager is the subject, the owner the escalation target (spec §15)
       if (!workingFor(t.reviewerId)) continue;
       const waitH = minsSince(t.submittedAt) / 60;
-      if (waitH >= s.reviewSlaHours * 2 && t.escalationLevel < 2) {
+      const sla = s.reviewSlaHours;
+      const owner = ownerOf(w);
+      const up = headOf(w, t.reviewerId);
+      const ago = `${Math.round(waitH)} hours`;
+      if (waitH >= sla * 3 && t.escalationLevel < 4) {
+        t.escalationLevel = 4;
+        if (owner && owner !== t.reviewerId) note(owner, "escalation", `${first(t.reviewerId)} has not reviewed ${first(t.assigneeId)}'s work for ${ago}`, `${t.title}. Flagged as unresponsive.`, t.id);
+        log("escalated", `Review unanswered for ${ago}: ${first(t.reviewerId)} flagged to the owner as unresponsive`, t.id);
+      } else if (waitH >= sla * 2 && t.escalationLevel < 3) {
+        t.escalationLevel = 3;
+        for (const r of Array.from(new Set([up, owner].filter((x): x is string => !!x && x !== t.reviewerId))))
+          note(r, "escalation", `${first(t.assigneeId)}'s work has waited ${ago} for review`, `${t.title} is waiting on ${first(t.reviewerId)}.`, t.id);
+        note(t.reviewerId, "submitted", `Still waiting for your review: ${t.title}`, `${ago} now. Your head and the owner have been told.`, t.id);
+        log("escalated", `Review overdue: waiting ${ago} on ${first(t.reviewerId)}`, t.id);
+      } else if (waitH >= sla && t.escalationLevel < 2) {
+        // unreviewed for the SLA: the reviewer and the owner hear (spec §16)
         t.escalationLevel = 2;
-        const up = headOf(w, t.reviewerId) ?? ownerOf(w);
-        note(
-          up !== t.reviewerId ? up : undefined,
-          "escalation",
-          `${first(t.assigneeId)}'s work has waited ${Math.round(waitH)} hours for review`,
-          `${t.title} is waiting on ${first(t.reviewerId)}.`,
-          t.id,
-        );
-        log("escalated", `Review overdue: waiting ${Math.round(waitH)} hours on ${first(t.reviewerId)}`, t.id);
-      } else if (waitH >= s.reviewSlaHours && t.escalationLevel < 1) {
-        t.escalationLevel = 1;
-        note(t.reviewerId, "submitted", `${first(t.assigneeId)}'s work is waiting for you`, `${t.title} has waited ${Math.round(waitH)} hours. Approve it or send it back.`, t.id);
-        log("reminder_sent", `Reminded ${first(t.reviewerId)} to review`, t.id);
+        note(t.reviewerId, "submitted", `${first(t.assigneeId)}'s work is waiting for you`, `${t.title} has waited ${ago}. Approve it or send it back.`, t.id);
+        if (owner && owner !== t.reviewerId) note(owner, "escalation", `Unreviewed for ${ago}: ${t.title}`, `Submitted by ${first(t.assigneeId)}, waiting on ${first(t.reviewerId)}.`, t.id);
+        log("reminder_sent", `Reminded ${first(t.reviewerId)} to review (${ago} waiting)`, t.id);
       }
     }
   }
@@ -403,24 +458,58 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
     return n;
   };
-  // "daily" means every working day of the person it's for: their days off and holidays are skipped
-  const isOff = (d: Date, personId: string) => {
-    const sc = scheduleFor(w, personId);
-    const ln = localNow(d, sc.timezone);
-    return !sc.workDays.includes(ln.dow) || sc.holidays.some((h) => h.date === ln.date);
-  };
   for (const t of [...w.tasks]) {
-    if (!t.recurrence || t.recurrenceNextId || t.status === "draft" || t.status === "cancelled") continue;
-    if (t.status !== "approved" && new Date(t.dueAt) > now) continue;
-    if (openInChain(t) >= RECURRENCE_PILE_CAP) continue; // the pile is capped; a holiday never creates fifty overdue copies
-    const step = (d: Date) => (t.recurrence === "daily" ? addDays(d, 1) : t.recurrence === "weekly" ? addWeeks(d, 1) : addMonths(d, 1));
-    let due = step(new Date(t.dueAt));
-    let start = t.startAt ? step(new Date(t.startAt)) : undefined;
-    let guard = 0;
-    while ((due <= now || (t.recurrence === "daily" && isOff(due, t.assigneeId))) && guard++ < 400) {
-      due = step(due);
-      if (start) start = step(start);
+    if (t.recurrenceNextId || t.status === "draft" || t.status === "cancelled") continue;
+    const sc = scheduleFor(w, t.assigneeId);
+    const rule = ruleOf(t, sc.timezone);
+    if (!rule) continue;
+    const isOff = (date: string, dow: number) => !sc.workDays.includes(dow) || sc.holidays.some((h) => h.date === date);
+    const anchor = (() => {
+      let first: Task = t;
+      for (let i = 0; i < 400; i++) {
+        const prev = w.tasks.find((x) => x.recurrenceNextId === first.id);
+        if (!prev) break;
+        first = prev;
+      }
+      return localNow(new Date(first.dueAt), sc.timezone).date;
+    })();
+
+    let due: Date;
+    if (rule.mode === "afterDone") {
+      // the next one only once this one is approved, N days later at the same time of day
+      if (t.status !== "approved" || !t.approvedAt) continue;
+      const days = Math.max(1, rule.afterDays ?? rule.interval ?? 1);
+      const time = localNow(new Date(t.dueAt), sc.timezone);
+      const hhmm = `${String(Math.floor(time.minutes / 60)).padStart(2, "0")}:${String(time.minutes % 60).padStart(2, "0")}`;
+      const day = addDays(new Date(`${localNow(new Date(t.approvedAt), sc.timezone).date}T12:00:00Z`), days);
+      due = zonedInstant(day.toISOString().slice(0, 10), hhmm, sc.timezone);
+    } else {
+      // fixed schedule: the next copy appears once this one is done or its deadline has passed
+      if (t.status !== "approved" && new Date(t.dueAt) > now) continue;
+      due = nextDue(rule, new Date(t.dueAt), sc.timezone, isOff, anchor);
+      for (let guard = 0; due <= now && guard < 400; guard++) due = nextDue(rule, due, sc.timezone, isOff, anchor);
     }
+
+    // the series has ended: no more copies
+    const index = t.repeatIndex ?? 1;
+    if ((rule.ends?.kind === "count" && index >= rule.ends.count) || (rule.ends?.kind === "date" && localNow(due, sc.timezone).date > rule.ends.date)) {
+      t.recurrenceNextId = "ended";
+      log("created", `The repeat series ended after ${index} ${index === 1 ? "copy" : "copies"}`, t.id);
+      continue;
+    }
+
+    // an unfinished copy when the next is due: close it as missed, or let it wait (capped)
+    if (rule.mode !== "afterDone" && stillOpen(t) && t.status !== "approved") {
+      if (rule.missed === "close") {
+        if (w.timers[t.assigneeId]?.taskId === t.id) w.timers[t.assigneeId] = undefined;
+        t.status = "cancelled";
+        t.statusChangedAt = nowIso;
+        log("cancelled", "Closed as missed: the next copy is due", t.id);
+      } else if (openInChain(t) >= RECURRENCE_PILE_CAP) continue; // the pile is capped; a holiday never creates fifty overdue copies
+    }
+
+    let start = t.startAt ? new Date(due.getTime() - (new Date(t.dueAt).getTime() - new Date(t.startAt).getTime())) : undefined;
+    if (start && start > due) start = undefined;
     const id = uid("task");
     const copy: Task = {
       ...structuredClone(t),
@@ -429,6 +518,15 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       createdAt: nowIso,
       startAt: start?.toISOString(),
       dueAt: due.toISOString(),
+      repeatIndex: index + 1,
+      overdueAt: undefined,
+      progress: undefined,
+      progressNote: undefined,
+      progressAt: undefined,
+      timeEntries: [],
+      idleFlaggedAt: undefined,
+      archivedAt: undefined,
+      lastUpdateRemindedAt: undefined,
       remindersSent: 0,
       remindersIgnored: 0,
       remindersToday: 0,
@@ -463,11 +561,12 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     if (w.people.find((p) => p.id === copy.reviewerId)?.active === false) copy.reviewerId = ownerOf(w) ?? copy.reviewerId;
     t.recurrenceNextId = id;
     w.tasks.unshift(copy);
-    log("assigned", `Repeats ${t.recurrence}: next copy assigned to ${first(t.assigneeId)}`, id);
+    copy.overdueAt = overdueFrom(w, copy.assigneeId, copy.dueAt);
+    log("assigned", `${describeRule(rule)}: copy ${index + 1} assigned to ${first(copy.assigneeId)}`, id);
     note(
-      t.assigneeId,
+      copy.assigneeId,
       "assigned",
-      `New ${t.recurrence} task`,
+      `New repeating task`,
       `${copy.title}, due ${new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(due)}`,
       id,
     );
@@ -559,11 +658,26 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         const reminders = lastWeek.filter((a) => a.kind === "reminder_sent" && teamTasks.some((t) => t.id === a.taskId)).length;
         const lateNow = teamTasks.filter((t) => OPEN.includes(t.status) && new Date(t.dueAt) <= now).length;
         if (!approved.length && !escalated && !reminders && !lateNow) continue;
+        // average time to acknowledge new work, and who needed the most chasing
+        const acked = teamTasks.filter((t) => t.acknowledgedAt && new Date(t.acknowledgedAt) >= weekAgo);
+        const avgAck = acked.length ? Math.round(acked.reduce((n, t) => n + (new Date(t.acknowledgedAt!).getTime() - new Date(t.createdAt).getTime()) / 60000, 0) / acked.length) : null;
+        const escalationsBy = new Map<string, number>();
+        for (const a of lastWeek) {
+          if (a.kind !== "escalated" || !a.taskId) continue;
+          const t = teamTasks.find((x) => x.id === a.taskId);
+          if (t) escalationsBy.set(t.assigneeId, (escalationsBy.get(t.assigneeId) ?? 0) + 1);
+        }
+        const chronic = Array.from(escalationsBy.entries())
+          .filter(([, n]) => n >= 3)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([id, n]) => `${first(id)} (${n})`);
+        const ackText = avgAck === null ? "" : ` Average time to acknowledge: ${avgAck < 60 ? `${avgAck} min` : `${(avgAck / 60).toFixed(1)}h`}.`;
         const n = note(
           p.id,
           "digest",
           "Last week in one line",
-          `${approved.length} approved (${approved.length ? Math.round((onTime / approved.length) * 100) : 0}% on time), ${reminders} reminders sent, ${escalated} escalations. ${lateNow} ${lateNow === 1 ? "task is" : "tasks are"} overdue right now.`,
+          `${approved.length} approved (${approved.length ? Math.round((onTime / approved.length) * 100) : 0}% on time), ${reminders} reminders sent, ${escalated} escalations. ${lateNow} ${lateNow === 1 ? "task is" : "tasks are"} overdue right now.${ackText}${chronic.length ? ` Escalated most: ${chronic.join(", ")}.` : ""}`,
         );
         if (n) digestIds.push(n.id);
       }
@@ -594,6 +708,21 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       if (sent) {
         reminded[a.id] = per;
         log("announcement", `Reminded ${sent} ${sent === 1 ? "person" : "people"} to acknowledge "${a.title}"`);
+        // past its due time: each missing person's manager hears once, the owner a day later
+        if (a.ackDueAt && new Date(a.ackDueAt) <= now) {
+          for (const id of waiting) {
+            const mgr = leadOf(w, id) ?? headOf(w, id);
+            if (mgr && mgr !== a.authorId && !per[`${id}:mgr`]) {
+              per[`${id}:mgr`] = nowIso;
+              note(mgr, "announcement", `${first(id)} hasn't acknowledged "${a.title}"`, `It was due ${new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(a.ackDueAt))}.`);
+            }
+          }
+          const owner = ownerOf(w);
+          if (owner && owner !== a.authorId && !per.__owner && minsSince(a.ackDueAt) >= 24 * 60) {
+            per.__owner = nowIso;
+            note(owner, "announcement", `${waiting.length} still haven't acknowledged "${a.title}"`, `${waiting.map(first).slice(0, 6).join(", ")}${waiting.length > 6 ? " and others" : ""}, a day after it was due.`);
+          }
+        }
         // overdue notice: the author hears who is still missing, once
         if (a.ackDueAt && new Date(a.ackDueAt) <= now && !per.__escalated) {
           per.__escalated = nowIso;
@@ -623,12 +752,14 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         const late = open.filter((t) => team.has(t.assigneeId) && new Date(t.dueAt) <= now).length;
         const unseen = open.filter((t) => team.has(t.assigneeId) && t.status === "assigned").length;
         const blocked = open.filter((t) => team.has(t.assigneeId) && t.status === "blocked").length;
-        const n = note(p.id, "digest", "End of day summary", `${done} done today, ${late} overdue, ${unseen} not acknowledged yet, ${blocked} blocked.`);
+        const escalatedToday = open.filter((t) => team.has(t.assigneeId) && t.escalationLevel >= 2).length;
+        const n = note(p.id, "digest", "End of day summary", `${done} done today, ${late} overdue, ${escalatedToday} escalated, ${unseen} not acknowledged yet, ${blocked} blocked.`);
         if (n) digestIds.push(n.id);
       }
     }
   }
 
+  next.skipLogged = skipped;
   w.activity = [...acts.reverse(), ...w.activity];
   w.notifications = [...notes, ...w.notifications];
   return {

@@ -19,6 +19,7 @@ import type {
   OrgSettings,
   Priority,
   ReminderRule,
+  RepeatRule,
   Task,
   StoredView,
   TaskStatus,
@@ -44,6 +45,7 @@ export interface NewTaskInput {
   subtasks?: string[];
   tags?: string[];
   recurrence?: Task["recurrence"];
+  repeat?: RepeatRule;
   draft?: boolean;
   /** tasks that must be done before this one can start */
   dependsOn?: string[];
@@ -74,6 +76,7 @@ export interface TaskPatch {
   requiresResult?: boolean;
   reminder?: Partial<ReminderRule>;
   recurrence?: Task["recurrence"] | null;
+  repeat?: RepeatRule | null;
   dependsOn?: string[];
   watcherIds?: string[];
   reviewerId?: string;
@@ -380,7 +383,9 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         statusChangedAt: nowIso,
         snoozesToday: 0,
         loggedMinutes: 0,
-        recurrence: input.recurrence,
+        recurrence: input.repeat ? undefined : input.recurrence,
+        repeat: input.repeat,
+        repeatIndex: input.repeat || input.recurrence ? 1 : undefined,
         dependsOn: deps.length ? deps : undefined,
         groupClaim: claim,
         pool,
@@ -446,6 +451,13 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         changed.push("reminder rule");
       }
       if (p.recurrence !== undefined) t.recurrence = p.recurrence || undefined;
+      if (p.repeat !== undefined) {
+        // a rule replaces the older simple repeat; null stops the series
+        t.repeat = p.repeat ?? undefined;
+        t.recurrence = undefined;
+        if (p.repeat && !t.repeatIndex) t.repeatIndex = 1;
+        changed.push(p.repeat ? "how it repeats" : "it no longer repeats");
+      }
       if (p.dependsOn) {
         const deps = p.dependsOn.filter((id) => id !== t.id && w.tasks.some((x) => x.id === id));
         // no loops: a task can't (indirectly) wait for itself
@@ -727,6 +739,9 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       log("reassigned", `Handed over from ${first(from)} to ${first(to.id)}: ${cmd.reason}`, t.id);
       note(to.id, "assigned", `${first(me)} handed you a task`, `${t.title}. Full history is attached.`, t.id);
       note(from, "deadline", "A task moved to someone else", `${t.title} now with ${first(to.id)}. You stay as a watcher.`, t.id);
+      // their manager hears too (spec §16)
+      for (const mgr of new Set([leadOf(w, from) ?? headOf(w, from), leadOf(w, to.id) ?? headOf(w, to.id)]))
+        if (mgr && mgr !== from && mgr !== to.id) note(mgr, "deadline", `${first(me)} handed ${t.title} from ${first(from)} to ${first(to.id)}`, cmd.reason, t.id);
       break;
     }
 
@@ -737,6 +752,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       set(t, { dueAt: cmd.newDueAt });
       log("deadline_changed", `Deadline moved from ${fmt(old, "EEE d MMM h:mm a")} to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}: ${cmd.reason}`, t.id);
       note(t.assigneeId, "deadline", "Deadline changed", `${t.title} is now due ${fmt(cmd.newDueAt, "EEE h:mm a")}`, t.id);
+      const mgr = leadOf(w, t.assigneeId) ?? headOf(w, t.assigneeId);
+      if (mgr && mgr !== t.assigneeId) note(mgr, "deadline", `Deadline moved for ${first(t.assigneeId)}`, `${t.title}: ${fmt(old, "EEE d MMM h:mm a")} to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}. ${cmd.reason}`, t.id);
       break;
     }
 

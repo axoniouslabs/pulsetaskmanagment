@@ -107,7 +107,7 @@ export const intervalText = (n: number) =>
 const CHANNELS: { v: Channel; l: string }[] = [
   { v: "push", l: "Phone & PC" },
   { v: "inapp", l: "In the app" },
-  { v: "email", l: "Email" },
+  { v: "email", l: "Email digest" },
 ];
 
 /**

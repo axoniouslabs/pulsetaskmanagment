@@ -52,7 +52,7 @@ import { membersOf } from "@/domain/world";
 import { Avatar } from "./avatar";
 import { HEAT, HeatBadge, PriorityTag, ProjectTag, RecurrenceTag, StatusPill } from "./task-bits";
 import { RichText } from "./rich-text";
-import { TaskActions, useTaskRole } from "./task-actions";
+import { TaskActions, TaskDialogs, useTaskRole } from "./task-actions";
 
 export function TaskDetailSheet() {
   const openId = useApp((s) => s.openTaskId);
@@ -67,6 +67,9 @@ export function TaskDetailSheet() {
 
 function TaskDetail({ task }: { task: Task }) {
   const people = useApp((s) => s.people);
+  // a notification button can ask for one of the task's dialogs straight away
+  const pending = useApp((s) => (s.taskDialog?.taskId === task.id ? s.taskDialog.kind : null));
+  const clearTaskDialog = useApp((s) => s.clearTaskDialog);
   const r = useTaskRole(task);
   const heat = heatOf(task);
   const person = (id?: string) => people.find((p) => p.id === id);
@@ -217,6 +220,8 @@ function TaskDetail({ task }: { task: Task }) {
           {tab === "comments" ? <Comments task={task} /> : <History taskId={task.id} />}
         </section>
       </div>
+
+      <TaskDialogs task={task} kind={pending} onClose={clearTaskDialog} />
 
       {/* thumb-zone action bar on phones */}
       <div className="safe-bottom sticky bottom-0 border-t border-line bg-surface/95 px-4 pt-3 backdrop-blur md:hidden">
@@ -988,6 +993,7 @@ export const ACTIVITY_ICON: Record<ActivityKind, { icon: React.ElementType; cls:
   started: { icon: CircleDot, cls: "text-ink" },
   reminder_sent: { icon: BellRing, cls: "text-faint" },
   reminder_seen: { icon: Eye, cls: "text-faint" },
+  reminder_delivered: { icon: BellRing, cls: "text-faint" },
   reminder_failed: { icon: BellOff, cls: "text-heat-2" },
   snoozed: { icon: Clock4, cls: "text-muted" },
   blocked: { icon: AlertOctagon, cls: "text-heat-2" },
@@ -1058,9 +1064,20 @@ function History({ taskId }: { taskId: string }) {
         <Hand className="size-3.5" /> This history can't be edited or deleted by anyone, including the owner.
       </p>
       <ol>
-        {items.map((a) => (
-          <ActivityLine key={a.id} a={a} />
-        ))}
+        {items.map((a) =>
+          a.kind === "reassigned" && /^(Handed over|.* passed it on|.* is away, so this went)/.test(a.text) ? (
+            // a marked handover point: everything below happened before the new owner had it (spec §8)
+            <li key={a.id} className="relative my-3 flex items-center gap-3">
+              <span className="h-px flex-1 bg-ink/30" aria-hidden />
+              <span className="rounded-full bg-ink-tint px-3 py-1 text-[12px] font-medium text-ink">
+                Handover, {formatWhen(a.at, { withDay: true })}: {a.text.replace(/^Handed over /, "")}
+              </span>
+              <span className="h-px flex-1 bg-ink/30" aria-hidden />
+            </li>
+          ) : (
+            <ActivityLine key={a.id} a={a} />
+          ),
+        )}
       </ol>
     </div>
   );

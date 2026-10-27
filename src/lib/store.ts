@@ -27,6 +27,9 @@ interface Actions {
   act: (cmd: Command) => ActionResult;
 
   openTask: (id: string | null) => void;
+  /** open a task with one of its dialogs already showing (from a notification button) */
+  openTaskDialog: (id: string, kind: "submit" | "block" | "reassign" | "deadline") => void;
+  clearTaskDialog: () => void;
   openCreate: (defaults?: Partial<NewTaskInput>) => void;
   closeCreate: () => void;
   setCommandOpen: (open: boolean) => void;
@@ -106,6 +109,7 @@ export interface AppState extends World, Actions {
   /** VAPID public key for Web Push; null when push isn't set up on the server */
   pushPublicKey: string | null;
   openTaskId: string | null;
+  taskDialog: { taskId: string; kind: "submit" | "block" | "reassign" | "deadline" } | null;
   createOpen: boolean;
   createDefaults: Partial<NewTaskInput> | null;
   commandOpen: boolean;
@@ -236,6 +240,7 @@ export const useApp = create<AppState>()((set, get) => {
     platformAdmin: false,
     pushPublicKey: null,
     openTaskId: null,
+    taskDialog: null,
     createOpen: false,
     createDefaults: null,
     commandOpen: false,
@@ -300,6 +305,8 @@ export const useApp = create<AppState>()((set, get) => {
     act: (cmd) => run(cmd),
 
     openTask: (id) => set({ openTaskId: id }),
+    openTaskDialog: (id, kind) => set({ openTaskId: id, taskDialog: { taskId: id, kind } }),
+    clearTaskDialog: () => set({ taskDialog: null }),
     openCreate: (defaults) => set({ createOpen: true, createDefaults: defaults ?? null }),
     closeCreate: () => set({ createOpen: false, createDefaults: null }),
     setCommandOpen: (open) => set({ commandOpen: open }),

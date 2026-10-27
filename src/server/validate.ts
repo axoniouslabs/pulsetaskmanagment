@@ -17,6 +17,25 @@ const reminder = z
   })
   .partial();
 
+const repeatRule = z.object({
+  freq: z.enum(["day", "week", "month"]),
+  interval: z.number().int().min(1).max(365),
+  workingDays: z.boolean().optional(),
+  weekdays: z.array(z.number().int().min(0).max(6)).max(7).optional(),
+  monthly: z
+    .union([
+      z.object({ kind: z.literal("date"), day: z.number().int().min(1).max(31) }),
+      z.object({ kind: z.literal("weekday"), nth: z.union([z.literal(1), z.literal(2), z.literal(3), z.literal(4), z.literal(-1)]), weekday: z.number().int().min(0).max(6) }),
+    ])
+    .optional(),
+  mode: z.enum(["schedule", "afterDone"]),
+  afterDays: z.number().int().min(1).max(365).optional(),
+  ends: z
+    .union([z.object({ kind: z.literal("never") }), z.object({ kind: z.literal("count"), count: z.number().int().min(1).max(1000) }), z.object({ kind: z.literal("date"), date: day })])
+    .optional(),
+  missed: z.enum(["pile", "close"]).optional(),
+});
+
 const newTask = z.object({
   title: text(200).min(1, "Add a title so the assignee knows what to do."),
   description: text(5000).optional(),
@@ -34,6 +53,7 @@ const newTask = z.object({
   subtasks: z.array(text(300)).max(50).optional(),
   tags: z.array(text(40)).max(20).optional(),
   recurrence: z.enum(["daily", "weekly", "monthly"]).optional(),
+  repeat: repeatRule.optional(),
   draft: z.boolean().optional(),
   dependsOn: z.array(id).max(20).optional(),
   claim: z.object({ unitType: z.enum(["department", "team", "group"]), unitId: id }).optional(),
@@ -88,6 +108,7 @@ const taskPatch = z
     requiresResult: z.boolean(),
     reminder,
     recurrence: z.enum(["daily", "weekly", "monthly"]).nullable(),
+    repeat: repeatRule.nullable(),
     dependsOn: z.array(id).max(20),
     watcherIds: z.array(id).max(30),
     reviewerId: id,
@@ -109,6 +130,7 @@ const templateInput = z.object({
   subtasks: z.array(text(300)).max(50).optional(),
   tags: z.array(text(40)).max(20).optional(),
   recurrence: z.enum(["daily", "weekly", "monthly"]).optional(),
+  repeat: repeatRule.optional(),
   dueInHours: z
     .number()
     .min(0)
@@ -136,6 +158,12 @@ const settingsPatch = z
     workEnd: z.string().regex(/^\d{2}:\d{2}$/),
     defaultReminder: reminder.required(),
     escalation: z.object({
+      l1Ignored: z.number().int().min(1),
+      l2Ignored: z.number().int().min(1),
+      l3Ignored: z.number().int().min(1),
+      l4HoursPastDue: z.number().min(1),
+    }),
+    urgentEscalation: z.object({
       l1Ignored: z.number().int().min(1),
       l2Ignored: z.number().int().min(1),
       l3Ignored: z.number().int().min(1),

@@ -13,6 +13,7 @@ import {
   XCircle,
   FileEdit,
 } from "lucide-react";
+import { describeRule, ruleOf, shortRule } from "@/domain/repeat";
 import type { HeatLevel, Priority, Task, TaskStatus } from "@/lib/types";
 import { STATUS_LABEL, heatOf, isOverdue } from "@/lib/selectors";
 import { ago, cn, dueLabel } from "@/lib/utils";
@@ -133,11 +134,13 @@ export function ProjectTag({ id }: { id?: string }) {
 }
 
 export function RecurrenceTag({ task }: { task: Task }) {
-  if (!task.recurrence) return null;
+  const rule = ruleOf(task);
+  if (!rule || task.recurrenceNextId === "ended") return null;
   return (
-    <span className="inline-flex items-center gap-1 text-[12px] text-faint">
+    <span className="inline-flex items-center gap-1 text-[12px] text-faint" title={describeRule(rule)}>
       <Repeat className="size-3.5" />
-      {task.recurrence === "daily" ? "Daily" : task.recurrence === "weekly" ? "Weekly" : "Monthly"}
+      {shortRule(rule)}
+      {task.repeatIndex && task.repeatIndex > 1 ? <span className="tabular">, #{task.repeatIndex}</span> : null}
     </span>
   );
 }

@@ -3,7 +3,7 @@ import type { ActivityKind } from "@/lib/types";
 export type EventGroup = "reminders" | "status" | "escalations" | "comments" | "attendance" | "notices";
 
 export const GROUPS: { value: EventGroup; label: string; kinds: ActivityKind[] }[] = [
-  { value: "reminders", label: "Reminders", kinds: ["reminder_sent", "reminder_seen", "reminder_failed", "snoozed", "reminders_paused"] },
+  { value: "reminders", label: "Reminders", kinds: ["reminder_sent", "reminder_delivered", "reminder_seen", "reminder_failed", "snoozed", "reminders_paused"] },
   {
     value: "status",
     label: "Status changes",
@@ -41,6 +41,7 @@ export const KIND_LABEL: Record<ActivityKind, string> = {
   started: "Started",
   reminder_sent: "Reminder sent",
   reminder_seen: "Reminder seen",
+  reminder_delivered: "Reminder delivered",
   reminder_failed: "Reminder failed",
   snoozed: "Snoozed",
   blocked: "Blocked",

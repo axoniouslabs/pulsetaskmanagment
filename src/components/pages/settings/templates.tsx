@@ -1,5 +1,6 @@
 "use client";
 
+import { describeRule } from "@/domain/repeat";
 import { toast } from "sonner";
 import { Trash2 } from "lucide-react";
 import { useApp } from "@/lib/store";
@@ -22,7 +23,7 @@ export function TemplateList() {
             <p className="truncate text-[14px] font-medium">{t.name}</p>
             <p className="truncate text-[12.5px] text-muted">
               {t.input.title}
-              {t.input.recurrence ? `, repeats ${t.input.recurrence}` : ""}
+              {t.input.repeat ? `, ${describeRule(t.input.repeat).toLowerCase()}` : t.input.recurrence ? `, repeats ${t.input.recurrence}` : ""}
               {t.input.subtasks?.length ? `, ${t.input.subtasks.length} steps` : ""} · by {people.find((p) => p.id === t.createdById)?.name.split(" ")[0] ?? "someone"}
             </p>
           </div>

@@ -120,10 +120,33 @@ export function EscalationLadder() {
         ))}
       </ol>
       <div className="border-t border-line">
-        <SettingRow label="Review deadline" hint="Work waiting for review longer than this is flagged on the Overview, against the reviewer.">
+        <UrgentThresholds />
+        <SettingRow
+          label="Review deadline"
+          hint="Unreviewed this long: the reviewer is reminded and you are told. Twice as long reaches their head; three times flags the reviewer as unresponsive."
+        >
           <NumberSetting label="Review deadline in hours" value={reviewSla} min={1} max={168} suffix="hours" onCommit={(n) => save({ reviewSlaHours: n })} />
         </SettingRow>
       </div>
     </>
+  );
+}
+
+const URGENT_DEFAULT = { l1Ignored: 2, l2Ignored: 3, l3Ignored: 5, l4HoursPastDue: 12 };
+
+/** urgent work climbs sooner (spec §15) */
+function UrgentThresholds() {
+  const u = useApp((s) => s.settings.urgentEscalation) ?? URGENT_DEFAULT;
+  const save = useSave();
+  const set = (patch: Partial<typeof u>) => save({ urgentEscalation: { ...u, ...patch } });
+  return (
+    <SettingRow label="Urgent tasks climb sooner" hint="The same ladder with tighter steps, for tasks marked urgent.">
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <NumberSetting label="Urgent level 1 after" value={u.l1Ignored} min={1} max={20} suffix="L1" validate={(n) => (n >= u.l2Ignored ? "Fewer than level 2." : null)} onCommit={(n) => set({ l1Ignored: n })} />
+        <NumberSetting label="Urgent level 2 after" value={u.l2Ignored} min={2} max={30} suffix="L2" validate={(n) => (n <= u.l1Ignored || n >= u.l3Ignored ? "Between levels 1 and 3." : null)} onCommit={(n) => set({ l2Ignored: n })} />
+        <NumberSetting label="Urgent level 3 after" value={u.l3Ignored} min={3} max={40} suffix="L3" validate={(n) => (n <= u.l2Ignored ? "More than level 2." : null)} onCommit={(n) => set({ l3Ignored: n })} />
+        <NumberSetting label="Urgent level 4 hours past due" value={u.l4HoursPastDue} min={1} max={168} suffix="h, L4" onCommit={(n) => set({ l4HoursPastDue: n })} />
+      </div>
+    </SettingRow>
   );
 }

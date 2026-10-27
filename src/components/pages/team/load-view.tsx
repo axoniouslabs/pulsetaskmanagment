@@ -139,6 +139,7 @@ export function LoadView({
                       <span className="sticky left-0 inline-flex items-baseline gap-2 px-4 py-2">
                         <span className="text-[13px] font-semibold text-text">{s.title}</span>
                         {s.sub && <span className="text-[12px] font-normal text-muted">{s.sub}</span>}
+                        <UnitLoad people={s.people} rows={rows} />
                       </span>
                     </th>
                   </tr>
@@ -238,5 +239,24 @@ function SummaryLine({ label, hint, people, empty, tone, onOpen }: { label: stri
         <p className="pl-5 text-[13px] text-faint sm:pl-0">{empty}</p>
       )}
     </div>
+  );
+}
+
+/** how loaded a whole team is: committed hours against everyone's capacity, across the days shown */
+function UnitLoad({ people, rows }: { people: Person[]; rows: Map<string, Row> }) {
+  let committed = 0;
+  let capacity = 0;
+  for (const p of people) {
+    const r = rows.get(p.id);
+    if (!r) continue;
+    for (const c of r.cells) if (c.kind === "load") committed += c.hours;
+    capacity += r.workingDays * (p.capacityHours || 8);
+  }
+  if (!capacity) return null;
+  const pct = Math.round((committed / capacity) * 100);
+  return (
+    <span className={cn("tabular text-[12px] font-medium", pct > 100 ? "text-heat-3" : pct > 85 ? "text-heat-1" : "text-muted")} title="Committed hours against the team's working hours over these days">
+      {pct}% loaded ({fmtHours(committed)} of {fmtHours(capacity)})
+    </span>
   );
 }

@@ -4,7 +4,9 @@ import * as React from "react";
 import { format } from "date-fns";
 import { toast } from "sonner";
 import { useApp } from "@/lib/store";
-import type { Priority, ReminderRule, Task } from "@/lib/types";
+import type { Priority, ReminderRule, RepeatRule, Task } from "@/lib/types";
+import { ruleOf } from "@/domain/repeat";
+import { RepeatEditor } from "./repeat-editor";
 import { Button } from "@/components/ui/button";
 import { DialogContent, Field, Input, Segmented, Select, Switch, Textarea } from "@/components/ui/primitives";
 import type { TaskPatch } from "@/domain/commands";
@@ -61,7 +63,7 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
   const [allDay, setAllDay] = React.useState(!!task.dueAllDay);
   const [cadence, setCadence] = React.useState<number | "">(task.updateEveryDays ?? "");
   const [projectId, setProjectId] = React.useState(task.projectId ?? "");
-  const [repeat, setRepeat] = React.useState(task.recurrence ?? "");
+  const [repeat, setRepeat] = React.useState<RepeatRule | null>(() => ruleOf(task) ?? null);
   const [deps, setDeps] = React.useState<string[]>(task.dependsOn ?? []);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -80,7 +82,7 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
       requiresProof: proof,
       requiresResult: result,
       projectId: projectId || null,
-      recurrence: (repeat || null) as TaskPatch["recurrence"],
+      ...(JSON.stringify(repeat) !== JSON.stringify(ruleOf(task) ?? null) ? { repeat } : {}),
       dependsOn: deps,
       tags,
       dueAllDay: allDay,
@@ -142,13 +144,8 @@ export function EditTaskForm({ task, onClose }: { task: Task; onClose: () => voi
           <Field label="Tags" htmlFor="edit-tags">
             <TagInput id="edit-tags" value={tags} onChange={setTags} />
           </Field>
-          <Field label="Repeat">
-            <Select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
-              <option value="">Doesn't repeat</option>
-              <option value="daily">Every working day</option>
-              <option value="weekly">Every week</option>
-              <option value="monthly">Every month</option>
-            </Select>
+          <Field label="Repeat" htmlFor="edit-repeat-preset" className="sm:col-span-2">
+            <RepeatEditor idPrefix="edit-repeat" value={repeat} onChange={setRepeat} due={new Date(task.dueAt)} />
           </Field>
           <Field label="Watchers" htmlFor="edit-watchers" hint="They see every update without being responsible.">
             <WatcherPicker id="edit-watchers" value={watchers} onChange={setWatchers} exclude={[task.assigneeId]} />

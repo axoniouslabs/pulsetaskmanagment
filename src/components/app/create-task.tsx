@@ -3,9 +3,11 @@
 import * as React from "react";
 import { addDays, endOfWeek, format, set as setTime } from "date-fns";
 import { toast } from "sonner";
-import { AlertTriangle, Camera, CheckCircle2, FileCheck2, Sparkles, Repeat, ChevronDown } from "lucide-react";
+import { AlertTriangle, Camera, CheckCircle2, FileCheck2, Sparkles, ChevronDown } from "lucide-react";
 import { membersOf, useApp, useMeId } from "@/lib/store";
-import type { Priority } from "@/lib/types";
+import type { Priority, RepeatRule } from "@/lib/types";
+import { ruleOf } from "@/domain/repeat";
+import { RepeatEditor } from "./repeat-editor";
 import { committedHours, scopePeople } from "@/lib/selectors";
 import { parseQuickAdd } from "@/lib/quickadd";
 import { cn, plural } from "@/lib/utils";
@@ -39,7 +41,14 @@ export function CreateTaskDialog() {
   );
 }
 
+/** how often a new task reminds, by priority, starting from the company default */
+function useIntervalFor() {
+  const base = useApp((s) => s.settings.defaultReminder.intervalMin);
+  return (p: Priority) => (p === "urgent" ? 10 : p === "high" ? Math.min(base, 15) : p === "low" ? Math.max(base, 60) : base);
+}
+
 function CreateTaskForm() {
+  const intervalFor = useIntervalFor();
   const s = useApp();
   const meId = useMeId();
   const defaults = s.createDefaults;
@@ -77,7 +86,7 @@ function CreateTaskForm() {
   const [projectId, setProjectId] = React.useState(defaults?.projectId ?? "");
   const [estimate, setEstimate] = React.useState(String(defaults?.estimateHours ?? 1));
   const [startAt, setStartAt] = React.useState("");
-  const [repeat, setRepeat] = React.useState<"" | "daily" | "weekly" | "monthly">(defaults?.recurrence ?? "");
+  const [repeat, setRepeat] = React.useState<RepeatRule | null>(() => (defaults?.repeat ?? (defaults?.recurrence ? (ruleOf({ recurrence: defaults.recurrence, dueAt: new Date().toISOString() }) ?? null) : null)));
   const [touched, setTouched] = React.useState(false);
   const [mode, setMode] = React.useState<"one" | "many" | "unit">("one");
   const [many, setMany] = React.useState<string[]>([]);
@@ -156,7 +165,7 @@ function CreateTaskForm() {
     if (i.reminder?.window) setWorkingOnly(i.reminder.window === "working");
     setChecklist((i.subtasks ?? []).join("\n"));
     setProjectId(i.projectId ?? "");
-    setRepeat(i.recurrence ?? "");
+    setRepeat(i.repeat ?? (i.recurrence ? (ruleOf({ recurrence: i.recurrence, dueAt: new Date().toISOString() }) ?? null) : null));
     if (i.dueInHours) setDue(toLocal(hoursFromNow(i.dueInHours)));
     if (i.description || i.subtasks?.length || i.recurrence || i.projectId) setShowMore(true);
     toast.success(`Filled from "${tpl.name}"`, {
@@ -182,7 +191,7 @@ function CreateTaskForm() {
       .map((x) => x.trim())
       .filter(Boolean),
     tags: parsed?.tags ?? [],
-    recurrence: repeat || undefined,
+    repeat: repeat ?? undefined,
     dueInHours: hoursUntil(due),
   });
 
@@ -210,7 +219,7 @@ function CreateTaskForm() {
     if (p.assigneeId && scope.some((x) => x.id === p.assigneeId)) setAssigneeId(p.assigneeId);
     if (p.dueAt) setDue(toLocal(p.dueAt));
     if (p.priority) setPriority(p.priority);
-    if (p.priority === "urgent") setIntervalMin(10);
+    if (p.priority) setIntervalMin(intervalFor(p.priority));
   };
 
   const loads = React.useMemo(() => Object.fromEntries(scope.map((p) => [p.id, committedHours(s.tasks, p.id)])), [scope, s.tasks]);
@@ -247,7 +256,7 @@ function CreateTaskForm() {
         .map((x) => x.trim())
         .filter(Boolean),
       tags: Array.from(new Set([...(parsed?.tags ?? []), ...tags])),
-      recurrence: repeat || undefined,
+      repeat: repeat ?? undefined,
       dependsOn: deps.length ? deps : undefined,
       watcherIds: watchers.length ? watchers : undefined,
       reviewerId: reviewerId || undefined,
@@ -534,7 +543,8 @@ function CreateTaskForm() {
               value={priority}
               onChange={(v) => {
                 setPriority(v);
-                if (v === "urgent") setIntervalMin(10);
+                // priority sets how hard the reminders push (spec §6); the interval can still be changed
+                setIntervalMin(intervalFor(v));
               }}
               options={[
                 { value: "low", label: "Low" },
@@ -662,15 +672,10 @@ function CreateTaskForm() {
               <Field label="Estimate (hours)">
                 <Input type="number" min="0.25" step="0.25" value={estimate} onChange={(e) => setEstimate(e.target.value)} />
               </Field>
-              <Field label="Repeat">
-                <Select value={repeat} onChange={(e) => setRepeat(e.target.value as typeof repeat)}>
-                  <option value="">Doesn't repeat</option>
-                  <option value="daily">Every working day</option>
-                  <option value="weekly">Every week</option>
-                  <option value="monthly">Every month</option>
-                </Select>
-              </Field>
             </div>
+            <Field label="Repeat" htmlFor="new-repeat-preset">
+              <RepeatEditor idPrefix="new-repeat" value={repeat} onChange={setRepeat} due={dueDate} />
+            </Field>
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Tags" htmlFor="new-tags">
                 <TagInput id="new-tags" value={tags} onChange={setTags} />
@@ -723,11 +728,6 @@ function CreateTaskForm() {
                 </div>
               )}
             </Field>
-            {repeat && (
-              <p className="flex items-center gap-2 text-[12.5px] text-muted">
-                <Repeat className="size-3.5" /> A new copy appears on schedule even if the last one isn't done. Missed copies pile up to a maximum of 3.
-              </p>
-            )}
           </div>
         )}
       </div>

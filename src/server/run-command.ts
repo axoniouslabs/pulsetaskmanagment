@@ -3,7 +3,7 @@ import { applyCommand, CommandError, type Command } from "@/domain/commands";
 import { authorize } from "@/domain/permissions";
 import { db } from "./db";
 import { loadWorld, lockOrg, persist } from "./repo";
-import { deliverPush } from "./push";
+import { deliverPush, silenceOtherDevices } from "./push";
 import { newId } from "./ids";
 import { loadAccess } from "./platform";
 import { PAUSED_MESSAGE } from "@/lib/access";
@@ -27,6 +27,10 @@ export async function runCommand(actor: { orgId: string; personId: string }, cmd
       return persist(tx, before, after);
     });
     deliverPush(newNotificationIds).catch((e) => console.error("push", e));
+    // handled on one device: the reminder stops asking on the others
+    const handled: Partial<Record<Command["type"], string>> = { acknowledge: "Acknowledged", start: "Started", snooze: "Snoozed", block: "Marked blocked", submit: "Submitted" };
+    const taskId = "taskId" in cmd ? cmd.taskId : undefined;
+    if (handled[cmd.type] && taskId) silenceOtherDevices(actor.personId, taskId, handled[cmd.type]!).catch(() => undefined);
     return { ok: true };
   } catch (e) {
     if (e instanceof CommandError) return { ok: false, status: 422, error: e.message };

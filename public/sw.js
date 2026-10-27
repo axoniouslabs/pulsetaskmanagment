@@ -1,5 +1,5 @@
 /* Pulse service worker: offline shell + notification actions */
-const VERSION = "pulse-v3";
+const VERSION = "pulse-v4";
 const SHELL = ["/", "/today", "/overview", "/tasks", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -79,35 +79,41 @@ self.addEventListener("push", (event) => {
       self.registration.showNotification(data.title || "Pulse", {
         body: data.body || "",
         tag: data.tag || data.taskId || "pulse",
-        renotify: !!data.urgent,
-        requireInteraction: !!data.urgent,
+        // "handled on another device" replaces the reminder quietly
+        silent: !!data.silent,
+        renotify: !!data.urgent && !data.silent,
+        requireInteraction: !!data.urgent && !data.silent,
         icon: "/icon-192.png",
         badge: "/badge-72.png",
         data: { taskId: data.taskId, token: data.token },
         actions: Array.isArray(data.actions) ? data.actions : [],
       }),
-      report(data.token, "receipt"),
+      data.silent ? Promise.resolve() : report(data.token, "receipt"),
       // tell open windows to refresh their data
       self.clients.matchAll({ type: "window" }).then((cs) => cs.forEach((c) => c.postMessage({ type: "pulse-refresh" }))),
     ]),
   );
 });
 
-const openApp = (taskId) =>
+/** open Pulse at the task; `action` opens the matching dialog (done, block, handover, extend) */
+const openApp = (taskId, action = "open") =>
   self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
     if (clients.length) {
       const c = clients[0];
-      c.postMessage({ type: "reminder-action", action: "open", taskId });
+      c.postMessage({ type: "reminder-action", action, taskId });
       return c.focus();
     }
-    return self.clients.openWindow(taskId ? `/today?task=${encodeURIComponent(taskId)}` : "/");
+    return self.clients.openWindow(taskId ? `/today?task=${encodeURIComponent(taskId)}&action=${encodeURIComponent(action)}` : "/");
   });
+
+/* buttons that finish the job without opening Pulse */
+const DIRECT = new Set(["ack", "start", "snooze", "snooze15", "snooze30", "snooze60"]);
 
 self.addEventListener("notificationclick", (event) => {
   const action = event.action || "open";
   const { taskId, token } = event.notification.data || {};
   event.notification.close();
-  if (action === "ack" || action === "snooze") {
+  if (DIRECT.has(action)) {
     // works from the lock screen without opening Pulse
     event.waitUntil(
       report(token, action).then((res) => {
@@ -120,5 +126,6 @@ self.addEventListener("notificationclick", (event) => {
     );
     return;
   }
-  event.waitUntil(Promise.all([report(token, "open"), openApp(taskId)]));
+  // buttons that need a word from the person (done, blocked, hand over, extend) open the right dialog
+  event.waitUntil(Promise.all([report(token, "open"), openApp(taskId, action)]));
 });

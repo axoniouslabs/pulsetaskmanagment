@@ -36,7 +36,7 @@ const DATE_FIELDS: Record<string, string[]> = {
     "overdueAt",
   ],
   activity: ["at"],
-  notifications: ["at", "pushedAt", "deliveredAt", "seenAt"],
+  notifications: ["at", "pushedAt", "deliveredAt", "seenAt", "failedAt"],
   announcements: ["at", "ackDueAt"],
   questions: ["at", "answeredAt"],
   deadlineRequests: ["newDueAt", "at"],
@@ -180,7 +180,7 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
       .where(nWhere)
       .orderBy(desc(S.notifications.at))
       .limit(opts.notificationsFor ? 200 : 2000);
-    w.notifications = nRows.map((r) => fromRow(r, ["orgId", "pushedAt", "deliveredAt", "seenAt"]));
+    w.notifications = nRows.map((r) => fromRow(r, ["orgId", "pushedAt", "deliveredAt", "seenAt", "failedAt"]));
   }
 
   if (opts.stats) {

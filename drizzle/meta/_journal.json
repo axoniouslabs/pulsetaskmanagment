@@ -57,6 +57,13 @@
       "when": 1793141581469,
       "tag": "0007_task_details",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1793142859465,
+      "tag": "0008_repeat_rules_delivery",
+      "breakpoints": true
     }
   ]
 }

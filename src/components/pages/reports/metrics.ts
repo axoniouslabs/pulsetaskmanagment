@@ -1,13 +1,16 @@
-import { format, subDays } from "date-fns";
+import { differenceInCalendarDays, format, parseISO, startOfMonth, subDays } from "date-fns";
 import type { DailyStat } from "@/lib/seed";
 import type { Person } from "@/lib/types";
 import { minutesToLabel } from "@/lib/utils";
 
-export type Period = "week" | "month";
+export type Period = "today" | "week" | "month" | "thisMonth" | "custom";
 
 export const PERIOD_LABEL: Record<Period, string> = {
+  today: "Today",
   week: "Last 7 days",
   month: "Last 4 weeks",
+  thisMonth: "This month",
+  custom: "Custom range",
 };
 
 /** the totals behind every rate on the reports page */
@@ -38,6 +41,10 @@ export interface Rates {
   rework: number | null;
   escalations: number;
   volume: number; // weighted volume: estimated hours of work assigned
+  /** average hours from assignment to approval, for approved work */
+  cycle: number | null;
+  /** actual hours as a share of the estimate (100 = spot on, above 100 = took longer) */
+  accuracy: number | null;
 }
 
 export type MetricKey = "completion" | "onTime" | "ack" | "firstReminder" | "rework" | "escalations";
@@ -101,12 +108,27 @@ export function ratesOf(t: Totals): Rates {
     rework: ratio(t.rejections, t.submissions),
     escalations: t.escalations,
     volume: t.estHours,
+    // waiting to start + working + blocked, per approved task, plus the average wait for review
+    cycle: t.approved ? (t.waitHours + t.workHours + t.blockedHours) / t.approved + (t.submissions ? t.reviewWeighted / t.submissions : 0) : null,
+    accuracy: t.estHours > 0 && t.actualHours > 0 ? (t.actualHours / t.estHours) * 100 : null,
   };
 }
 
 /** date windows (yyyy-MM-dd, inclusive) for a period and for its trend comparison */
-export function windows(period: Period, today: Date) {
+export function windows(period: Period, today: Date, custom?: { from: string; to: string }) {
   const d = (n: number) => format(subDays(today, n), "yyyy-MM-dd");
+  if (period === "today") {
+    return { range: [d(0), d(0)] as const, trendCur: [d(0), d(0)] as const, trendPrev: [d(7), d(7)] as const, trendNote: "Arrows compare with the same day last week." };
+  }
+  if (period === "thisMonth" || (period === "custom" && custom?.from && custom?.to)) {
+    const from = period === "thisMonth" ? format(startOfMonth(today), "yyyy-MM-dd") : custom!.from;
+    const to = period === "thisMonth" ? d(0) : custom!.to;
+    // compare with the same number of days just before
+    const len = differenceInCalendarDays(parseISO(to), parseISO(from)) + 1;
+    const prevTo = format(subDays(parseISO(from), 1), "yyyy-MM-dd");
+    const prevFrom = format(subDays(parseISO(from), len), "yyyy-MM-dd");
+    return { range: [from, to] as const, trendCur: [from, to] as const, trendPrev: [prevFrom, prevTo] as const, trendNote: `Arrows compare with the ${len} ${len === 1 ? "day" : "days"} before.` };
+  }
   if (period === "week") {
     return {
       range: [d(6), d(0)] as const,

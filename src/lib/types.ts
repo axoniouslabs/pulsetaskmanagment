@@ -103,6 +103,29 @@ export interface Comment {
   history?: { body: string; at: string }[];
 }
 
+/**
+ * A repeat rule (spec §6): daily, weekly on chosen days, monthly on a date or
+ * an nth weekday, or every N days; on a fixed schedule or N days after the
+ * last one was approved; ending never, after N copies, or on a date.
+ */
+export interface RepeatRule {
+  freq: "day" | "week" | "month";
+  /** every N days / weeks / months */
+  interval: number;
+  /** day: skip days off and holidays */
+  workingDays?: boolean;
+  /** week: which weekdays (0 = Sunday) */
+  weekdays?: number[];
+  /** month: on a date (1-31, clamped to short months) or the nth weekday (-1 = last) */
+  monthly?: { kind: "date"; day: number } | { kind: "weekday"; nth: 1 | 2 | 3 | 4 | -1; weekday: number };
+  /** fixed schedule, or the next one N days after the last is approved */
+  mode: "schedule" | "afterDone";
+  afterDays?: number;
+  ends?: { kind: "never" } | { kind: "count"; count: number } | { kind: "date"; date: string };
+  /** an unfinished copy when the next is due: let them pile up (capped), or close the old one as missed */
+  missed?: "pile" | "close";
+}
+
 /** a stretch of work on a task: from the timer, or added by hand for work done away from Pulse */
 export interface TimeEntry {
   id: string;
@@ -202,7 +225,12 @@ export interface Task {
   snoozedUntil?: string;
   snoozesToday: number;
   loggedMinutes: number;
+  /** the simple repeat from before repeat rules; still read, see ruleOf() */
   recurrence?: "daily" | "weekly" | "monthly";
+  /** how it repeats: which days, how often, until when, and what happens to missed copies */
+  repeat?: RepeatRule;
+  /** which copy in its series this is (1 for the first) */
+  repeatIndex?: number;
   /** the next copy of a repeating task, once it has been made */
   recurrenceNextId?: string;
   /** reminders sent today, for the daily cap */
@@ -240,6 +268,7 @@ export type ActivityKind =
   | "started"
   | "reminder_sent"
   | "reminder_seen"
+  | "reminder_delivered"
   | "reminder_failed"
   | "snoozed"
   | "blocked"
@@ -360,6 +389,8 @@ export interface OrgSettings {
   workEnd: string; // "18:00"
   defaultReminder: ReminderRule;
   escalation: { l1Ignored: number; l2Ignored: number; l3Ignored: number; l4HoursPastDue: number };
+  /** tighter thresholds for urgent tasks (spec §15); the normal ones apply when unset */
+  urgentEscalation?: { l1Ignored: number; l2Ignored: number; l3Ignored: number; l4HoursPastDue: number };
   approvalByDefault: boolean;
   snoozeMaxPerDay: number;
   reviewSlaHours: number;
@@ -404,6 +435,7 @@ export interface TaskTemplate {
     subtasks?: string[];
     tags?: string[];
     recurrence?: Task["recurrence"];
+    repeat?: RepeatRule;
     /** default deadline, in hours from when it's assigned */
     dueInHours?: number;
   };

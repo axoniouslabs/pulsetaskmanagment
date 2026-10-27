@@ -8,6 +8,12 @@ import { useApp, useMeId } from "@/lib/store";
 import { useNow, useOrgToday, useScope } from "@/lib/hooks";
 import { localNow, scheduleFor } from "@/domain/time";
 import { BreakButton } from "./break-button";
+import { MyMonth } from "./month-summary";
+
+function MyMonthCard({ now }: { now: Date }) {
+  const { me } = useScope();
+  return me ? <MyMonth person={me} now={now} /> : null;
+}
 import type { Leave } from "@/lib/types";
 import { cn, minutesToLabel, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -27,6 +33,7 @@ export function MyTime() {
         <WeekSheet now={now} today={today} />
       </div>
       <aside className="space-y-6">
+        <MyMonthCard now={now} />
         <MyLeave today={today} />
         <UpcomingHolidays now={now} today={today} />
       </aside>

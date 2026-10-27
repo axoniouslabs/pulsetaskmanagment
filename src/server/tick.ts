@@ -9,6 +9,7 @@ import { deliverPush } from "./push";
 import { sendDigestEmails } from "./email";
 import { newId } from "./ids";
 import { accessOf } from "@/lib/access";
+import { purgeOld } from "./retention";
 
 const ROLLUP_EVERY_MIN = 15;
 
@@ -39,11 +40,16 @@ export async function tickOrg(orgId: string, now = new Date()) {
       r.state.rollupAt = now.toISOString();
     }
 
+    const today = now.toISOString().slice(0, 10);
+    const retention = r.state.retentionDay !== today ? { months: before.settings.retentionMonths } : null;
+    if (retention) r.state.retentionDay = today;
     const { newNotificationIds } = await persist(tx, before, r.world);
     await saveEngineState(tx, orgId, r.state);
-    return { newNotificationIds, digestIds: r.digestIds };
+    return { newNotificationIds, digestIds: r.digestIds, retention };
   });
   await deliverPush(out.newNotificationIds).catch((e) => console.error("push", orgId, e));
+  // once a day: anything older than the company keeps records for is removed
+  if (out.retention) await purgeOld(orgId, out.retention.months, now).catch((e) => console.error("retention", orgId, e));
   if (out.digestIds.length) await sendDigestEmails(out.digestIds).catch((e) => console.error("digest email", orgId, e));
   return { notifications: out.newNotificationIds.length };
 }

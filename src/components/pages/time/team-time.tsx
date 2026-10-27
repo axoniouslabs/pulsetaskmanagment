@@ -7,8 +7,9 @@ import { Segmented } from "@/components/ui/primitives";
 import { TeamToday } from "./team-today";
 import { AttendanceGrid } from "./attendance-grid";
 import { LeaveAdmin } from "./leave-admin";
+import { MonthSummary } from "./month-summary";
 
-type Tab = "today" | "grid" | "leave";
+type Tab = "today" | "grid" | "month" | "leave";
 
 export function TeamTime() {
   const now = useNow(30000);
@@ -34,6 +35,7 @@ export function TeamTime() {
           options={[
             { value: "today", label: "Today" },
             { value: "grid", label: "Last 2 weeks" },
+            { value: "month", label: "Month" },
             { value: "leave", label: "Leave", count: pending || undefined },
           ]}
         />
@@ -41,6 +43,7 @@ export function TeamTime() {
 
       {tab === "today" && <TeamToday people={people} now={now} scopeLabel={scopeLabel} />}
       {tab === "grid" && <AttendanceGrid people={people} now={now} groupByDepartment={role === "owner"} />}
+      {tab === "month" && <MonthSummary people={people} now={now} />}
       {tab === "leave" && <LeaveAdmin people={people} now={now} meId={meId} canRequest={role === "manager"} />}
     </div>
   );

@@ -124,7 +124,7 @@ describe("escalation ladder", () => {
     expect(t.remindersIgnored).toBe(5);
     expect(t.escalationLevel).toBe(2);
     const esc = r.world.notifications.filter((n) => n.kind === "escalation").map((n) => n.recipientId);
-    expect(esc).toEqual(["p_usman"]); // L2: the team lead
+    expect(esc.sort()).toEqual(["p_kamran", "p_usman"]); // L2: the team lead, and the assignee is told it went up
   });
 
   it("level 3 reaches the department head", () => {
@@ -146,7 +146,7 @@ describe("escalation ladder", () => {
         .filter((n) => n.kind === "escalation")
         .map((n) => n.recipientId)
         .sort(),
-    ).toEqual(["p_hina", "p_usman"]);
+    ).toEqual(["p_hina", "p_kamran", "p_usman"]);
   });
 
   it("silence a day past the deadline goes to the owner (level 4)", () => {
@@ -480,7 +480,10 @@ describe("notices that need an OK", () => {
     const r = runTick(w, ready, pkt("2026-10-21T13:05:00"), uid);
     const got = r.world.notifications.filter((n) => n.kind === "announcement");
     // five people still owe an OK (not Hina, not the author), plus the author is told it's late
-    expect(got.filter((n) => n.recipientId !== "p_owner")).toHaveLength(5);
+    expect(got.filter((n) => n.title.includes("waiting for your OK"))).toHaveLength(5);
+    // and, past the due time, each of their managers hears once (spec §16)
+    expect(got.some((n) => n.recipientId === "p_usman" && n.title === `Kamran hasn't acknowledged "New leave policy"`)).toBe(true);
+    expect(got.some((n) => n.recipientId === "p_saad" && n.title.startsWith("Ali hasn't"))).toBe(true);
     expect(got.some((n) => n.recipientId === "p_owner" && n.title.includes("haven't acknowledged"))).toBe(true);
     // not again straight away
     expect(runTick(r.world, r.state, pkt("2026-10-21T13:30:00"), uid).world.notifications.filter((n) => n.kind === "announcement")).toHaveLength(got.length);

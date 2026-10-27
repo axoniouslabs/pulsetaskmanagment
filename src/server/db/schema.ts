@@ -9,7 +9,7 @@
  * Column names are snake_case in the database (drizzle `casing: "snake_case"`).
  */
 import { bigint, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import type { Attachment, Comment, DepartmentSettings, OrgSettings, ReminderRule, StoredView, Subtask, TaskPool, TimeEntry, WorkSchedule } from "@/lib/types";
+import type { Attachment, Comment, DepartmentSettings, OrgSettings, ReminderRule, RepeatRule, StoredView, Subtask, TaskPool, TimeEntry, WorkSchedule } from "@/lib/types";
 import type { EngineState } from "@/domain/engine";
 import type { NewTaskInput } from "@/domain/commands";
 
@@ -324,6 +324,8 @@ export const tasks = pgTable(
     loggedMinutes: integer().notNull().default(0),
     recurrence: text(),
     recurrenceNextId: text(),
+    repeat: jsonb().$type<RepeatRule>(),
+    repeatIndex: integer(),
     remindersToday: integer().notNull().default(0),
     dependsOn: text().array().notNull().default([]),
     groupClaim: jsonb().$type<{ unitName: string; claimed: boolean; unitType?: "department" | "team" | "group"; unitId?: string }>(),
@@ -373,6 +375,8 @@ export const notifications = pgTable(
     pushedAt: ts(),
     deliveredAt: ts(),
     seenAt: ts(),
+    /** every device refused it, after a retry: recorded, never silently dropped */
+    failedAt: ts(),
   },
   (t) => [index().on(t.orgId, t.recipientId, t.at)],
 );

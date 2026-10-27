@@ -39,6 +39,7 @@ import { uploadToTask, ACCEPT } from "@/lib/upload";
 import { Dialog, DialogContent, Field, Input, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, Select, Textarea } from "@/components/ui/primitives";
 import { Avatar } from "./avatar";
 import { EditDescriptionForm, EditTaskForm } from "./edit-task";
+import { ruleOf } from "@/domain/repeat";
 
 export type DialogKind = "edit" | "describe" | "progress" | "escalate" | "block" | "submit" | "reject" | "reassign" | "deadline" | "request" | "cancel" | "ask" | "unblock" | "approve" | null;
 
@@ -57,7 +58,7 @@ export function duplicateDefaults(task: Task) {
     reminder: task.reminder,
     subtasks: task.subtasks.map((x) => x.title),
     tags: task.tags,
-    recurrence: task.recurrence,
+    repeat: ruleOf(task),
     watcherIds: task.watcherIds,
     updateEveryDays: task.updateEveryDays,
   };

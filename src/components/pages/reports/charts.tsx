@@ -73,7 +73,7 @@ export function ChartPanel({
   footnote,
   className,
 }: {
-  title: string;
+  title: React.ReactNode;
   aside?: React.ReactNode;
   legend?: React.ReactNode;
   children: React.ReactNode;

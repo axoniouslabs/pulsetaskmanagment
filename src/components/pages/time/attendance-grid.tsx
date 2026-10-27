@@ -8,6 +8,7 @@ import { cn, minutesToLabel, plural } from "@/lib/utils";
 import { Tip } from "@/components/ui/primitives";
 import { Panel } from "@/components/app/page-header";
 import { Avatar } from "@/components/app/avatar";
+import { scheduleFor } from "@/domain/time";
 import { STATUS_META, approvedLeaveOn, minutesLate, time, workedMinutes, type DayStatus } from "./lib";
 
 type Cell = DayStatus | "pending" | "none";
@@ -18,7 +19,7 @@ const LEGEND: { key: DayStatus; label: string }[] = [
   { key: "absent", label: "Absent" },
   { key: "leave", label: "Leave" },
   { key: "holiday", label: "Holiday" },
-  { key: "weekend", label: "Sunday" },
+  { key: "weekend", label: "Day off" },
 ];
 
 export function AttendanceGrid({ people, now, groupByDepartment }: { people: Person[]; now: Date; groupByDepartment: boolean }) {
@@ -26,13 +27,14 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
   const leaves = useApp((s) => s.leaves);
   const settings = useApp((s) => s.settings);
   const departments = useApp((s) => s.departments);
+  const allPeople = useApp((s) => s.people);
   const today = format(now, "yyyy-MM-dd");
 
   const days = React.useMemo(
     () =>
       Array.from({ length: 14 }, (_, i) => {
         const d = subDays(now, 13 - i);
-        return { d, date: format(d, "yyyy-MM-dd"), sunday: d.getDay() === 0 };
+        return { d, date: format(d, "yyyy-MM-dd"), dow: d.getDay() };
       }),
     [now],
   );
@@ -40,16 +42,19 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
   const rows = React.useMemo(() => {
     const byKey = new Map(attendance.map((a) => [`${a.personId}|${a.date}`, a]));
     return people.map((p) => {
-      const cells = days.map(({ date, sunday }) => {
+      // each person's own working days (theirs, their department's, or the company's)
+      const sc = scheduleFor({ settings, people: allPeople, departments }, p.id);
+      const cells = days.map(({ date, dow }) => {
         const rec = byKey.get(`${p.id}|${date}`);
         const holiday = settings.holidays.find((h) => h.date === date);
         let status: Cell;
         if (rec?.checkIn) status = rec.status;
         else if (rec && rec.status !== "present") status = rec.status;
-        else if (sunday) status = "weekend";
+        else if (!sc.workDays.includes(dow)) status = "weekend";
         else if (holiday) status = "holiday";
         else if (approvedLeaveOn(leaves, p.id, date)) status = "leave";
-        else status = date === today ? "pending" : "none";
+        // a past working day with no check-in is an absence, even before the engine records it
+        else status = date === today ? "pending" : date < today ? "absent" : "none";
         return { date, rec, status, holiday: holiday?.name };
       });
       return {
@@ -59,7 +64,7 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
         absent: cells.filter((c) => c.status === "absent").length,
       };
     });
-  }, [people, days, attendance, leaves, settings.holidays, today]);
+  }, [people, days, attendance, leaves, settings, allPeople, departments, today]);
 
   const sections = React.useMemo(() => {
     if (!groupByDepartment) return [{ id: "all", name: "", rows }];
@@ -109,8 +114,8 @@ export function AttendanceGrid({ people, now, groupByDepartment }: { people: Per
                 >
                   Person
                 </th>
-                {days.map(({ d, date, sunday }) => (
-                  <th key={date} scope="col" className={cn("min-w-[30px] border-b border-line px-0.5 py-2 text-center font-normal", sunday && "bg-sunken/70")}>
+                {days.map(({ d, date, dow }) => (
+                  <th key={date} scope="col" className={cn("min-w-[30px] border-b border-line px-0.5 py-2 text-center font-normal", !settings.workDays.includes(dow) && "bg-sunken/70")}>
                     <span className="block text-[11px] text-faint">{format(d, "EEEEE")}</span>
                     <span className={cn("tabular block text-[12.5px]", date === today ? "font-semibold text-ink" : "text-muted")}>{format(d, "d")}</span>
                   </th>
