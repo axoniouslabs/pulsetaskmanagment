@@ -45,9 +45,15 @@ const subscribeUrl = (cb: () => void) => {
   window.addEventListener("popstate", cb);
   return () => window.removeEventListener("popstate", cb);
 };
-/** today's date key (yyyy-mm-dd) in the company's time zone, which is what attendance records use */
-export function useOrgToday(now: Date) {
-  const tz = useApp((s) => s.settings.timezone);
+/**
+ * Today's date key (yyyy-mm-dd) for attendance. Attendance is kept on each
+ * person's own calendar, so pass whose day it is; without one, the company's.
+ */
+export function useOrgToday(now: Date, personId?: string) {
+  const tz = useApp((s) => {
+    const own = personId ? s.people.find((p) => p.id === personId)?.schedule?.timezone : undefined;
+    return own || s.settings.timezone;
+  });
   return localDate(now, tz);
 }
 

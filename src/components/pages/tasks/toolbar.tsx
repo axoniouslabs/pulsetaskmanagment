@@ -2,38 +2,14 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Bookmark, BookmarkPlus, CalendarDays,
-  ChartGantt, Check, Columns3, List, Search, Trash2, X } from "lucide-react";
+import { addDays, endOfMonth, endOfWeek, format, startOfMonth, startOfWeek } from "date-fns";
+import { Bookmark, BookmarkPlus, CalendarDays, ChartGantt, Check, ChevronDown, Columns3, List, Search, Trash2, X } from "lucide-react";
 import type { Person, Project, Role } from "@/lib/types";
 import { STATUS_LABEL, PRIORITY_LABEL } from "@/lib/selectors";
 import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  Field,
-  Input,
-  Menu,
-  MenuContent,
-  MenuItem,
-  MenuLabel,
-  MenuSeparator,
-  MenuTrigger,
-  Segmented,
-  Select,
-  Switch,
-} from "@/components/ui/primitives";
-import {
-  QUICK_CHIPS,
-  QUICK_LABEL,
-  SORT_LABEL,
-  activeFilterCount,
-  type QuickKey,
-  type SavedView,
-  type SortKey,
-  type TaskFilters,
-  type ViewMode,
-} from "./filters";
+import { Dialog, DialogContent, Field, Input, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, Segmented, Select, Switch } from "@/components/ui/primitives";
+import { QUICK_CHIPS, QUICK_LABEL, SORT_LABEL, activeFilterCount, type QuickKey, type SavedView, type SortKey, type TaskFilters, type ViewMode } from "./filters";
 
 const STATUS_OPTIONS = ["assigned", "acknowledged", "in_progress", "blocked", "submitted", "approved", "cancelled"] as const;
 
@@ -49,6 +25,7 @@ export function TasksToolbar({
   onMode,
   assignees,
   projects,
+  tags,
   chipCounts,
   resultCount,
   views,
@@ -68,6 +45,7 @@ export function TasksToolbar({
   onMode: (m: ViewMode) => void;
   assignees: Person[];
   projects: Project[];
+  tags: string[];
   chipCounts: Record<QuickKey, number>;
   resultCount: number;
   views: SavedView[];
@@ -93,23 +71,45 @@ export function TasksToolbar({
         <label className="relative min-w-0 flex-1">
           <span className="sr-only">Search tasks</span>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
-          <Input
-            type="search"
-            value={filters.q}
-            onChange={(e) => onChange({ q: e.target.value })}
-            placeholder="Search titles and descriptions"
-            className="pl-9"
-          />
+          <Input type="search" value={filters.q} onChange={(e) => onChange({ q: e.target.value })} placeholder="Search titles, descriptions, comments and #tags" className="pl-9" />
         </label>
         <Segmented<ViewMode>
           value={mode}
           onChange={onMode}
           className="self-start sm:self-auto"
           options={[
-            { value: "list", label: <><List className="size-4" /> List</> },
-            { value: "board", label: <><Columns3 className="size-4" /> Board</> },
-            { value: "calendar", label: <><CalendarDays className="size-4" /> Calendar</> },
-            { value: "timeline", label: <><ChartGantt className="size-4" /> Timeline</> },
+            {
+              value: "list",
+              label: (
+                <>
+                  <List className="size-4" /> List
+                </>
+              ),
+            },
+            {
+              value: "board",
+              label: (
+                <>
+                  <Columns3 className="size-4" /> Board
+                </>
+              ),
+            },
+            {
+              value: "calendar",
+              label: (
+                <>
+                  <CalendarDays className="size-4" /> Calendar
+                </>
+              ),
+            },
+            {
+              value: "timeline",
+              label: (
+                <>
+                  <ChartGantt className="size-4" /> Timeline
+                </>
+              ),
+            },
           ]}
         />
       </div>
@@ -152,44 +152,40 @@ export function TasksToolbar({
         </div>
       </div>
 
-      {/* field filters */}
+      {/* field filters: each one can take several values */}
       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
         {role !== "employee" && (
-          <FilterSelect label="Assignee" value={filters.assignee} onChange={(v) => onChange({ assignee: v })}>
-            <option value="">Everyone</option>
-            {assignees.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.id === meId ? `${p.name} (you)` : p.name}
-              </option>
-            ))}
-          </FilterSelect>
+          <MultiFilter
+            label="Assignee"
+            any="Everyone"
+            value={filters.assignee}
+            onChange={(v) => onChange({ assignee: v })}
+            options={assignees.map((p) => ({ value: p.id, label: p.id === meId ? `${p.name} (you)` : p.name }))}
+          />
         )}
-        <FilterSelect label="Status" value={filters.status} onChange={(v) => onChange({ status: v as TaskFilters["status"] })}>
-          <option value="">Any status</option>
-          {role !== "employee" && <option value="draft">{STATUS_LABEL.draft}</option>}
-          {STATUS_OPTIONS.map((s) => (
-            <option key={s} value={s}>
-              {STATUS_LABEL[s]}
-            </option>
-          ))}
-        </FilterSelect>
-        <FilterSelect label="Priority" value={filters.priority} onChange={(v) => onChange({ priority: v as TaskFilters["priority"] })}>
-          <option value="">Any priority</option>
-          {(["urgent", "high", "normal", "low"] as const).map((p) => (
-            <option key={p} value={p}>
-              {PRIORITY_LABEL[p]}
-            </option>
-          ))}
-        </FilterSelect>
-        <FilterSelect label="Project" value={filters.project} onChange={(v) => onChange({ project: v })}>
-          <option value="">All projects</option>
-          {projects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.name}
-            </option>
-          ))}
-          <option value="none">No project</option>
-        </FilterSelect>
+        <MultiFilter
+          label="Status"
+          any="Any status"
+          value={filters.status}
+          onChange={(v) => onChange({ status: v as TaskFilters["status"] })}
+          options={[...(role !== "employee" ? (["draft"] as const) : []), ...STATUS_OPTIONS].map((st) => ({ value: st, label: STATUS_LABEL[st] }))}
+        />
+        <MultiFilter
+          label="Priority"
+          any="Any priority"
+          value={filters.priority}
+          onChange={(v) => onChange({ priority: v as TaskFilters["priority"] })}
+          options={(["urgent", "high", "normal", "low"] as const).map((p) => ({ value: p, label: PRIORITY_LABEL[p] }))}
+        />
+        <MultiFilter
+          label="Project"
+          any="All projects"
+          value={filters.project}
+          onChange={(v) => onChange({ project: v })}
+          options={[...projects.map((p) => ({ value: p.id, label: p.name })), { value: "none", label: "No project" }]}
+        />
+        {tags.length > 0 && <MultiFilter label="Tag" any="Any tag" value={filters.tags} onChange={(v) => onChange({ tags: v })} options={tags.map((t) => ({ value: t, label: `#${t}` }))} />}
+        <DueRange from={filters.from} to={filters.to} onChange={(from, to) => onChange({ from, to })} />
       </div>
 
       {/* result line */}
@@ -209,6 +205,10 @@ export function TasksToolbar({
           <label className="flex h-9 cursor-pointer items-center gap-2 text-[13.5px] text-text">
             <Switch checked={filters.showDone} onCheckedChange={(v) => onChange({ showDone: v })} aria-label="Show done" />
             Show done
+          </label>
+          <label className="flex h-9 cursor-pointer items-center gap-2 text-[13.5px] text-text">
+            <Switch checked={filters.archived} onCheckedChange={(v) => onChange({ archived: v })} aria-label="Show archived" />
+            Archived
           </label>
           <label className="flex items-center gap-2 text-[13.5px] text-muted">
             Sort
@@ -276,23 +276,140 @@ export function TasksToolbar({
   );
 }
 
-function FilterSelect({ label, value, onChange, children }: { label: string; value: string; onChange: (v: string) => void; children: React.ReactNode }) {
+/** a filter that takes several values: "Blocked" or "2 statuses" on the button, ticks in the menu */
+function MultiFilter({ label, any, value, onChange, options }: { label: string; any: string; value: string[]; onChange: (v: string[]) => void; options: { value: string; label: string }[] }) {
+  const picked = options.filter((o) => value.includes(o.value));
+  const text = !picked.length ? any : picked.length === 1 ? picked[0].label : `${label}: ${picked.length}`;
   return (
-    <Select
-      aria-label={label}
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={cn("h-10 min-w-0 text-[13.5px] sm:h-9 sm:w-auto sm:min-w-36", value && "border-ink/50 bg-ink-tint/50 font-medium")}
-    >
-      {children}
-    </Select>
+    <Menu>
+      <MenuTrigger asChild>
+        <button
+          type="button"
+          aria-label={`${label}: ${picked.length ? picked.map((p) => p.label).join(", ") : any}`}
+          className={cn(
+            "flex h-10 min-w-0 items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line-strong bg-surface px-3 text-left text-[13.5px] text-text hover:border-ink/35 sm:h-9 sm:min-w-36",
+            picked.length > 0 && "border-ink/50 bg-ink-tint/50 font-medium",
+          )}
+        >
+          <span className="truncate">{text}</span>
+          <ChevronDown className="size-3.5 shrink-0 text-faint" />
+        </button>
+      </MenuTrigger>
+      <MenuContent className="max-h-80 w-64 overflow-y-auto">
+        <MenuLabel>{label}: pick any number</MenuLabel>
+        {options.map((o) => {
+          const on = value.includes(o.value);
+          return (
+            <MenuItem
+              key={o.value}
+              onSelect={(e) => {
+                e.preventDefault(); // keep the menu open to pick more
+                onChange(on ? value.filter((v) => v !== o.value) : [...value, o.value]);
+              }}
+              role="menuitemcheckbox"
+              aria-checked={on}
+            >
+              <span className={cn("flex size-4 shrink-0 items-center justify-center rounded-[4px] border", on ? "border-ink bg-ink text-white" : "border-line-strong")}>
+                {on && <Check className="!size-3 !text-white" />}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{o.label}</span>
+            </MenuItem>
+          );
+        })}
+        {value.length > 0 && (
+          <>
+            <MenuSeparator />
+            <MenuItem onSelect={() => onChange([])}>
+              <X /> Clear
+            </MenuItem>
+          </>
+        )}
+      </MenuContent>
+    </Menu>
+  );
+}
+
+const iso = (d: Date) => format(d, "yyyy-MM-dd");
+
+/** due between two days, with the common ranges one tap away */
+function DueRange({ from, to, onChange }: { from: string; to: string; onChange: (from: string, to: string) => void }) {
+  const [custom, setCustom] = React.useState(false);
+  const now = new Date();
+  const presets = [
+    { l: "Due today", f: iso(now), t: iso(now) },
+    { l: "Due this week", f: iso(startOfWeek(now, { weekStartsOn: 1 })), t: iso(endOfWeek(now, { weekStartsOn: 1 })) },
+    { l: "Due in the next 7 days", f: iso(now), t: iso(addDays(now, 7)) },
+    { l: "Due this month", f: iso(startOfMonth(now)), t: iso(endOfMonth(now)) },
+  ];
+  const preset = presets.find((p) => p.f === from && p.t === to);
+  const label = preset ? preset.l : from || to ? `Due ${from ? format(new Date(`${from}T00:00`), "d MMM") : "…"} to ${to ? format(new Date(`${to}T00:00`), "d MMM") : "…"}` : "Any due date";
+  return (
+    <>
+      <Menu>
+        <MenuTrigger asChild>
+          <button
+            type="button"
+            className={cn(
+              "flex h-10 min-w-0 items-center justify-between gap-2 rounded-[var(--radius-sm)] border border-line-strong bg-surface px-3 text-left text-[13.5px] text-text hover:border-ink/35 sm:h-9 sm:min-w-36",
+              (from || to) && "border-ink/50 bg-ink-tint/50 font-medium",
+            )}
+          >
+            <span className="truncate">{label}</span>
+            <ChevronDown className="size-3.5 shrink-0 text-faint" />
+          </button>
+        </MenuTrigger>
+        <MenuContent className="w-60">
+          {presets.map((p) => (
+            <MenuItem
+              key={p.l}
+              onSelect={() => {
+                setCustom(false);
+                onChange(p.f, p.t);
+              }}
+            >
+              <span className="flex-1">{p.l}</span>
+              {preset?.l === p.l && <Check className="!text-ink" />}
+            </MenuItem>
+          ))}
+          <MenuItem onSelect={() => setCustom(true)}>Pick dates…</MenuItem>
+          {(from || to) && (
+            <>
+              <MenuSeparator />
+              <MenuItem
+                onSelect={() => {
+                  setCustom(false);
+                  onChange("", "");
+                }}
+              >
+                <X /> Any due date
+              </MenuItem>
+            </>
+          )}
+        </MenuContent>
+      </Menu>
+      {custom && (
+        <span className="col-span-2 flex items-center gap-2 text-[13px] text-muted">
+          <Input type="date" aria-label="Due from" value={from} onChange={(e) => onChange(e.target.value, to)} className="h-9 w-auto" />
+          to
+          <Input type="date" aria-label="Due until" value={to} min={from || undefined} onChange={(e) => onChange(from, e.target.value)} className="h-9 w-auto" />
+        </span>
+      )}
+    </>
   );
 }
 
 function SaveViewDialog({ open, onOpenChange, onSave }: { open: boolean; onOpenChange: (o: boolean) => void; onSave: (name: string) => void }) {
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open && <SaveViewForm onCancel={() => onOpenChange(false)} onSave={(n) => { onSave(n); onOpenChange(false); }} />}
+      {open && (
+        <SaveViewForm
+          onCancel={() => onOpenChange(false)}
+          onSave={(n) => {
+            onSave(n);
+            onOpenChange(false);
+          }}
+        />
+      )}
     </Dialog>
   );
 }
@@ -300,7 +417,7 @@ function SaveViewDialog({ open, onOpenChange, onSave }: { open: boolean; onOpenC
 function SaveViewForm({ onCancel, onSave }: { onCancel: () => void; onSave: (name: string) => void }) {
   const [name, setName] = React.useState("");
   return (
-    <DialogContent title="Save these filters" description="The view is kept on this device and shows up under Saved views.">
+    <DialogContent title="Save these filters" description="The view is kept on your account, so it shows up under Saved views on every device you use.">
       <form
         onSubmit={(e) => {
           e.preventDefault();

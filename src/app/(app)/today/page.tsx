@@ -8,6 +8,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy, arrayMove, s
 import { CSS } from "@dnd-kit/utilities";
 import { BellRing, Check, CheckCircle2, GripVertical, LogIn, LogOut, Megaphone, MessageCircleQuestion, Pause, Play, Sparkles, CircleCheckBig, ChevronDown } from "lucide-react";
 import { PushCard, usePushState } from "@/components/app/push-card";
+import { BreakButton } from "@/components/pages/time/break-button";
 import { useApp, membersOf } from "@/lib/store";
 import { useNow, useScope, useOrgToday } from "@/lib/hooks";
 import { NEXT_UP_SCORE, isOpenWork } from "@/lib/selectors";
@@ -35,7 +36,7 @@ export default function TodayPage() {
   const doneToday = mine.filter((t) => t.status === "approved" && t.approvedAt && isToday(new Date(t.approvedAt)));
   const timer = s.timers[meId];
   const timerTask = timer ? mine.find((t) => t.id === timer.taskId) : undefined;
-  const today = useOrgToday(now);
+  const today = useOrgToday(now, meId);
   const att = s.attendance.find((a) => a.personId === meId && a.date === today);
   const notices = s.announcements.filter((a) => {
     if (!a.requiresAck || a.ackBy[meId] || a.authorId === meId) return false;
@@ -116,6 +117,7 @@ export default function TodayPage() {
                   {att.checkOut ? `Checked out at ${format(new Date(att.checkOut), "h:mm a")}` : `Checked in at ${format(new Date(att.checkIn), "h:mm a")}`}
                   {att.status === "late" && !att.checkOut && <span className="text-heat-1">, late</span>}
                 </span>
+                {!att.checkOut && <BreakButton onBreak={!!att.breaks?.some((b) => !b.end)} />}
                 {!att.checkOut && (
                   <Button
                     variant="ghost"

@@ -40,10 +40,34 @@ export async function POST(req: Request) {
     sizeKb: stored.sizeKb,
     contentType: stored.contentType,
     proof: form?.get("proof") === "1" ? true : undefined,
+    capturedAt: captured(form?.get("capturedAt")),
+    location: located(form?.get("location")),
   });
   if (!r.ok) {
     await removeFile(stored.id);
     return json({ ok: false, error: r.error }, r.status);
   }
   return json({ ok: true, file: stored });
+}
+
+/** the time a photo was taken, if it's believable (not in the future, not years old) */
+function captured(v: FormDataEntryValue | null | undefined) {
+  if (typeof v !== "string") return undefined;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime()) || d.getTime() > Date.now() + 60000 || Date.now() - d.getTime() > 366 * 24 * 3600000) return undefined;
+  return d.toISOString();
+}
+
+function located(v: FormDataEntryValue | null | undefined) {
+  if (typeof v !== "string") return undefined;
+  try {
+    const p = JSON.parse(v) as { lat?: unknown; lng?: unknown; accuracyM?: unknown };
+    const lat = Number(p.lat);
+    const lng = Number(p.lng);
+    if (!Number.isFinite(lat) || !Number.isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return undefined;
+    const acc = Number(p.accuracyM);
+    return { lat, lng, ...(Number.isFinite(acc) && acc >= 0 ? { accuracyM: Math.min(100000, acc) } : {}) };
+  } catch {
+    return undefined;
+  }
 }

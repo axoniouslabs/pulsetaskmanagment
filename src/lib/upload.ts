@@ -23,17 +23,43 @@ async function shrink(file: File): Promise<File> {
   }
 }
 
-/** upload a file to a task; refreshes the screen when done */
-export async function uploadToTask(taskId: string, original: File, opts: { proof?: boolean } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
-  const file = await shrink(original);
+/** where the phone is, if the person allows it; never holds up an upload for long */
+function whereAmI(): Promise<{ lat: number; lng: number; accuracyM: number } | null> {
+  if (typeof navigator === "undefined" || !navigator.geolocation) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => resolve(null), 6000);
+    navigator.geolocation.getCurrentPosition(
+      (p) => {
+        clearTimeout(timer);
+        resolve({ lat: p.coords.latitude, lng: p.coords.longitude, accuracyM: Math.round(p.coords.accuracy) });
+      },
+      () => {
+        clearTimeout(timer);
+        resolve(null);
+      },
+      { enableHighAccuracy: true, maximumAge: 60000, timeout: 5000 },
+    );
+  });
+}
+
+/**
+ * Upload a file to a task; refreshes the screen when done. A photo carries the
+ * time it was taken (from the phone), and a proof photo its location when the
+ * phone shares it.
+ */
+export async function uploadToTask(taskId: string, original: File, opts: { proof?: boolean; locate?: boolean } = {}): Promise<{ ok: true } | { ok: false; error: string }> {
+  const [file, where] = await Promise.all([shrink(original), opts.locate && original.type.startsWith("image/") ? whereAmI() : Promise.resolve(null)]);
   const form = new FormData();
   form.set("file", file);
   form.set("taskId", taskId);
   if (opts.proof) form.set("proof", "1");
+  // a photo picked from the camera roll may be older than the upload: keep when it was taken
+  if (original.type.startsWith("image/") && original.lastModified && Date.now() - original.lastModified > 60000) form.set("capturedAt", new Date(original.lastModified).toISOString());
+  if (where) form.set("location", JSON.stringify(where));
   try {
     const res = await fetch("/api/files", { method: "POST", body: form });
     const body = (await res.json().catch(() => ({}))) as { error?: string };
-    if (!res.ok) return { ok: false, error: res.status === 413 ? "That file is too big. Files can be up to 4 MB." : body.error ?? "The upload didn't finish." };
+    if (!res.ok) return { ok: false, error: res.status === 413 ? "That file is too big. Files can be up to 4 MB." : (body.error ?? "The upload didn't finish.") };
     await useApp.getState().load();
     return { ok: true };
   } catch {

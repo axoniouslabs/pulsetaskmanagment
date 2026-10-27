@@ -151,6 +151,12 @@ export default function SettingsPage() {
             <SettingRow htmlFor="quiet-ack" label="Quiet time after acknowledgment" hint="Gives people room to start the work before follow-ups resume.">
               <NumberSetting id="quiet-ack" value={r.quietAfterAckMin} min={0} max={480} suffix="minutes" onCommit={(n) => setReminder({ quietAfterAckMin: n })} />
             </SettingRow>
+            <SettingRow htmlFor="idle-days" label="Flag work as idle after" hint="In-progress work with no activity for this long is flagged, and the assignee and their reviewer are told.">
+              <NumberSetting id="idle-days" value={settings.idleDays ?? 3} min={1} max={60} suffix="days" onCommit={(n) => save({ idleDays: n })} />
+            </SettingRow>
+            <SettingRow htmlFor="archive-days" label="Archive finished work after" hint="Done and cancelled tasks leave the lists after this long. They stay in reports and search finds them.">
+              <NumberSetting id="archive-days" value={settings.autoArchiveDays ?? 30} min={1} max={365} suffix="days" onCommit={(n) => save({ autoArchiveDays: n })} />
+            </SettingRow>
             <SettingRow htmlFor="snooze-max" label="Snoozes per person per day" hint="Snoozing is visible to the reviewer. Set 0 to turn snoozing off.">
               <NumberSetting id="snooze-max" value={settings.snoozeMaxPerDay} min={0} max={10} suffix="a day" onCommit={(n) => save({ snoozeMaxPerDay: n })} />
             </SettingRow>

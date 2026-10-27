@@ -12,6 +12,7 @@ import { NEXT_UP_SCORE, committedHours, isActive } from "@/lib/selectors";
 import { ago, cn, minutesToLabel, pct, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { StaffActions } from "./staff-dialogs";
+import { WorkPattern } from "./work-pattern";
 import { Bar, Sheet, SheetClose } from "@/components/ui/primitives";
 import { SectionHeading } from "@/components/app/page-header";
 import { Avatar } from "@/components/app/avatar";
@@ -38,7 +39,7 @@ function PersonDetail({ person: p }: { person: Person }) {
   const backup = backupOf(p, allPeople, teams, departments);
   const first = p.name.split(" ")[0];
   const canManage = (role === "owner" || role === "manager") && p.id !== meId;
-  const today = useOrgToday(now);
+  const today = useOrgToday(now, p.id);
   const att = attendance.find((a) => a.personId === p.id && a.date === today);
   const hours = p.onLeave ? 0 : committedHours(allTasks, p.id, now);
   const tone = loadTone(hours, p.capacityHours);
@@ -128,6 +129,8 @@ function PersonDetail({ person: p }: { person: Person }) {
             </Button>
           </section>
         )}
+
+        <WorkPattern person={p} canEdit={role === "owner" || canManage} canEditTeams={role === "owner" || departments.some((d) => d.id === p.departmentId && d.headId === meId)} />
 
         {/* today */}
         <section>

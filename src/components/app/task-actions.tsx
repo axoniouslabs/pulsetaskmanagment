@@ -23,6 +23,10 @@ import {
   ImagePlus,
   Loader2,
   Pencil,
+  Archive,
+  ArrowUpRight,
+  Copy,
+  Gauge,
 } from "lucide-react";
 import { format, addHours } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
@@ -34,9 +38,30 @@ import { Button, buttonVariants } from "@/components/ui/button";
 import { uploadToTask, ACCEPT } from "@/lib/upload";
 import { Dialog, DialogContent, Field, Input, Menu, MenuContent, MenuItem, MenuLabel, MenuSeparator, MenuTrigger, Select, Textarea } from "@/components/ui/primitives";
 import { Avatar } from "./avatar";
-import { EditTaskForm } from "./edit-task";
+import { EditDescriptionForm, EditTaskForm } from "./edit-task";
 
-export type DialogKind = "edit" | "block" | "submit" | "reject" | "reassign" | "deadline" | "request" | "cancel" | "ask" | "unblock" | "approve" | null;
+export type DialogKind = "edit" | "describe" | "progress" | "escalate" | "block" | "submit" | "reject" | "reassign" | "deadline" | "request" | "cancel" | "ask" | "unblock" | "approve" | null;
+
+/** a fresh copy of a task's details for New task: same work, new dates */
+export function duplicateDefaults(task: Task) {
+  return {
+    title: task.title,
+    description: task.description,
+    assigneeId: task.assigneeId,
+    priority: task.priority,
+    estimateHours: task.estimateHours,
+    projectId: task.projectId,
+    requiresApproval: task.requiresApproval,
+    requiresProof: task.requiresProof,
+    requiresResult: task.requiresResult,
+    reminder: task.reminder,
+    subtasks: task.subtasks.map((x) => x.title),
+    tags: task.tags,
+    recurrence: task.recurrence,
+    watcherIds: task.watcherIds,
+    updateEveryDays: task.updateEveryDays,
+  };
+}
 
 const toLocalInput = (iso: string) => format(new Date(iso), "yyyy-MM-dd'T'HH:mm");
 
@@ -108,6 +133,20 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
     </Menu>
   );
 
+  const duplicate = () => {
+    a.openCreate(duplicateDefaults(task));
+    toast("Copied into a new task", { description: "Check who owns it and set the new deadline." });
+  };
+  const archiveItem = ["approved", "cancelled"].includes(task.status) && (
+    <MenuItem
+      onSelect={() => {
+        if (a.act({ type: "archiveTask", taskId: task.id, archived: !task.archivedAt }).ok)
+          toast.success(task.archivedAt ? "Back in the lists" : "Archived", { description: task.archivedAt ? undefined : "Hidden from the lists. Search still finds it." });
+      }}
+    >
+      <Archive /> {task.archivedAt ? "Bring back from the archive" : "Archive"}
+    </MenuItem>
+  );
   const managerItems = (
     <>
       {!["approved", "cancelled"].includes(task.status) && (
@@ -115,6 +154,9 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
           <Pencil /> Edit details
         </MenuItem>
       )}
+      <MenuItem onSelect={duplicate}>
+        <Copy /> Duplicate
+      </MenuItem>
       <MenuItem onSelect={() => setDialog("reassign")}>
         <UserRoundCog /> Hand over to someone else
       </MenuItem>
@@ -130,6 +172,14 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
 
   const assigneeItems = (
     <>
+      {["acknowledged", "in_progress", "blocked"].includes(task.status) && (
+        <MenuItem onSelect={() => setDialog("progress")}>
+          <Gauge /> Update progress
+        </MenuItem>
+      )}
+      <MenuItem onSelect={() => setDialog("describe")}>
+        <Pencil /> Edit the description
+      </MenuItem>
       <MenuItem onSelect={() => setDialog("ask")}>
         <MessageCircleQuestion /> Ask a question
       </MenuItem>
@@ -278,12 +328,18 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
         <Button size={size} variant="danger" onClick={() => setDialog("reject")}>
           <Undo2 /> Send back
         </Button>
-        {r.canManage &&
-          moreMenu(
-            <MenuItem onSelect={() => setDialog("reassign")}>
-              <UserRoundCog /> Hand over to someone else
-            </MenuItem>,
-          )}
+        {moreMenu(
+          <>
+            <MenuItem onSelect={() => setDialog("escalate")}>
+              <ArrowUpRight /> Pass up for review
+            </MenuItem>
+            {r.canManage && (
+              <MenuItem onSelect={() => setDialog("reassign")}>
+                <UserRoundCog /> Hand over to someone else
+              </MenuItem>
+            )}
+          </>,
+        )}
       </>
     );
   } else if (task.status === "blocked" && (r.canManage || r.isBlockerOwner)) {
@@ -305,6 +361,15 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
           <CalendarClock /> {compact ? "Extend" : "Change deadline"}
         </Button>
         {moreMenu(managerItems)}
+      </>
+    );
+  } else if (["approved", "cancelled"].includes(task.status) && r.canManage) {
+    buttons = (
+      <>
+        <Button size={size} onClick={duplicate}>
+          <Copy /> Duplicate
+        </Button>
+        {moreMenu(archiveItem)}
       </>
     );
   } else if (task.status === "submitted" && r.isAssignee) {
@@ -358,7 +423,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
     if (!f) return;
     setUploading(true);
     setError(null);
-    const r = await uploadToTask(task.id, f, { proof: true });
+    const r = await uploadToTask(task.id, f, { proof: true, locate: true });
     setUploading(false);
     if (r.ok) setProof(f.name);
     else setError(r.error);
@@ -611,6 +676,27 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
         );
       case "edit":
         return <EditTaskForm task={task} onClose={onClose} />;
+      case "describe":
+        return <EditDescriptionForm task={task} onClose={onClose} />;
+      case "progress":
+        return <ProgressDialog task={task} onClose={onClose} />;
+      case "escalate":
+        return (
+          <DialogContent title="Pass this review up" description="It goes to the head of your department (or the owner) to decide. The assignee is told why.">
+            <Field label="Why does it need someone more senior?">
+              <Textarea autoFocus value={text} onChange={(e) => setText(e.target.value)} placeholder="e.g. The price change needs the owner's OK" />
+            </Field>
+            {error && <p className="mt-2 text-[13px] text-heat-3">{error}</p>}
+            {footer(
+              "Pass it up",
+              () => {
+                const r = a.act({ type: "escalateReview", taskId: task.id, note: text.trim() });
+                if (r.ok) done("Passed up for review");
+              },
+              { disabled: !text.trim() },
+            )}
+          </DialogContent>
+        );
       case "cancel":
         return (
           <DialogContent title="Cancel this task?" description="It stays in the history and reports, marked as cancelled.">
@@ -663,4 +749,44 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
   })();
 
   return content;
+}
+
+/** the assignee says how far along it is, with one line on where it stands */
+function ProgressDialog({ task, onClose }: { task: Task; onClose: () => void }) {
+  const act = useApp((s) => s.act);
+  const [pct, setPct] = React.useState(task.progress ?? 0);
+  const [note, setNote] = React.useState("");
+  return (
+    <DialogContent title="Update progress" description="Your reviewer sees it straight away. A short line is enough.">
+      <div className="space-y-4">
+        <label className="block" htmlFor="progress-pct">
+          <span className="flex items-baseline justify-between text-[13px] text-muted">
+            How far along
+            <span className="tabular font-display text-[22px] font-semibold text-text">{pct}%</span>
+          </span>
+          <input id="progress-pct" type="range" min={0} max={100} step={5} value={pct} onChange={(e) => setPct(Number(e.target.value))} className="mt-2 w-full accent-[var(--color-ink)]" />
+        </label>
+        <Field label="Where it stands" htmlFor="progress-note">
+          <Textarea id="progress-note" autoFocus value={note} onChange={(e) => setNote(e.target.value)} placeholder="e.g. Two of three branches done, the last one tomorrow" />
+        </Field>
+      </div>
+      <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variant="ghost" onClick={onClose}>
+          Keep as is
+        </Button>
+        <Button
+          variant="primary"
+          disabled={!note.trim()}
+          onClick={() => {
+            if (act({ type: "setProgress", taskId: task.id, pct, note: note.trim() }).ok) {
+              toast.success(`Progress set to ${pct}%`);
+              onClose();
+            }
+          }}
+        >
+          Post update
+        </Button>
+      </div>
+    </DialogContent>
+  );
 }

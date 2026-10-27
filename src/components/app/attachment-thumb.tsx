@@ -1,6 +1,6 @@
 "use client";
 
-import { FileText, ImageIcon } from "lucide-react";
+import { FileText, ImageIcon, Link2 } from "lucide-react";
 import type { Attachment } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -15,7 +15,13 @@ export function AttachmentThumb({ a, className, iconSize = "size-6" }: { a: Atta
       className={cn("flex aspect-[4/3] w-full items-center justify-center", className)}
       style={{ background: a.kind === "image" ? `linear-gradient(135deg, oklch(0.9 0.05 ${a.hue ?? 200}), oklch(0.8 0.07 ${(a.hue ?? 200) + 40}))` : "var(--color-sunken)" }}
     >
-      {a.kind === "image" ? <ImageIcon className={cn(iconSize, "text-white/90")} /> : <FileText className={cn(iconSize, "text-muted")} />}
+      {a.kind === "image" ? (
+        <ImageIcon className={cn(iconSize, "text-white/90")} />
+      ) : a.kind === "link" ? (
+        <Link2 className={cn(iconSize, "text-ink")} />
+      ) : (
+        <FileText className={cn(iconSize, "text-muted")} />
+      )}
     </span>
   );
 }

@@ -20,7 +20,8 @@ const reminder = z
 const newTask = z.object({
   title: text(200).min(1, "Add a title so the assignee knows what to do."),
   description: text(5000).optional(),
-  assigneeId: id,
+  // empty when a unit or a project rule decides who gets it
+  assigneeId: z.string().max(80),
   priority: z.enum(["urgent", "high", "normal", "low"]),
   dueAt: iso,
   startAt: iso.optional(),
@@ -35,7 +36,42 @@ const newTask = z.object({
   recurrence: z.enum(["daily", "weekly", "monthly"]).optional(),
   draft: z.boolean().optional(),
   dependsOn: z.array(id).max(20).optional(),
-  claim: z.object({ unitType: z.enum(["team", "group"]), unitId: id }).optional(),
+  claim: z.object({ unitType: z.enum(["department", "team", "group"]), unitId: id }).optional(),
+  pool: z.object({ unitType: z.enum(["department", "team", "group"]), unitId: id, mode: z.enum(["roundrobin", "route"]) }).optional(),
+  watcherIds: z.array(id).max(30).optional(),
+  reviewerId: id.optional(),
+  dueAllDay: z.boolean().optional(),
+  updateEveryDays: z.number().int().min(1).max(30).optional(),
+});
+
+const hhmm = z.string().regex(/^\d{2}:\d{2}$/, "Use a time like 09:00.");
+const timeZone = z
+  .string()
+  .min(1)
+  .max(64)
+  .refine((tz) => {
+    try {
+      new Intl.DateTimeFormat("en-GB", { timeZone: tz });
+      return true;
+    } catch {
+      return false;
+    }
+  }, "Pick a time zone from the list.");
+const workDays = z.array(z.number().int().min(0).max(6)).max(7);
+const schedule = z.object({ timezone: timeZone.optional(), workDays: workDays.optional(), workStart: hhmm.optional(), workEnd: hhmm.optional() });
+const departmentSettings = z.object({
+  workDays: workDays.optional(),
+  workStart: hhmm.optional(),
+  workEnd: hhmm.optional(),
+  defaultReminder: z
+    .object({
+      intervalMin: z.number().int().min(5).max(10080),
+      window: z.enum(["working", "always"]),
+      dailyCap: z.number().int().min(1).max(100),
+    })
+    .partial()
+    .optional(),
+  approvalByDefault: z.boolean().optional(),
 });
 
 const taskPatch = z
@@ -53,6 +89,10 @@ const taskPatch = z
     reminder,
     recurrence: z.enum(["daily", "weekly", "monthly"]).nullable(),
     dependsOn: z.array(id).max(20),
+    watcherIds: z.array(id).max(30),
+    reviewerId: id,
+    dueAllDay: z.boolean(),
+    updateEveryDays: z.number().int().min(1).max(30).nullable(),
   })
   .partial();
 
@@ -107,6 +147,8 @@ const settingsPatch = z
     digestMorning: z.string().regex(/^\d{2}:\d{2}$/),
     digestEvening: z.string().regex(/^\d{2}:\d{2}$/),
     retentionMonths: z.number().int().min(12).max(120),
+    idleDays: z.number().int().min(1).max(60),
+    autoArchiveDays: z.number().int().min(1).max(365),
   })
   .partial();
 
@@ -179,6 +221,7 @@ const schema = z.discriminatedUnion("type", [
     body: text(4000),
     kind: z.enum(["text", "voice"]).optional(),
     durationSec: z.number().int().min(0).max(600).optional(),
+    parentId: id.optional(),
   }),
   z.object({
     type: z.literal("addAttachment"),
@@ -194,8 +237,34 @@ const schema = z.discriminatedUnion("type", [
     sizeKb: z.number().int().min(0).max(100000).optional(),
     contentType: text(120).optional(),
     proof: z.boolean().optional(),
+    capturedAt: iso.optional(),
+    location: z.object({ lat: z.number().min(-90).max(90), lng: z.number().min(-180).max(180), accuracyM: z.number().min(0).max(100000).optional() }).optional(),
   }),
-  z.object({ type: z.literal("stopTimer") }),
+  z.object({ type: z.literal("stopTimer"), at: iso.optional() }),
+  z.object({ type: z.literal("setWatching"), taskId: id, watch: z.boolean() }),
+  z.object({ type: z.literal("archiveTask"), taskId: id, archived: z.boolean() }),
+  z.object({ type: z.literal("setProgress"), taskId: id, pct: z.number().min(0).max(100), note: text(500) }),
+  z.object({ type: z.literal("escalateReview"), taskId: id, note: text(500) }),
+  z.object({ type: z.literal("addLink"), taskId: id, url: text(1000), title: text(200).optional() }),
+  z.object({ type: z.literal("addTimeEntry"), taskId: id, minutes: z.number().int().min(1).max(960), date: day, note: text(500) }),
+  z.object({ type: z.literal("editComment"), taskId: id, commentId: id, body: text(4000) }),
+  z.object({ type: z.literal("routeTask"), taskId: id, toId: id }),
+  z.object({ type: z.literal("startBreak") }),
+  z.object({ type: z.literal("endBreak") }),
+  z.object({ type: z.literal("addProject"), id, name: text(100), leadId: id, defaultAssigneeId: id.optional() }),
+  z.object({
+    type: z.literal("editProject"),
+    projectId: id,
+    patch: z.object({ name: text(100), leadId: id, defaultAssigneeId: id.nullable() }).partial(),
+  }),
+  z.object({
+    type: z.literal("updateDepartment"),
+    departmentId: id,
+    patch: z.object({ name: text(100), description: text(300), settings: departmentSettings.nullable() }).partial(),
+  }),
+  z.object({ type: z.literal("setPersonSchedule"), personId: id, schedule: schedule.nullable() }),
+  z.object({ type: z.literal("setSecondaryTeams"), personId: id, teamIds: z.array(id).max(20) }),
+  z.object({ type: z.literal("setBackup"), personId: id, backupId: id.nullable() }),
   z.object({ type: z.literal("markRead"), id }),
   z.object({ type: z.literal("markAllRead") }),
   z.object({
@@ -263,6 +332,10 @@ const schema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("setPref"), key: text(80), value: z.boolean() }),
   z.object({ type: z.literal("setDayOrder"), ids: z.array(id).max(500) }),
+  z.object({
+    type: z.literal("setSavedViews"),
+    views: z.array(z.object({ id, name: text(60), filters: z.record(z.string(), z.unknown()).refine((f) => JSON.stringify(f).length < 4000, "That view is too large."), sort: text(20) })).max(30),
+  }),
 ]);
 
 export function validateCommand(raw: unknown): Command {

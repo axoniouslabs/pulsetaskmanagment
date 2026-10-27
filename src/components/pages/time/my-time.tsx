@@ -4,19 +4,22 @@ import * as React from "react";
 import { addDays, differenceInCalendarDays, format, isToday, startOfWeek } from "date-fns";
 import { toast } from "sonner";
 import { CalendarDays, LogIn, LogOut, Plus, TreePalm } from "lucide-react";
-import { useApp } from "@/lib/store";
-import { useNow, useScope } from "@/lib/hooks";
+import { useApp, useMeId } from "@/lib/store";
+import { useNow, useOrgToday, useScope } from "@/lib/hooks";
+import { localNow, scheduleFor } from "@/domain/time";
+import { BreakButton } from "./break-button";
 import type { Leave } from "@/lib/types";
 import { cn, minutesToLabel, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Bar } from "@/components/ui/primitives";
 import { Panel, SectionHeading } from "@/components/app/page-header";
 import { LeaveDialog } from "./leave-dialog";
-import { LEAVE_LABEL, STATUS_META, approvedLeaveOn, approverFor, backOn, day, leaveDays, leaveRange, minutesLate, startLabel, time, workedMinutes, type DayStatus } from "./lib";
+import { LEAVE_LABEL, STATUS_META, approvedLeaveOn, approverFor, backOn, day, leaveDays, leaveRange, minutesLate, openBreakMinutes, startLabel, time, workedMinutes, type DayStatus } from "./lib";
 
 export function MyTime() {
   const now = useNow(30000);
-  const today = format(now, "yyyy-MM-dd");
+  const meId = useMeId();
+  const today = useOrgToday(now, meId);
   return (
     <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_320px]">
       <div className="min-w-0 space-y-8">
@@ -45,21 +48,24 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
   const managerName = approverFor({ people, teams, departments }, meId)?.name.split(" ")[0] ?? "your manager";
 
   const leave = approvedLeaveOn(leaves, meId, today) ?? (me.onLeave && !att?.checkIn ? ({ to: today } as Leave) : undefined);
+  // this person's own hours: theirs, their department's, or the company's
+  const sc = scheduleFor({ settings, people, departments }, meId);
   const holiday = settings.holidays.find((h) => h.date === today);
-  const dayOff = !settings.workDays.includes(now.getDay()) || !!holiday;
+  const dayOff = !sc.workDays.includes(localNow(now, sc.timezone).dow) || !!holiday;
   const worked = workedMinutes(att, now);
-  const late = att?.status === "late" ? minutesLate(att, settings) : 0;
+  const late = att?.status === "late" ? minutesLate(att, sc) : 0;
   const target = me.capacityHours * 60;
+  const onBreak = !!att?.breaks?.some((b) => !b.end);
+  const breakTotal = (att?.breakMin ?? 0) + openBreakMinutes(att, now);
 
   const doCheckIn = () => {
-    checkIn();
-    toast.success("Checked in", {
-      description: `at ${format(new Date(), "h:mm a")}`,
-    });
+    if (checkIn().ok)
+      toast.success("Checked in", {
+        description: `at ${format(new Date(), "h:mm a")}`,
+      });
   };
   const doCheckOut = () => {
-    checkOut();
-    toast("Checked out", { description: "Any running timer was stopped." });
+    if (checkOut().ok) toast("Checked out", { description: "Any running timer was stopped." });
   };
 
   return (
@@ -86,11 +92,20 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
                   </>
                 )}
               </p>
+              {(breakTotal > 0 || onBreak) && (
+                <p className="mt-1 text-[13px] text-muted">
+                  {onBreak ? <span className="font-medium text-ink">On a break now. </span> : null}
+                  {breakTotal > 0 ? `${minutesToLabel(breakTotal)} of breaks today, not counted as worked.` : null}
+                </p>
+              )}
             </div>
             {!att.checkOut ? (
-              <Button size="lg" onClick={doCheckOut} className="self-start sm:self-auto">
-                <LogOut /> Check out
-              </Button>
+              <div className="flex flex-wrap gap-2 self-start sm:self-auto">
+                <BreakButton onBreak={onBreak} />
+                <Button size="lg" onClick={doCheckOut}>
+                  <LogOut /> Check out
+                </Button>
+              </div>
             ) : (
               <p className="text-[13px] text-muted">See you tomorrow.</p>
             )}
@@ -98,7 +113,7 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
           <div className="mt-5">
             <Bar value={worked} max={target} tone={worked >= target ? "ok" : "ink"} />
             <div className="mt-1.5 flex justify-between text-[12px] text-faint">
-              <span>Starts {startLabel(settings.workStart)}</span>
+              <span>Starts {startLabel(sc.workStart)}</span>
               <span className="tabular">{minutesToLabel(target)} day</span>
             </div>
           </div>
@@ -120,7 +135,7 @@ function TodayCard({ now, today }: { now: Date; today: string }) {
             <p className="mt-1 max-w-[52ch] text-[14px] leading-snug text-muted">
               {dayOff
                 ? `${holiday ? holiday.name : "Not a working day"}. Pulse isn't sending reminders today.`
-                : `Your day starts at ${startLabel(settings.workStart)}. Check in when you start so ${managerName} knows you're here.`}
+                : `Your day starts at ${startLabel(sc.workStart)}. Check in when you start so ${managerName} knows you're here.`}
             </p>
           </div>
           <Button variant={dayOff ? "secondary" : "primary"} size="lg" onClick={doCheckIn} className="self-start sm:self-auto">

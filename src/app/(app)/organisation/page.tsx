@@ -12,6 +12,7 @@ import { Avatar } from "@/components/app/avatar";
 import { DepartmentList, GroupList } from "@/components/pages/organisation/structure";
 import { EscalationPath } from "@/components/pages/organisation/escalation-path";
 import { AddDepartmentDialog, AddTeamDialog, LeaderDialog, MovePersonDialog, NewGroupDialog } from "@/components/pages/organisation/dialogs";
+import { DepartmentRulesDialog, ProjectsSection } from "@/components/pages/organisation/rules-projects";
 
 export default function OrganisationPage() {
   const { role, allPeople, teams, departments } = useScope();
@@ -23,6 +24,7 @@ export default function OrganisationPage() {
   const [groupOpen, setGroupOpen] = React.useState(false);
   const [teamFor, setTeamFor] = React.useState<Department | null>(null);
   const [moving, setMoving] = React.useState<Person | null>(null);
+  const [rulesFor, setRulesFor] = React.useState<Department | null>(null);
   const [leader, setLeader] = React.useState<{ kind: "head"; unit: Department } | { kind: "lead"; unit: Team } | null>(null);
   const people = React.useMemo(() => allPeople.filter((p) => p.active !== false), [allPeople]);
   // staff who aren't in any team (added with "No team yet", or whose team was never set)
@@ -62,6 +64,7 @@ export default function OrganisationPage() {
               onMove={setMoving}
               onChangeHead={(d) => setLeader({ kind: "head", unit: d })}
               onChangeLead={(t) => setLeader({ kind: "lead", unit: t })}
+              onRules={setRulesFor}
             />
           ) : (
             <Panel>
@@ -111,6 +114,11 @@ export default function OrganisationPage() {
         </section>
 
         <section>
+          <SectionHeading title="Projects" />
+          <ProjectsSection people={people} />
+        </section>
+
+        <section>
           <SectionHeading
             title="Groups"
             aside={
@@ -133,6 +141,7 @@ export default function OrganisationPage() {
       <AddTeamDialog department={teamFor} open={!!teamFor} onOpenChange={(o) => !o && setTeamFor(null)} />
       <MovePersonDialog person={moving} open={!!moving} onOpenChange={(o) => !o && setMoving(null)} />
       <LeaderDialog target={leader} onOpenChange={(o) => !o && setLeader(null)} />
+      <DepartmentRulesDialog department={rulesFor} onOpenChange={(o) => !o && setRulesFor(null)} />
     </div>
   );
 }

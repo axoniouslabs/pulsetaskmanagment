@@ -174,11 +174,7 @@ export const Textarea = React.forwardRef<HTMLTextAreaElement, React.TextareaHTML
 Textarea.displayName = "Textarea";
 
 export const Select = React.forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<HTMLSelectElement>>(({ className, children, ...props }, ref) => (
-  <select
-    ref={ref}
-    className={cn(fieldBase, "select-field h-10 pr-9", className)}
-    {...props}
-  >
+  <select ref={ref} className={cn(fieldBase, "select-field h-10 pr-9", className)} {...props}>
     {children}
   </select>
 ));
@@ -188,15 +184,21 @@ export function Field({ label, hint, children, className, htmlFor }: { label: st
   // tie the label (and hint) to the control, so tapping the label focuses it and screen readers announce both
   const auto = React.useId();
   const hintId = `${auto}-hint`;
-  let id = htmlFor;
-  let control = children;
-  if (React.isValidElement<{ id?: string; "aria-describedby"?: string }>(children) && (children.type === Input || children.type === Select || children.type === Textarea)) {
-    id = children.props.id ?? htmlFor ?? auto;
-    control = React.cloneElement(children, {
-      id,
-      "aria-describedby": hint ? [children.props["aria-describedby"], hintId].filter(Boolean).join(" ") : children.props["aria-describedby"],
-    });
-  }
+  // the first input, select or text area in the field gets the label (an error line after it is fine)
+  const items = React.Children.toArray(children);
+  const at = items.findIndex((c) => React.isValidElement(c) && (c.type === Input || c.type === Select || c.type === Textarea));
+  const first = at >= 0 ? (items[at] as React.ReactElement<{ id?: string; "aria-describedby"?: string }>) : null;
+  const id = first ? (first.props.id ?? htmlFor ?? auto) : htmlFor;
+  const control = first
+    ? items.map((c, i) =>
+        i === at
+          ? React.cloneElement(first, {
+              id,
+              "aria-describedby": hint ? [first.props["aria-describedby"], hintId].filter(Boolean).join(" ") : first.props["aria-describedby"],
+            })
+          : c,
+      )
+    : children;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={id} className="text-[13px] font-medium text-text">

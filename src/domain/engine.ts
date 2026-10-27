@@ -16,8 +16,8 @@
  */
 import { addDays, addMonths, addWeeks, differenceInMinutes } from "date-fns";
 import type { Activity, ActivityKind, AppNotification, HeatLevel, NotificationKind, Task } from "@/lib/types";
-import { headOf, leadOf, membersOf, ownerOf, type World } from "./world";
-import { isAway, isHoliday, isWorkDay, isWorkingTime, localNow, toMinutes } from "./time";
+import { headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
+import { isAway, isWorkDay, isWorkingTimeFor, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
 
 export interface EngineState {
   lastTickAt?: string;
@@ -35,6 +35,8 @@ export interface EngineState {
   noticeReminders?: Record<string, Record<string, string>>;
   /** tasks whose daily reminder cap was logged today (date → task ids) */
   capLogged?: { date: string; ids: string[] };
+  /** per person: the local date their morning brief last went out (people can be in different time zones) */
+  morningFor?: Record<string, string>;
 }
 
 export interface TickResult {
@@ -60,13 +62,19 @@ const HORIZON_MINUTES = 15 * 60;
 
 const OPEN = ["assigned", "acknowledged", "in_progress"];
 
-export function runTick(world: World, state: EngineState, now: Date, uid: (p: string) => string): TickResult {
+export function runTick(world: World, state: EngineState, now: Date, uid: (p: string) => string, extra: { lastTouch?: Record<string, string> } = {}): TickResult {
   const w: World = structuredClone(world);
   const s = w.settings;
   const tz = s.timezone || "Asia/Karachi";
   const l = localNow(now, tz);
   const nowIso = now.toISOString();
-  const working = isWorkingTime(s, now);
+  /** inside this person's own working hours (their override, else their department's, else the company's) */
+  const workCache = new Map<string, boolean>();
+  const workingFor = (personId: string | undefined) => {
+    const key = personId ?? "";
+    if (!workCache.has(key)) workCache.set(key, isWorkingTimeFor(w, personId, now));
+    return workCache.get(key)!;
+  };
   const acts: Activity[] = [];
   const notes: AppNotification[] = [];
   const digestIds: string[] = [];
@@ -150,11 +158,15 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   for (const t of w.tasks) {
     if (t.status === "draft" || t.status === "approved" || t.status === "cancelled") continue;
     if (t.startAt && new Date(t.startAt) > now) continue;
+    // working hours can change: keep the moment it turns overdue current
+    const od = overdueFrom(w, t.assigneeId, t.dueAt);
+    if (t.overdueAt !== od) t.overdueAt = od;
     const away = isAway(w, t.assigneeId, l.date);
-    const overdueMin = minsSince(t.dueAt); // > 0 when overdue
+    const overdueMin = minsSince(t.overdueAt); // > 0 when overdue
     const overdue = overdueMin > 0;
 
     const unclaimed = !!t.groupClaim && !t.groupClaim.claimed;
+    const working = workingFor(t.assigneeId);
     if (t.status === "assigned") {
       // ladder first: lateness counts even when reminders are paused by the window
       if (!away && working) {
@@ -269,7 +281,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
 
     if (t.status === "blocked") {
-      if (!working || !t.blockedOwnerId) continue;
+      if (!t.blockedOwnerId || !workingFor(t.blockedOwnerId)) continue;
       const since = t.lastReminderAt && t.blockedAt && t.lastReminderAt > t.blockedAt ? t.lastReminderAt : t.blockedAt;
       if (minsSince(since) >= BLOCKED_NUDGE_MIN) {
         t.lastReminderAt = nowIso;
@@ -280,7 +292,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
 
     if (t.status === "submitted" && t.submittedAt) {
-      if (!working) continue;
+      if (!workingFor(t.reviewerId)) continue;
       const waitH = minsSince(t.submittedAt) / 60;
       if (waitH >= s.reviewSlaHours * 2 && t.escalationLevel < 2) {
         t.escalationLevel = 2;
@@ -301,6 +313,82 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
   }
 
+  /* ---------- 2b. forgotten timers stop at the end of the working day ---------- */
+  for (const [personId, timer] of Object.entries(w.timers)) {
+    if (!timer) continue;
+    const cutoff = timerCutoff(w, personId, timer.startedAt);
+    if (cutoff > now) continue;
+    const t = w.tasks.find((x) => x.id === timer.taskId);
+    const mins = Math.max(1, Math.round((cutoff.getTime() - new Date(timer.startedAt).getTime()) / 60000));
+    if (t) {
+      t.loggedMinutes += mins;
+      t.timeEntries = [...(t.timeEntries ?? []), { id: uid("te"), personId, minutes: mins, from: timer.startedAt, to: cutoff.toISOString(), autoStopped: true }];
+    }
+    w.timers[personId] = undefined;
+    const at = new Intl.DateTimeFormat("en-GB", { timeZone: scheduleFor(w, personId).timezone, hour: "numeric", minute: "2-digit" }).format(cutoff);
+    log("timer", `Timer stopped automatically at ${at}, the end of ${first(personId)}'s working day (${mins} min counted). Add time by hand if work went on longer.`, timer.taskId);
+    note(personId, "reminder", "Your timer was stopped", `${t?.title ?? "A task"}: it was still running at ${at}, so Pulse stopped it there. If you worked later, add the time by hand.`, timer.taskId);
+  }
+
+  /* ---------- 2c. work that sits in progress with no activity is flagged as idle ---------- */
+  {
+    const idleDays = s.idleDays ?? 3;
+    const lastTouch = new Map<string, number>(Object.entries(extra.lastTouch ?? {}).map(([k, v]) => [k, new Date(v).getTime()]));
+    for (const a of w.activity) {
+      if (!a.taskId || a.actorId === "system") continue;
+      const at = new Date(a.at).getTime();
+      if (at > (lastTouch.get(a.taskId) ?? 0)) lastTouch.set(a.taskId, at);
+    }
+    for (const t of w.tasks) {
+      if (t.status !== "in_progress" || t.idleFlaggedAt) continue;
+      if (w.timers[t.assigneeId]?.taskId === t.id) continue;
+      const touched = Math.max(
+        lastTouch.get(t.id) ?? 0,
+        new Date(t.statusChangedAt).getTime(),
+        ...t.comments.map((c) => new Date(c.at).getTime()),
+        ...(t.timeEntries ?? []).map((e) => new Date(e.to ?? e.from).getTime()),
+      );
+      if (now.getTime() - touched < idleDays * 24 * 3600000) continue;
+      t.idleFlaggedAt = nowIso;
+      log("escalated", `Idle: in progress with no activity for ${idleDays} days`, t.id);
+      note(t.assigneeId, "reminder", `Still working on this? ${t.title}`, `Nothing has happened on it for ${idleDays} days. Add an update, submit it, or mark it blocked.`, t.id);
+      const up = t.reviewerId !== t.assigneeId ? t.reviewerId : (leadOf(w, t.assigneeId) ?? headOf(w, t.assigneeId));
+      if (up) note(up, "escalation", `${first(t.assigneeId)}'s task has gone quiet`, `${t.title} has been in progress with no activity for ${idleDays} days.`, t.id);
+    }
+  }
+
+  /* ---------- 2d. regular progress updates on long work, and archiving finished work ---------- */
+  for (const t of w.tasks) {
+    if (t.updateEveryDays && ["acknowledged", "in_progress"].includes(t.status) && !isAway(w, t.assigneeId, l.date) && workingFor(t.assigneeId)) {
+      const every = t.updateEveryDays * 24 * 60;
+      const lastUpdate = [t.progressAt, t.startedAt, t.acknowledgedAt].filter(Boolean).sort().pop();
+      const sinceUpdate = minsSince(lastUpdate);
+      if (sinceUpdate >= every && minsSince(t.lastUpdateRemindedAt) >= every) {
+        t.lastUpdateRemindedAt = nowIso;
+        const days = Math.floor(sinceUpdate / 1440);
+        note(
+          t.assigneeId,
+          "reminder",
+          `Time for an update: ${t.title}`,
+          `It asks for an update every ${t.updateEveryDays === 1 ? "day" : `${t.updateEveryDays} days`}. Set how far along it is, with one line on where it stands.`,
+          t.id,
+        );
+        log("reminder_sent", `Asked ${first(t.assigneeId)} for a progress update (last one ${days} ${days === 1 ? "day" : "days"} ago)`, t.id);
+        // two missed updates in a row: the reviewer hears
+        if (sinceUpdate >= every * 2 && t.reviewerId !== t.assigneeId)
+          note(
+            t.reviewerId,
+            "escalation",
+            `No update from ${first(t.assigneeId)} in ${days} days`,
+            `${t.title} asks for one every ${t.updateEveryDays === 1 ? "day" : `${t.updateEveryDays} days`}.`,
+            t.id,
+          );
+      }
+    }
+    const closed = t.status === "approved" ? t.approvedAt : t.status === "cancelled" ? t.statusChangedAt : undefined;
+    if (closed && !t.archivedAt && minsSince(closed) >= (s.autoArchiveDays ?? 30) * 1440) t.archivedAt = nowIso;
+  }
+
   /* ---------- 3. repeating tasks: make the next copy once this one is done or due ---------- */
   const stillOpen = (x: Task) => !["approved", "cancelled"].includes(x.status);
   /** open copies behind this one in its repeat chain (this one included) */
@@ -315,10 +403,11 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     }
     return n;
   };
-  // "daily" means every working day: weekends and holidays are skipped
-  const isOff = (d: Date) => {
-    const ln = localNow(d, tz);
-    return !s.workDays.includes(ln.dow) || isHoliday(s, ln.date);
+  // "daily" means every working day of the person it's for: their days off and holidays are skipped
+  const isOff = (d: Date, personId: string) => {
+    const sc = scheduleFor(w, personId);
+    const ln = localNow(d, sc.timezone);
+    return !sc.workDays.includes(ln.dow) || sc.holidays.some((h) => h.date === ln.date);
   };
   for (const t of [...w.tasks]) {
     if (!t.recurrence || t.recurrenceNextId || t.status === "draft" || t.status === "cancelled") continue;
@@ -328,7 +417,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     let due = step(new Date(t.dueAt));
     let start = t.startAt ? step(new Date(t.startAt)) : undefined;
     let guard = 0;
-    while ((due <= now || (t.recurrence === "daily" && isOff(due))) && guard++ < 400) {
+    while ((due <= now || (t.recurrence === "daily" && isOff(due, t.assigneeId))) && guard++ < 400) {
       due = step(due);
       if (start) start = step(start);
     }
@@ -390,13 +479,20 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     const open = w.tasks.filter((t) => ["assigned", "acknowledged", "in_progress", "blocked"].includes(t.status));
     const endOfDay = new Date(now.getTime() + (24 * 60 - l.minutes) * 60000);
 
-    // a digest is only worth sending close to its time; if the engine was down, skip it
-    const morningDue = l.minutes >= toMinutes(s.digestMorning) && next.morningSent !== l.date;
-    if (morningDue && l.minutes > toMinutes(s.digestMorning) + DIGEST_GRACE_MIN) next.morningSent = l.date;
-    if (morningDue && next.morningSent !== l.date) {
-      next.morningSent = l.date;
+    // the morning brief goes out at each person's own morning, in their own time zone;
+    // a brief is only worth sending close to its time, so if the engine was down it's skipped
+    // first run after per-person briefs arrived: today's brief already went out company-wide
+    const morningFor = { ...(next.morningFor ?? (next.morningSent === l.date ? Object.fromEntries(w.people.map((p) => [p.id, l.date])) : {})) };
+    if (l.minutes >= toMinutes(s.digestMorning)) next.morningSent = l.date;
+    {
       const rank = { urgent: 0, high: 1, normal: 2, low: 3 } as const;
       for (const p of active) {
+        const sc = scheduleFor(w, p.id);
+        const pl = localNow(now, sc.timezone);
+        if (morningFor[p.id] === pl.date || !sc.workDays.includes(pl.dow) || sc.holidays.some((h) => h.date === pl.date)) continue;
+        if (pl.minutes < toMinutes(s.digestMorning)) continue;
+        morningFor[p.id] = pl.date;
+        if (pl.minutes > toMinutes(s.digestMorning) + DIGEST_GRACE_MIN) continue;
         const mine = open.filter((t) => t.assigneeId === p.id && t.status !== "blocked" && !(t.startAt && new Date(t.startAt) > endOfDay));
         const late = mine.filter((t) => new Date(t.dueAt) <= now).length;
         const reviews = w.tasks.filter((t) => t.status === "submitted" && t.reviewerId === p.id).length;
@@ -414,6 +510,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         if (n) digestIds.push(n.id);
       }
     }
+    next.morningFor = morningFor;
 
     // 48-hour horizon: work that is due soon and hasn't been started, for whoever manages it
     const horizonDue = l.minutes >= HORIZON_MINUTES && next.horizonSent !== l.date;
@@ -483,10 +580,10 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         delete reminded[a.id];
         continue;
       }
-      if (!working) continue;
       const per = { ...(reminded[a.id] ?? {}) };
       let sent = 0;
       for (const id of waiting) {
+        if (!workingFor(id)) continue;
         // every 4 working hours, which is at most twice in a working day
         const last = per[id] ?? a.at;
         if (minsSince(last) < NOTICE_REMIND_MIN) continue;

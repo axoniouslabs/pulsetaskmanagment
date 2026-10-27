@@ -11,27 +11,49 @@ export type ViewMode = "list" | "board" | "calendar" | "timeline";
 export type SortKey = "deadline" | "priority" | "activity" | "stale";
 export type QuickKey = "overdue" | "blocked" | "unseen" | "review" | "week" | "stuck";
 
+/** every list is "any of these"; an empty list means no filter */
 export interface TaskFilters {
   q: string;
-  assignee: string; // "" = everyone
-  status: TaskStatus | "";
-  priority: Priority | "";
-  project: string; // "" = all, "none" = no project
+  assignee: string[];
+  status: TaskStatus[];
+  priority: Priority[];
+  project: string[]; // "none" = no project
+  tags: string[];
+  /** due between these days (yyyy-MM-dd), either end optional */
+  from: string;
+  to: string;
   quick: QuickKey | null;
   reviewerMe: boolean; // only work the viewer reviews
   showDone: boolean;
+  /** include archived work */
+  archived: boolean;
 }
 
 export const EMPTY_FILTERS: TaskFilters = {
   q: "",
-  assignee: "",
-  status: "",
-  priority: "",
-  project: "",
+  assignee: [],
+  status: [],
+  priority: [],
+  project: [],
+  tags: [],
+  from: "",
+  to: "",
   quick: null,
   reviewerMe: false,
   showDone: false,
+  archived: false,
 };
+
+/** saved views from before filters took several values held single strings */
+export function normalizeFilters(raw: Record<string, unknown> | undefined): TaskFilters {
+  const f = { ...EMPTY_FILTERS, ...(raw ?? {}) } as Record<string, unknown>;
+  for (const k of ["assignee", "status", "priority", "project", "tags"]) {
+    const v = f[k];
+    f[k] = Array.isArray(v) ? v.filter((x) => typeof x === "string") : typeof v === "string" && v ? [v] : [];
+  }
+  for (const k of ["q", "from", "to"]) if (typeof f[k] !== "string") f[k] = "";
+  return f as unknown as TaskFilters;
+}
 
 /** the five chips always on screen */
 export const QUICK_CHIPS: { key: QuickKey; label: string }[] = [
@@ -94,19 +116,34 @@ const isClosed = (t: Task) => t.status === "approved" || t.status === "cancelled
 
 /** everything except the quick chip, so chip counts can be shown against it */
 export function applyBaseFilters(tasks: Task[], f: TaskFilters, ctx: FilterContext) {
-  const q = f.q.trim().toLowerCase();
-  const wantsClosed = f.showDone || f.status === "approved" || f.status === "cancelled";
+  const q = f.q.trim().toLowerCase().replace(/^#/, "");
+  const wantsClosed = f.showDone || f.status.includes("approved") || f.status.includes("cancelled") || f.archived;
+  const from = f.from ? new Date(`${f.from}T00:00:00`).getTime() : -Infinity;
+  const to = f.to ? new Date(`${f.to}T23:59:59`).getTime() : Infinity;
   return tasks.filter((t) => {
     if (ctx.role === "employee" && t.status === "draft") return false;
-    if (!wantsClosed && isClosed(t)) return false;
-    if (f.assignee && t.assigneeId !== f.assignee) return false;
-    if (f.status && t.status !== f.status) return false;
-    if (f.priority && t.priority !== f.priority) return false;
-    if (f.project === "none" ? !!t.projectId : f.project && t.projectId !== f.project) return false;
+    // archived work is hidden but still found by a search
+    if (t.archivedAt && !f.archived && !q) return false;
+    if (!wantsClosed && !q && isClosed(t)) return false;
+    if (f.assignee.length && !f.assignee.includes(t.assigneeId)) return false;
+    if (f.status.length && !f.status.includes(t.status)) return false;
+    if (f.priority.length && !f.priority.includes(t.priority)) return false;
+    if (f.project.length && !f.project.includes(t.projectId ?? "none")) return false;
+    if (f.tags.length && !f.tags.some((tag) => t.tags.includes(tag))) return false;
+    const due = new Date(t.dueAt).getTime();
+    if (due < from || due > to) return false;
     if (f.reviewerMe && ctx.role !== "owner" && t.reviewerId !== ctx.meId) return false;
-    if (q && !t.title.toLowerCase().includes(q) && !t.description.toLowerCase().includes(q)) return false;
+    if (q && !matchesText(t, q)) return false;
     return true;
   });
+}
+
+/** full-text search: title, description, tags, comments and the result report */
+function matchesText(t: Task, q: string) {
+  if (t.title.toLowerCase().includes(q) || t.description.toLowerCase().includes(q)) return true;
+  if (t.tags.some((x) => x.includes(q))) return true;
+  if (t.submissionNote?.toLowerCase().includes(q) || t.progressNote?.toLowerCase().includes(q)) return true;
+  return t.comments.some((c) => c.kind === "text" && c.body.toLowerCase().includes(q));
 }
 
 export function applyFilters(tasks: Task[], f: TaskFilters, ctx: FilterContext) {
@@ -114,23 +151,25 @@ export function applyFilters(tasks: Task[], f: TaskFilters, ctx: FilterContext) 
   return f.quick ? base.filter((t) => matchesQuick(t, f.quick!, ctx.now)) : base;
 }
 
-export function sortTasks(tasks: Task[], key: SortKey, lastActivity: Record<string, string>) {
+/** pinned tasks come first, then the chosen order */
+export function sortTasks(tasks: Task[], key: SortKey, lastActivity: Record<string, string>, pinned: Set<string> = new Set()) {
   const list = [...tasks];
   const due = (t: Task) => new Date(t.dueAt).getTime();
+  const pin = (a: Task, b: Task) => Number(pinned.has(b.id)) - Number(pinned.has(a.id));
   switch (key) {
     case "deadline":
-      return list.sort((a, b) => due(a) - due(b));
+      return list.sort((a, b) => pin(a, b) || due(a) - due(b));
     case "priority":
-      return list.sort((a, b) => PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || due(a) - due(b));
+      return list.sort((a, b) => pin(a, b) || PRIORITY_RANK[a.priority] - PRIORITY_RANK[b.priority] || due(a) - due(b));
     case "activity":
-      return list.sort((a, b) => (lastActivity[b.id] ?? b.statusChangedAt).localeCompare(lastActivity[a.id] ?? a.statusChangedAt));
+      return list.sort((a, b) => pin(a, b) || (lastActivity[b.id] ?? b.statusChangedAt).localeCompare(lastActivity[a.id] ?? a.statusChangedAt));
     case "stale":
-      return list.sort((a, b) => a.statusChangedAt.localeCompare(b.statusChangedAt));
+      return list.sort((a, b) => pin(a, b) || a.statusChangedAt.localeCompare(b.statusChangedAt));
   }
 }
 
 export function activeFilterCount(f: TaskFilters) {
-  return [f.q.trim(), f.assignee, f.status, f.priority, f.project, f.quick, f.reviewerMe].filter(Boolean).length;
+  return [f.q.trim(), f.assignee.length, f.status.length, f.priority.length, f.project.length, f.tags.length, f.from || f.to, f.quick, f.reviewerMe, f.archived].filter(Boolean).length;
 }
 
 /* ------------------------------------------------------------------ */
@@ -175,22 +214,23 @@ export function builtInViews(role: Role): SavedView[] {
 const VIEWS_KEY = "pulse-task-views";
 const MODE_KEY = "pulse-task-mode";
 
-export function readSavedViews(meId: string): SavedView[] {
+/** views saved on this device before they were kept on the account; moved over once */
+export function readLegacyViews(meId: string): SavedView[] {
   try {
     const raw = window.localStorage.getItem(`${VIEWS_KEY}:${meId}`);
     if (!raw) return [];
     const parsed = JSON.parse(raw) as SavedView[];
-    return Array.isArray(parsed) ? parsed.map((v) => ({ ...v, filters: { ...EMPTY_FILTERS, ...v.filters } })) : [];
+    return Array.isArray(parsed) ? parsed.map((v) => ({ ...v, filters: normalizeFilters(v.filters as unknown as Record<string, unknown>) })) : [];
   } catch {
     return [];
   }
 }
 
-export function writeSavedViews(meId: string, views: SavedView[]) {
+export function forgetLegacyViews(meId: string) {
   try {
-    window.localStorage.setItem(`${VIEWS_KEY}:${meId}`, JSON.stringify(views));
+    window.localStorage.removeItem(`${VIEWS_KEY}:${meId}`);
   } catch {
-    /* storage blocked: the view still works for this visit */
+    /* ignore */
   }
 }
 

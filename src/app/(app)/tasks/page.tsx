@@ -20,13 +20,14 @@ import {
   applyBaseFilters,
   applyFilters,
   builtInViews,
+  forgetLegacyViews,
   matchesQuick,
+  normalizeFilters,
+  readLegacyViews,
   readMode,
   readQuickFromUrl,
-  readSavedViews,
   sortTasks,
   writeMode,
-  writeSavedViews,
   type QuickKey,
   type SavedView,
   type SortKey,
@@ -63,7 +64,34 @@ function TasksScreen() {
   const [sort, setSort] = React.useState<SortKey>("deadline");
   const [activeViewId, setActiveViewId] = React.useState<string | null>(null);
   const [importing, setImporting] = React.useState(false);
-  const [customViews, setCustomViews] = React.useState<SavedView[]>(() => (typeof window === "undefined" ? [] : readSavedViews(meId)));
+  // saved views live on the account, so they follow the person to every device
+  const stored = useApp((s) => s.savedViews[meId]);
+  const act = useApp((s) => s.act);
+  const customViews = React.useMemo<SavedView[]>(
+    () => (stored ?? []).map((v) => ({ id: v.id, name: v.name, sort: (v.sort as SortKey) ?? "deadline", filters: normalizeFilters(v.filters) })),
+    [stored],
+  );
+  const storeViews = React.useCallback(
+    (next: SavedView[]) => act({ type: "setSavedViews", views: next.map((v) => ({ id: v.id, name: v.name, sort: v.sort, filters: v.filters as unknown as Record<string, unknown> })) }),
+    [act],
+  );
+  // views saved on this device before they moved to the account: carry them over once
+  React.useEffect(() => {
+    const legacy = readLegacyViews(meId);
+    if (!legacy.length) return;
+    if ((stored ?? []).length === 0 && storeViews(legacy).ok) forgetLegacyViews(meId);
+    else if ((stored ?? []).length) forgetLegacyViews(meId);
+  }, [meId, stored, storeViews]);
+  const pins = useApp((s) => s.prefs[meId]);
+  const pinned = React.useMemo(
+    () =>
+      new Set(
+        Object.entries(pins ?? {})
+          .filter(([k, v]) => v && k.startsWith("pin:"))
+          .map(([k]) => k.slice(4)),
+      ),
+    [pins],
+  );
 
   const ctx = React.useMemo(() => ({ role, meId, now }), [role, meId, now]);
   const visible = React.useMemo(() => (role === "employee" ? tasks.filter((t) => t.status !== "draft") : tasks), [tasks, role]);
@@ -75,7 +103,7 @@ function TasksScreen() {
   }, [activity]);
 
   const base = React.useMemo(() => applyBaseFilters(visible, filters, ctx), [visible, filters, ctx]);
-  const filtered = React.useMemo(() => sortTasks(applyFilters(visible, filters, ctx), sort, lastActivity), [visible, filters, ctx, sort, lastActivity]);
+  const filtered = React.useMemo(() => sortTasks(applyFilters(visible, filters, ctx), sort, lastActivity, pinned), [visible, filters, ctx, sort, lastActivity, pinned]);
   const chipCounts = React.useMemo(() => {
     const out = {} as Record<QuickKey, number>;
     for (const c of [...QUICK_CHIPS.map((x) => x.key), "stuck" as const]) out[c] = base.filter((t) => matchesQuick(t, c, now)).length;
@@ -90,6 +118,7 @@ function TasksScreen() {
     const ids = new Set(visible.map((t) => t.projectId).filter(Boolean));
     return projects.filter((p) => ids.has(p.id));
   }, [visible, projects]);
+  const tagOptions = React.useMemo(() => Array.from(new Set(visible.flatMap((t) => t.tags))).sort(), [visible]);
   const scopeIds = React.useMemo(() => new Set(people.map((p) => p.id)), [people]);
 
   const views = React.useMemo(() => [...builtInViews(role), ...customViews], [role, customViews]);
@@ -107,21 +136,16 @@ function TasksScreen() {
     writeMode(m);
   };
   const applyView = (v: SavedView) => {
-    setFilters({ ...EMPTY_FILTERS, ...v.filters });
+    setFilters(normalizeFilters(v.filters as unknown as Record<string, unknown>));
     setSort(v.sort);
     setActiveViewId(v.id);
   };
   const saveView = (name: string) => {
     const v: SavedView = { id: uid("view"), name, filters, sort };
-    const next = [...customViews, v];
-    setCustomViews(next);
-    writeSavedViews(meId, next);
-    setActiveViewId(v.id);
+    if (storeViews([...customViews, v]).ok) setActiveViewId(v.id);
   };
   const removeView = (id: string) => {
-    const next = customViews.filter((v) => v.id !== id);
-    setCustomViews(next);
-    writeSavedViews(meId, next);
+    if (!storeViews(customViews.filter((v) => v.id !== id)).ok) return;
     if (activeViewId === id) setActiveViewId(null);
   };
 
@@ -174,6 +198,7 @@ function TasksScreen() {
         onMode={setMode}
         assignees={assignees}
         projects={projectOptions}
+        tags={tagOptions}
         chipCounts={chipCounts}
         resultCount={filtered.length}
         views={views}
@@ -226,7 +251,7 @@ function TasksScreen() {
             meId={meId}
             scopeIds={scopeIds}
             people={allPeople}
-            showDone={filters.showDone || filters.status === "approved"}
+            showDone={filters.showDone || filters.status.includes("approved")}
             onShowDone={() => change({ showDone: true })}
             draftCount={draftCount}
             onShowDrafts={() => setMode("list")}

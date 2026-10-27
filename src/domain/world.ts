@@ -12,6 +12,7 @@ import type {
   Person,
   Project,
   Question,
+  StoredView,
   Task,
   TaskTemplate,
   Team,
@@ -48,6 +49,8 @@ export interface World {
   timers: Record<string, Timer | undefined>;
   prefs: Record<string, Record<string, boolean>>;
   dayOrder: Record<string, string[]>;
+  /** each person's saved task views (only the viewer's own reach the browser) */
+  savedViews: Record<string, StoredView[]>;
 }
 
 export const WORLD_KEYS = [
@@ -117,13 +120,15 @@ export const emptyWorld = (): World => ({
   timers: {},
   prefs: {},
   dayOrder: {},
+  savedViews: {},
 });
 
 /** everyone who belongs to a unit, used for channel audiences */
 export function membersOf(w: Pick<World, "people" | "teams" | "groups">, unitType: string, unitId: string): string[] {
   if (unitType === "org") return w.people.map((p) => p.id);
   if (unitType === "department") return w.people.filter((p) => p.departmentId === unitId || p.role === "owner").map((p) => p.id);
-  if (unitType === "team") return w.people.filter((p) => p.teamId === unitId).map((p) => p.id);
+  // a team includes people attached to it as secondary members
+  if (unitType === "team") return w.people.filter((p) => p.teamId === unitId || p.secondaryTeamIds?.includes(unitId)).map((p) => p.id);
   if (unitType === "group") {
     const g = w.groups.find((x) => x.id === unitId);
     return g ? Array.from(new Set([...g.memberIds, g.ownerId])) : [];
@@ -154,3 +159,25 @@ export const backupFor = (w: Pick<World, "people" | "teams" | "departments">, pe
 };
 
 export const ownerOf = (w: Pick<World, "people">) => (w.people.find((p) => p.role === "owner" && p.active !== false) ?? w.people.find((p) => p.role === "owner"))?.id;
+
+/** the person who runs a unit: team lead, department head, or the group's owner */
+export function unitHeadOf(w: Pick<World, "teams" | "departments" | "groups">, unitType: string, unitId: string): string | undefined {
+  if (unitType === "team") return w.teams.find((t) => t.id === unitId)?.leadId || undefined;
+  if (unitType === "department") return w.departments.find((d) => d.id === unitId)?.headId || undefined;
+  if (unitType === "group") return w.groups.find((g) => g.id === unitId)?.ownerId || undefined;
+  return undefined;
+}
+
+export function unitName(w: Pick<World, "teams" | "departments" | "groups">, unitType: string, unitId: string): string | undefined {
+  if (unitType === "team") return w.teams.find((t) => t.id === unitId)?.name;
+  if (unitType === "department") return w.departments.find((d) => d.id === unitId)?.name;
+  if (unitType === "group") return w.groups.find((g) => g.id === unitId)?.name;
+  return undefined;
+}
+
+/** people who can be handed work in a unit: active members, not the owner */
+export const workersOf = (w: Pick<World, "people" | "teams" | "groups">, unitType: string, unitId: string) =>
+  membersOf(w, unitType, unitId).filter((id) => {
+    const p = w.people.find((x) => x.id === id);
+    return !!p && p.active !== false && p.role !== "owner";
+  });

@@ -1,6 +1,7 @@
 import { addDays, differenceInMinutes, format, parseISO } from "date-fns";
 import type { AttendanceDay, Department, Leave, OrgSettings, Person } from "@/lib/types";
 import { minutesToLabel } from "@/lib/utils";
+import { zonedInstant } from "@/domain/time";
 
 export type DayStatus = AttendanceDay["status"];
 
@@ -19,27 +20,31 @@ export const LEAVE_LABEL: Record<Leave["type"], string> = { sick: "Sick leave", 
 export const day = (d: string) => parseISO(d);
 export const time = (iso?: string) => (iso ? format(new Date(iso), "h:mm a") : "");
 
+/** minutes of a break still running */
+export const openBreakMinutes = (a: AttendanceDay | undefined, now: Date) => {
+  const open = a?.breaks?.find((b) => !b.end);
+  return open ? Math.max(0, differenceInMinutes(now, new Date(open.start))) : 0;
+};
+
 /** minutes between check-in and check-out (or now, while still in), minus breaks */
 export function workedMinutes(a: AttendanceDay | undefined, now: Date) {
   if (!a?.checkIn) return 0;
-  const end = a.checkOut ? new Date(a.checkOut) : a.date === format(now, "yyyy-MM-dd") ? now : undefined;
+  // still checked in: count up to now, but never more than a day (a forgotten check-out)
+  const end = a.checkOut ? new Date(a.checkOut) : differenceInMinutes(now, new Date(a.checkIn)) < 24 * 60 ? now : undefined;
   if (!end) return 0;
-  return Math.max(0, differenceInMinutes(end, new Date(a.checkIn)) - a.breakMin);
+  return Math.max(0, differenceInMinutes(end, new Date(a.checkIn)) - a.breakMin - (a.checkOut ? 0 : openBreakMinutes(a, now)));
 }
 
-/** minutes after the official start time */
-export function minutesLate(a: AttendanceDay | undefined, settings: Pick<OrgSettings, "workStart">) {
+/** minutes after the start of this person's working day, on their own clock */
+export function minutesLate(a: AttendanceDay | undefined, schedule: { workStart: string; timezone?: string }) {
   if (!a?.checkIn) return 0;
-  const [h, m] = settings.workStart.split(":").map(Number);
-  const start = parseISO(a.date);
-  start.setHours(h, m, 0, 0);
+  const start = zonedInstant(a.date, schedule.workStart, schedule.timezone ?? "Asia/Karachi");
   return Math.max(0, differenceInMinutes(new Date(a.checkIn), start));
 }
 
 export const startLabel = (hhmm: string) => format(parseISO(`2000-01-01T${hhmm}`), "h:mm a");
 
-export const approvedLeaveOn = (leaves: Leave[], personId: string, date: string) =>
-  leaves.find((l) => l.personId === personId && l.status === "approved" && l.from <= date && l.to >= date);
+export const approvedLeaveOn = (leaves: Leave[], personId: string, date: string) => leaves.find((l) => l.personId === personId && l.status === "approved" && l.from <= date && l.to >= date);
 
 /** "Thu 22 Oct" or "Thu 22 Oct to Sat 24 Oct" */
 export function leaveRange(l: Pick<Leave, "from" | "to">) {
@@ -72,17 +77,7 @@ const csvCell = (v: string | number) => {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 };
 
-export function exportAttendanceCsv({
-  rows,
-  people,
-  departments,
-  now,
-}: {
-  rows: AttendanceDay[];
-  people: Person[];
-  departments: Department[];
-  now: Date;
-}) {
+export function exportAttendanceCsv({ rows, people, departments, now }: { rows: AttendanceDay[]; people: Person[]; departments: Department[]; now: Date }) {
   const name = (id: string) => people.find((p) => p.id === id);
   const header = ["Date", "Name", "Title", "Department", "Status", "Check in", "Check out", "Break (min)", "Worked (h)", "Worked"];
   const body = [...rows]
@@ -117,10 +112,7 @@ export function exportAttendanceCsv({
 }
 
 /** who approves someone's leave: team lead, else department head, else the owner (same rule as the store) */
-export function approverFor(
-  s: { people: Person[]; teams: { id: string; leadId: string }[]; departments: Department[] },
-  personId: string,
-) {
+export function approverFor(s: { people: Person[]; teams: { id: string; leadId: string }[]; departments: Department[] }, personId: string) {
   const p = s.people.find((x) => x.id === personId);
   const lead = s.teams.find((t) => t.id === p?.teamId)?.leadId;
   const head = s.departments.find((d) => d.id === p?.departmentId)?.headId;

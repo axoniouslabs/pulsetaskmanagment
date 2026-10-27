@@ -27,8 +27,8 @@ export const GROUPS: { value: EventGroup; label: string; kinds: ActivityKind[] }
   },
   { value: "escalations", label: "Escalations", kinds: ["escalated", "deescalated"] },
   { value: "comments", label: "Comments", kinds: ["commented", "question", "answered"] },
-  { value: "attendance", label: "Attendance", kinds: ["check_in", "check_out"] },
-  { value: "notices", label: "Notices", kinds: ["announcement"] },
+  { value: "attendance", label: "Attendance", kinds: ["check_in", "check_out", "break"] },
+  { value: "notices", label: "Notices", kinds: ["announcement", "security"] },
 ];
 
 export const GROUP_OF = Object.fromEntries(GROUPS.flatMap((g) => g.kinds.map((k) => [k, g.value]))) as Record<ActivityKind, EventGroup>;
@@ -62,6 +62,8 @@ export const KIND_LABEL: Record<ActivityKind, string> = {
   answered: "Answer",
   subtask_done: "Step done",
   timer: "Timer",
+  break: "Break",
+  security: "Account security",
 };
 
 export type DateRange = "today" | "yesterday" | "week" | "all";

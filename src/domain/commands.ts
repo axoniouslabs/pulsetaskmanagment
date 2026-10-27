@@ -8,9 +8,25 @@
  */
 import { format } from "date-fns";
 import { TZDate } from "@date-fns/tz";
-import type { Activity, ActivityKind, AppNotification, HeatLevel, Leave, NotificationKind, OrgSettings, Priority, ReminderRule, Task, TaskStatus, TaskTemplate } from "@/lib/types";
-import { backupFor, headOf, leadOf, membersOf, ownerOf, type World } from "./world";
-import { isAway, localDate } from "./time";
+import type {
+  Activity,
+  ActivityKind,
+  AppNotification,
+  DepartmentSettings,
+  HeatLevel,
+  Leave,
+  NotificationKind,
+  OrgSettings,
+  Priority,
+  ReminderRule,
+  Task,
+  StoredView,
+  TaskStatus,
+  TaskTemplate,
+  WorkSchedule,
+} from "@/lib/types";
+import { backupFor, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
+import { endOfWorkingDay, isAway, localDate, localNowFor, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
 
 export interface NewTaskInput {
   title: string;
@@ -31,8 +47,18 @@ export interface NewTaskInput {
   draft?: boolean;
   /** tasks that must be done before this one can start */
   dependsOn?: string[];
-  /** offer it to a team or group; the first to claim it owns it (assigneeId holds it meanwhile) */
-  claim?: { unitType: "team" | "group"; unitId: string };
+  /** offer it to a unit; the first to claim it owns it (assigneeId holds it meanwhile) */
+  claim?: { unitType: "department" | "team" | "group"; unitId: string };
+  /** people who follow it without being responsible */
+  watcherIds?: string[];
+  /** who reviews it; by default whoever assigned it (or the assignee's manager for their own task) */
+  reviewerId?: string;
+  /** due on a day rather than at a time */
+  dueAllDay?: boolean;
+  /** ask the assignee for a progress update this often */
+  updateEveryDays?: number;
+  /** aim it at a unit: Pulse picks the next person in turn, or sends it to the unit's head to pass on */
+  pool?: { unitType: "department" | "team" | "group"; unitId: string; mode: "roundrobin" | "route" };
 }
 
 export interface TaskPatch {
@@ -49,6 +75,10 @@ export interface TaskPatch {
   reminder?: Partial<ReminderRule>;
   recurrence?: Task["recurrence"] | null;
   dependsOn?: string[];
+  watcherIds?: string[];
+  reviewerId?: string;
+  dueAllDay?: boolean;
+  updateEveryDays?: number | null;
 }
 
 export type Command =
@@ -89,6 +119,8 @@ export type Command =
       body: string;
       kind?: "text" | "voice";
       durationSec?: number;
+      /** reply to this comment */
+      parentId?: string;
     }
   | {
       type: "addAttachment";
@@ -100,8 +132,26 @@ export type Command =
       sizeKb?: number;
       contentType?: string;
       proof?: boolean;
+      capturedAt?: string;
+      location?: { lat: number; lng: number; accuracyM?: number };
     }
-  | { type: "stopTimer" }
+  | { type: "stopTimer"; at?: string }
+  | { type: "setWatching"; taskId: string; watch: boolean }
+  | { type: "archiveTask"; taskId: string; archived: boolean }
+  | { type: "setProgress"; taskId: string; pct: number; note: string }
+  | { type: "escalateReview"; taskId: string; note: string }
+  | { type: "addLink"; taskId: string; url: string; title?: string }
+  | { type: "addTimeEntry"; taskId: string; minutes: number; date: string; note: string }
+  | { type: "editComment"; taskId: string; commentId: string; body: string }
+  | { type: "routeTask"; taskId: string; toId: string }
+  | { type: "startBreak" }
+  | { type: "endBreak" }
+  | { type: "addProject"; id: string; name: string; leadId: string; defaultAssigneeId?: string }
+  | { type: "editProject"; projectId: string; patch: { name?: string; leadId?: string; defaultAssigneeId?: string | null } }
+  | { type: "updateDepartment"; departmentId: string; patch: { name?: string; description?: string; settings?: DepartmentSettings | null } }
+  | { type: "setPersonSchedule"; personId: string; schedule: WorkSchedule | null }
+  | { type: "setSecondaryTeams"; personId: string; teamIds: string[] }
+  | { type: "setBackup"; personId: string; backupId: string | null }
   | { type: "markRead"; id: string }
   | { type: "markAllRead" }
   | {
@@ -132,7 +182,8 @@ export type Command =
   | { type: "setDepartmentHead"; departmentId: string; personId: string }
   | { type: "setOnLeave"; personId: string; onLeave: boolean }
   | { type: "setPref"; key: string; value: boolean }
-  | { type: "setDayOrder"; ids: string[] };
+  | { type: "setDayOrder"; ids: string[] }
+  | { type: "setSavedViews"; views: StoredView[] };
 
 export type CommandType = Command["type"];
 
@@ -174,8 +225,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       text,
       taskId,
     });
-  const note = (recipientId: string, kind: NotificationKind, title: string, body: string, taskId?: string) => {
-    if (recipientId === me) return;
+  const note = (recipientId: string, kind: NotificationKind, title: string, body: string, taskId?: string, opts: { self?: boolean } = {}) => {
+    if (recipientId === me && !opts.self) return;
     notes.push({
       id: ctx.uid("n"),
       at: nowIso,
@@ -191,13 +242,24 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
   const task = (id: string): Task => w.tasks.find((t) => t.id === id) ?? fail("That task no longer exists.");
   const set = (t: Task, patch: Partial<Task>) => Object.assign(t, patch);
 
-  const stopTimerFor = (personId: string) => {
+  /** stop someone's timer and record the session; never past the end of their working day */
+  const stopTimerFor = (personId: string, at: Date = now) => {
     const timer = w.timers[personId];
-    if (!timer) return;
-    const mins = Math.max(1, Math.round((now.getTime() - new Date(timer.startedAt).getTime()) / 60000));
+    if (!timer) return 0;
+    const start = new Date(timer.startedAt);
+    const cutoff = timerCutoff(w, personId, timer.startedAt);
+    const end = new Date(Math.max(start.getTime(), Math.min(at.getTime(), now.getTime(), cutoff.getTime())));
+    const mins = Math.max(1, Math.round((end.getTime() - start.getTime()) / 60000));
     const t = w.tasks.find((x) => x.id === timer.taskId);
-    if (t) t.loggedMinutes += mins;
+    if (t) {
+      t.loggedMinutes += mins;
+      t.timeEntries = [
+        ...(t.timeEntries ?? []),
+        { id: ctx.uid("te"), personId, minutes: mins, from: timer.startedAt, to: end.toISOString(), autoStopped: end < at && end.getTime() === cutoff.getTime() ? true : undefined },
+      ];
+    }
     w.timers[personId] = undefined;
+    return mins;
   };
 
   /** a task is done: tell the owners of tasks that were waiting only for it */
@@ -209,6 +271,16 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     }
   };
 
+  /** end an open break; returns its length in minutes */
+  const closeBreak = (rec: World["attendance"][number]) => {
+    const open = rec.breaks?.find((b) => !b.end);
+    if (!open) return 0;
+    open.end = nowIso;
+    const mins = Math.max(1, Math.round((now.getTime() - new Date(open.start).getTime()) / 60000));
+    rec.breakMin = (rec.breakMin ?? 0) + mins;
+    return mins;
+  };
+
   const deescalate = (t: Task) => {
     if (t.escalationLevel > 0) log("deescalated", `Back to level 0 after ${first(t.assigneeId)} responded`, t.id, "system");
     set(t, { escalationLevel: 0 as HeatLevel, remindersIgnored: 0 });
@@ -217,16 +289,45 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
   switch (cmd.type) {
     /* ---------------- task lifecycle ---------------- */
     case "createTask": {
-      const input = cmd.input;
+      const input = { ...cmd.input };
+      // rule-based assignment: a project can name who its tasks go to
+      if (!input.assigneeId && !input.pool && !input.claim && input.projectId) input.assigneeId = w.projects.find((p) => p.id === input.projectId)?.defaultAssigneeId ?? "";
+      // aimed at a unit: by turns, or to the unit's head who passes it on
+      let pool: Task["pool"];
+      if (input.pool && !input.draft) {
+        const u = input.pool;
+        const name = unitName(w, u.unitType, u.unitId) ?? fail("Pick the team, department or group.");
+        const today = localDate(now, tz);
+        if (u.mode === "route") {
+          const head = unitHeadOf(w, u.unitType, u.unitId);
+          if (!head || !w.people.some((p) => p.id === head && p.active !== false)) fail(`${name} has nobody running it to pass the task on. Pick a person instead.`);
+          input.assigneeId = head!;
+        } else {
+          const available = workersOf(w, u.unitType, u.unitId).filter((id) => !isAway(w, id, today));
+          // whoever runs the unit hands work out; they're only in the rotation when nobody else is free
+          const head = unitHeadOf(w, u.unitType, u.unitId);
+          const workers = available.filter((id) => id !== head).length ? available.filter((id) => id !== head) : available;
+          if (!workers.length) fail(`Nobody in ${name} is available today. Pick a person instead.`);
+          // whoever got work from this pool longest ago (or never) is next
+          const lastTurn = (id: string) =>
+            w.tasks.reduce((latest, t) => (t.pool?.mode === "roundrobin" && t.pool.unitId === u.unitId && t.pool.pickedId === id && t.createdAt > latest ? t.createdAt : latest), "");
+          input.assigneeId = [...workers].sort((a, b) => lastTurn(a).localeCompare(lastTurn(b)))[0];
+        }
+        pool = { unitType: u.unitType, unitId: u.unitId, unitName: name, mode: u.mode, pickedId: u.mode === "roundrobin" ? input.assigneeId : undefined };
+      }
       const assignee = w.people.find((p) => p.id === input.assigneeId) ?? fail("Pick who owns this task.");
+      // the department's own rules fill in what the creator didn't choose
+      const depRules = w.departments.find((d) => d.id === assignee.departmentId)?.settings;
       if (!input.title.trim()) fail("Add a title so the assignee knows what to do.");
       if (w.tasks.some((t) => t.id === cmd.id)) fail("This task was already created.");
-      const reviewerId = me === input.assigneeId ? (leadOf(w, input.assigneeId) ?? headOf(w, input.assigneeId) ?? ownerOf(w) ?? me) : me;
+      const defaultReviewer = me === input.assigneeId ? (leadOf(w, input.assigneeId) ?? headOf(w, input.assigneeId) ?? ownerOf(w) ?? me) : me;
+      if (input.reviewerId && input.reviewerId === input.assigneeId) fail("Someone else has to review the work. Pick a different reviewer.");
+      const reviewerId = input.reviewerId && w.people.some((p) => p.id === input.reviewerId && p.active !== false) ? input.reviewerId : defaultReviewer;
       const deps = (input.dependsOn ?? []).filter((id) => w.tasks.some((x) => x.id === id));
       // the person is away today: the work goes to whoever covers for them, and they stay a watcher
       let routedFrom: string | undefined;
       let assigneeId = input.assigneeId;
-      if (!input.draft && !input.claim && assigneeId !== me && isAway(w, assigneeId, localDate(now, tz))) {
+      if (!input.draft && !input.claim && !pool && assigneeId !== me && isAway(w, assigneeId, localDate(now, tz))) {
         const cover = backupFor(w, assigneeId);
         if (cover && cover !== me) {
           routedFrom = assigneeId;
@@ -236,10 +337,9 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       let claim: Task["groupClaim"];
       if (input.claim) {
         const c = input.claim;
-        const unit = c.unitType === "team" ? w.teams.find((x) => x.id === c.unitId) : w.groups.find((x) => x.id === c.unitId);
-        if (!unit) fail("Pick the team or group to offer this task to.");
+        const name = unitName(w, c.unitType, c.unitId) ?? fail("Pick the team, department or group to offer this task to.");
         claim = {
-          unitName: unit!.name,
+          unitName: name,
           claimed: false,
           unitType: c.unitType,
           unitId: c.unitId,
@@ -260,17 +360,21 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         startAt: input.startAt,
         dueAt: input.dueAt,
         estimateHours: input.estimateHours ?? 1,
-        requiresApproval: input.requiresApproval ?? w.settings.approvalByDefault,
+        requiresApproval: input.requiresApproval ?? depRules?.approvalByDefault ?? w.settings.approvalByDefault,
         requiresProof: input.requiresProof ?? false,
         requiresResult: input.requiresResult ?? false,
-        reminder: { ...w.settings.defaultReminder, ...input.reminder },
+        reminder: { ...w.settings.defaultReminder, ...depRules?.defaultReminder, ...input.reminder },
         remindersSent: 0,
         remindersIgnored: 0,
         escalationLevel: 0,
         subtasks: (input.subtasks ?? []).filter(Boolean).map((title) => ({ id: ctx.uid("s"), title, done: false })),
         comments: [],
         attachments: [],
-        watcherIds: routedFrom ? [routedFrom] : [],
+        watcherIds: Array.from(
+          new Set([...(routedFrom ? [routedFrom] : []), ...(input.watcherIds ?? []).filter((id) => id !== assigneeId && w.people.some((p) => p.id === id && p.active !== false))]),
+        ),
+        dueAllDay: input.dueAllDay || undefined,
+        updateEveryDays: input.updateEveryDays && input.updateEveryDays > 0 ? input.updateEveryDays : undefined,
         tags: input.tags ?? [],
         rejections: 0,
         statusChangedAt: nowIso,
@@ -279,12 +383,13 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         recurrence: input.recurrence,
         dependsOn: deps.length ? deps : undefined,
         groupClaim: claim,
+        pool,
       };
       w.tasks.unshift(t);
       if (routedFrom) {
         log("reassigned", `${first(routedFrom)} is away, so this went to ${first(assigneeId)} instead. ${first(routedFrom)} is watching it.`, t.id);
         note(assigneeId, "assigned", `${first(me)} assigned you a task (covering for ${first(routedFrom)})`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
-        note(me, "assigned", `${first(routedFrom)} is away: ${first(assigneeId)} got the task`, t.title, t.id);
+        note(me, "assigned", `${first(routedFrom)} is away: ${first(assigneeId)} got the task`, t.title, t.id, { self: true });
       }
       if (input.draft) log("created", "Saved as draft", t.id);
       else if (claim) {
@@ -292,11 +397,19 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         for (const r of membersOf(w, claim.unitType!, claim.unitId!)) {
           note(r, "assigned", `Open task for ${claim.unitName}`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}. Claim it if you can take it.`, t.id);
         }
+      } else if (pool?.mode === "route") {
+        log("assigned", `Sent to ${first(assigneeId)}, who runs ${pool.unitName}, to pass on to the right person`, t.id);
+        note(assigneeId, "assigned", `${first(me)} sent ${pool.unitName} a task to pass on`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}. Pick who in ${pool.unitName} should do it.`, t.id);
+      } else if (pool?.mode === "roundrobin") {
+        log("assigned", `${first(assigneeId)}'s turn in ${pool.unitName}: assigned to them`, t.id);
+        note(assigneeId, "assigned", `${first(me)} assigned you a task (your turn in ${pool.unitName})`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
       } else if (!routedFrom) {
         log("assigned", `Assigned to ${first(assigneeId)}`, t.id);
         note(assigneeId, "assigned", `${first(me)} assigned you a task`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
       }
       if (deps.length) log("created", `Waits for: ${deps.map((d) => `"${w.tasks.find((x) => x.id === d)?.title}"`).join(", ")}`, t.id);
+      if (!input.draft) for (const wid of t.watcherIds) if (wid !== routedFrom) note(wid, "assigned", `${first(me)} added you as a watcher`, `${t.title}, assigned to ${first(assigneeId)}`, t.id);
+      if (t.reviewerId !== me && t.reviewerId !== defaultReviewer) log("created", `${first(t.reviewerId)} reviews this work`, t.id);
       break;
     }
 
@@ -345,6 +458,25 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         if (deps.some((d) => waitsOn(d))) fail("That would make tasks wait for each other forever.");
         t.dependsOn = deps.length ? deps : undefined;
         changed.push("what it waits for");
+      }
+      if (p.watcherIds) {
+        const next = Array.from(new Set(p.watcherIds)).filter((id) => id !== t.assigneeId && w.people.some((x) => x.id === id));
+        const added = next.filter((id) => !t.watcherIds.includes(id));
+        t.watcherIds = next;
+        for (const id of added) note(id, "assigned", `${first(me)} added you as a watcher`, t.title, t.id);
+        changed.push("watchers");
+      }
+      if (p.reviewerId && p.reviewerId !== t.reviewerId) {
+        if (p.reviewerId === t.assigneeId) fail("Someone else has to review the work. Pick a different reviewer.");
+        if (!w.people.some((x) => x.id === p.reviewerId && x.active !== false)) fail("Pick a reviewer who is still in the company.");
+        t.reviewerId = p.reviewerId;
+        changed.push(`reviewer to ${first(p.reviewerId)}`);
+        if (t.status === "submitted") note(p.reviewerId, "submitted", `${first(t.assigneeId)}'s work is waiting for your review`, t.title, t.id);
+      }
+      if (p.dueAllDay !== undefined) t.dueAllDay = p.dueAllDay || undefined;
+      if (p.updateEveryDays !== undefined) {
+        t.updateEveryDays = p.updateEveryDays && p.updateEveryDays > 0 ? p.updateEveryDays : undefined;
+        changed.push(t.updateEveryDays ? `updates every ${t.updateEveryDays} days` : "no regular updates");
       }
       if (!changed.length && p.description === undefined && p.title === undefined) changed.push("details");
       log("created", `Edited ${changed.join(", ") || "details"}`, t.id);
@@ -434,6 +566,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         snoozedUntil: undefined,
       });
       log("started", resumed ? "Resumed work" : "Started work", t.id);
+      t.idleFlaggedAt = undefined;
       deescalate(t);
       w.timers[t.assigneeId] = { taskId: t.id, startedAt: nowIso };
       break;
@@ -545,12 +678,18 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       if (t.status !== "submitted") fail("Only submitted work can be sent back.");
       const reason = cmd.reason.trim() || fail("Say what needs to change so it gets fixed the first time.");
+      // the reminder rule starts over for the rework
       set(t, {
         status: "in_progress",
         rejections: t.rejections + 1,
         lastRejectionReason: reason,
         statusChangedAt: nowIso,
         submittedAt: undefined,
+        escalationLevel: 0,
+        remindersIgnored: 0,
+        remindersToday: 0,
+        lastReminderAt: undefined,
+        snoozedUntil: undefined,
       });
       log("rejected", `Sent back: ${reason}`, t.id);
       note(t.assigneeId, "rejected", `${first(me)} sent your work back`, `${t.title}: ${reason}`, t.id);
@@ -641,6 +780,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const st = t.subtasks.find((x) => x.id === cmd.subtaskId) ?? fail("That checklist item no longer exists.");
       st.done = !st.done;
       if (st.done) log("subtask_done", `Ticked off "${st.title}"`, t.id);
+      t.idleFlaggedAt = undefined;
       break;
     }
 
@@ -655,6 +795,9 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const t = task(cmd.taskId);
       const body = cmd.body.trim() || fail("Write something first.");
       const kind = cmd.kind ?? "text";
+      const parent = cmd.parentId ? (t.comments.find((c) => c.id === cmd.parentId) ?? fail("That comment no longer exists.")) : undefined;
+      // replies stay one level deep: a reply to a reply joins the same thread
+      const parentId = parent ? (parent.parentId ?? parent.id) : undefined;
       t.comments.push({
         id: ctx.uid("c"),
         authorId: me,
@@ -662,8 +805,11 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         at: nowIso,
         kind,
         durationSec: cmd.durationSec,
+        parentId,
       });
-      log("commented", kind === "voice" ? `Voice note (${cmd.durationSec ?? 0}s)` : body, t.id);
+      log("commented", kind === "voice" ? `Voice note (${cmd.durationSec ?? 0}s)` : parent ? `Replied to ${first(parent.authorId)}: ${body}` : body, t.id);
+      if (parent && parent.authorId !== me) note(parent.authorId, "mention", `${first(me)} replied to you`, `${t.title}: ${body}`, t.id);
+      if (t.idleFlaggedAt) t.idleFlaggedAt = undefined;
       for (const p of w.people) if (body.includes(`@${p.name.split(" ")[0]}`)) note(p.id, "mention", `${first(me)} mentioned you`, `${t.title}: ${body}`, t.id);
       if (t.assigneeId === me && t.escalationLevel > 0) deescalate(t);
       break;
@@ -684,16 +830,149 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         hue: (cmd.name.length * 37) % 360,
         url: cmd.url,
         contentType: cmd.contentType,
+        capturedAt: cmd.capturedAt,
+        location: cmd.location,
       });
       log("commented", `${isProof ? "Added proof" : "Attached"}: ${cmd.name}`, t.id);
+      break;
+    }
+
+    case "setWatching": {
+      const t = task(cmd.taskId);
+      if (t.assigneeId === me) fail("You own this task, so you already get every update.");
+      t.watcherIds = cmd.watch ? Array.from(new Set([...t.watcherIds, me])) : t.watcherIds.filter((id) => id !== me);
+      log("created", cmd.watch ? `${first(me)} is watching this task` : `${first(me)} stopped watching`, t.id);
+      break;
+    }
+
+    case "archiveTask": {
+      const t = task(cmd.taskId);
+      if (cmd.archived) {
+        if (!["approved", "cancelled"].includes(t.status)) fail("Only finished or cancelled work can be archived. Cancel it first if it isn't needed.");
+        t.archivedAt = nowIso;
+        log("created", "Archived. It's hidden from the usual lists and still searchable.", t.id);
+      } else {
+        t.archivedAt = undefined;
+        log("created", "Brought back from the archive", t.id);
+      }
+      break;
+    }
+
+    case "setProgress": {
+      const t = task(cmd.taskId);
+      if (!["acknowledged", "in_progress", "blocked"].includes(t.status)) fail("Progress can be updated while the work is open.");
+      const pct = Math.round(cmd.pct);
+      if (!Number.isFinite(pct) || pct < 0 || pct > 100) fail("Progress is between 0 and 100 percent.");
+      const why = cmd.note.trim() || fail("Add one line on where it stands.");
+      set(t, { progress: pct, progressNote: why, progressAt: nowIso });
+      log("commented", `Progress ${pct}%: ${why}`, t.id);
+      if (t.reviewerId !== me) note(t.reviewerId, "mention", `${first(me)}: ${pct}% done`, `${t.title}: ${why}`, t.id);
+      break;
+    }
+
+    case "escalateReview": {
+      const t = task(cmd.taskId);
+      if (t.status !== "submitted") fail("Only work waiting for review can be passed up.");
+      const why = cmd.note.trim() || fail("Say why it needs someone more senior.");
+      const up = headOf(w, me) ?? ownerOf(w);
+      if (!up || up === me) fail("There's nobody above you to pass this to. Approve it or send it back.");
+      set(t, { reviewerId: up!, escalationLevel: Math.max(t.escalationLevel, 2) as HeatLevel });
+      log("escalated", `${first(me)} passed the review up to ${first(up!)}: ${why}`, t.id);
+      note(up!, "escalation", `${first(me)} needs you to review this`, `${t.title}: ${why}`, t.id);
+      note(t.assigneeId, "deadline", `Your work went to ${first(up!)} for review`, why, t.id);
+      break;
+    }
+
+    case "addLink": {
+      const t = task(cmd.taskId);
+      if (["approved", "cancelled"].includes(t.status)) fail("This task is closed. Links can't be added any more.");
+      let url: URL;
+      try {
+        url = new URL(cmd.url.trim());
+      } catch {
+        return fail("That doesn't look like a web address. Paste the full link, starting with https://");
+      }
+      if (url.protocol !== "https:" && url.protocol !== "http:") fail("Only web links (https://) can be added.");
+      const name = cmd.title?.trim() || url.hostname.replace(/^www\./, "");
+      t.attachments.push({ id: ctx.uid("a"), name, kind: "link", sizeKb: 0, at: nowIso, byId: me, url: url.toString() });
+      log("commented", `Added a link: ${name}`, t.id);
       break;
     }
 
     case "stopTimer": {
       const timer = w.timers[me];
       if (!timer) break;
-      stopTimerFor(me);
-      log("timer", "Paused the timer", timer.taskId);
+      // "stop when I was last active": the idle prompt passes the moment activity stopped
+      const at = cmd.at ? new Date(cmd.at) : now;
+      if (Number.isNaN(at.getTime())) fail("That time doesn't look right.");
+      const mins = stopTimerFor(me, at < new Date(timer.startedAt) ? new Date(timer.startedAt) : at);
+      log("timer", cmd.at ? `Paused the timer at the last activity (${mins} min counted)` : "Paused the timer", timer.taskId);
+      break;
+    }
+
+    case "addTimeEntry": {
+      const t = task(cmd.taskId);
+      if (["draft", "cancelled"].includes(t.status)) fail("Time can't be added to this task.");
+      const minutes = Math.round(cmd.minutes);
+      if (!Number.isFinite(minutes) || minutes < 1) fail("Enter how long you worked.");
+      if (minutes > 16 * 60) fail("One entry can be at most 16 hours. Add separate entries for separate days.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cmd.date)) fail("Pick the day the work was done.");
+      if (cmd.date > localDate(now, tz)) fail("You can't log time for a day that hasn't happened yet.");
+      const why = cmd.note.trim() || fail("Say what was done, so the entry explains itself.");
+      const sc = scheduleFor(w, t.assigneeId);
+      const from = new TZDate(`${cmd.date}T${sc.workStart}:00`, sc.timezone).toISOString();
+      t.timeEntries = [...(t.timeEntries ?? []), { id: ctx.uid("te"), personId: t.assigneeId, minutes, from, manual: true, note: why, byId: me !== t.assigneeId ? me : undefined }];
+      t.loggedMinutes += minutes;
+      const label = minutes >= 60 ? `${Math.floor(minutes / 60)}h${minutes % 60 ? ` ${minutes % 60}m` : ""}` : `${minutes}m`;
+      log("timer", `Added ${label} by hand for ${cmd.date}${me !== t.assigneeId ? ` for ${first(t.assigneeId)}` : ""} (manual entry): ${why}`, t.id);
+      if (me !== t.assigneeId) note(t.assigneeId, "deadline", `${first(me)} added time to your task`, `${label} on ${t.title}: ${why}`, t.id);
+      break;
+    }
+
+    case "editComment": {
+      const t = task(cmd.taskId);
+      const c = t.comments.find((x) => x.id === cmd.commentId) ?? fail("That comment no longer exists.");
+      if (c.authorId !== me) fail("Only the person who wrote a comment can edit it.");
+      if (c.kind === "voice") fail("Voice notes can't be edited. Add a new comment instead.");
+      const body = cmd.body.trim() || fail("A comment can't be empty.");
+      if (body === c.body) break;
+      // nothing is quietly rewritten: every earlier version stays visible
+      c.history = [...(c.history ?? []), { body: c.body, at: c.editedAt ?? c.at }];
+      c.body = body;
+      c.editedAt = nowIso;
+      log("commented", `Edited a comment (the earlier version is kept)`, t.id);
+      break;
+    }
+
+    case "routeTask": {
+      const t = task(cmd.taskId);
+      const pool = t.pool?.mode === "route" ? t.pool : fail("This task wasn't sent to be passed on.");
+      if (pool.routedAt) fail("This task has already been passed on.");
+      if (t.assigneeId !== me) fail(`Only ${first(t.assigneeId)} can pass this task on.`);
+      if (!["assigned", "acknowledged"].includes(t.status)) fail("Pass it on before work starts.");
+      const to = w.people.find((p) => p.id === cmd.toId && p.active !== false) ?? fail("Pick who should do it.");
+      if (to.id !== me && !membersOf(w, pool.unitType, pool.unitId).includes(to.id)) fail(`Pick someone in ${pool.unitName}.`);
+      if (to.id === me) {
+        set(t, { pool: { ...pool, routedAt: nowIso } });
+        log("assigned", `${first(me)} kept it to do themselves`, t.id);
+        break;
+      }
+      set(t, {
+        assigneeId: to.id,
+        status: "assigned",
+        statusChangedAt: nowIso,
+        acknowledgedAt: undefined,
+        escalationLevel: 0,
+        remindersIgnored: 0,
+        remindersSent: 0,
+        remindersToday: 0,
+        lastReminderAt: undefined,
+        departmentId: to.departmentId || t.departmentId,
+        watcherIds: Array.from(new Set([...t.watcherIds, me])).filter((id) => id !== to.id),
+        pool: { ...pool, routedAt: nowIso },
+      });
+      log("reassigned", `${first(me)} passed it on to ${first(to.id)}`, t.id);
+      note(to.id, "assigned", `${first(me)} assigned you a task`, `${t.title}, ${fmt(t.dueAt, "EEE h:mm a")}`, t.id);
       break;
     }
 
@@ -782,10 +1061,11 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
 
     /* ---------------- attendance ---------------- */
     case "checkIn": {
-      const local = new TZDate(now, tz);
-      const date = format(local, "yyyy-MM-dd");
-      const [sh, sm] = w.settings.workStart.split(":").map(Number);
-      const late = local.getHours() * 60 + local.getMinutes() > sh * 60 + sm + 15;
+      // late is judged against this person's own hours, in their own time zone
+      const sc = scheduleFor(w, me);
+      const ln = localNowFor(w, me, now);
+      const date = ln.date;
+      const late = ln.minutes > toMinutes(sc.workStart) + 15;
       const existing = w.attendance.find((a) => a.personId === me && a.date === date);
       if (existing?.checkIn && !existing.checkOut) fail("You're already checked in.");
       const rec = {
@@ -794,6 +1074,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         checkIn: existing?.checkIn ?? nowIso,
         checkOut: undefined,
         breakMin: existing?.breakMin ?? 0,
+        breaks: existing?.breaks ?? [],
         status: existing?.status && existing.checkIn ? existing.status : late ? ("late" as const) : ("present" as const),
       };
       if (existing) Object.assign(existing, rec);
@@ -802,12 +1083,36 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       break;
     }
     case "checkOut": {
-      const date = format(new TZDate(now, tz), "yyyy-MM-dd");
+      const date = localNowFor(w, me, now).date;
       const rec = w.attendance.find((a) => a.personId === me && a.date === date);
       if (!rec?.checkIn) fail("Check in first.");
       stopTimerFor(me);
+      closeBreak(rec!);
       rec!.checkOut = nowIso;
       log("check_out", "Checked out");
+      break;
+    }
+    case "startBreak": {
+      const date = localNowFor(w, me, now).date;
+      const rec = w.attendance.find((a) => a.personId === me && a.date === date);
+      if (!rec?.checkIn || rec.checkOut) fail("Check in first. A break is part of a working day.");
+      if (rec!.breaks?.some((b) => !b.end)) fail("You're already on a break.");
+      // the clock stops with you: a running timer pauses for the break
+      const timer = w.timers[me];
+      if (timer) {
+        stopTimerFor(me);
+        log("timer", "Timer paused for a break", timer.taskId);
+      }
+      rec!.breaks = [...(rec!.breaks ?? []), { start: nowIso }];
+      log("break", "Started a break");
+      break;
+    }
+    case "endBreak": {
+      const date = localNowFor(w, me, now).date;
+      const rec = w.attendance.find((a) => a.personId === me && a.date === date);
+      if (!rec?.breaks?.some((b) => !b.end)) fail("You're not on a break.");
+      const mins = closeBreak(rec!);
+      log("break", `Back from a ${mins}-minute break`);
       break;
     }
     case "requestLeave": {
@@ -974,9 +1279,90 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
             me,
             "deadline",
             `${first(p.id)} has ${open.length} open ${open.length === 1 ? "task" : "tasks"}`,
-            `${dueSoon.length ? `${dueSoon.length} due within two days. ` : ""}Hand them over from Tasks so nothing goes overdue while they're away.`,
+            `${dueSoon.length ? `${dueSoon.length} due within two days. ` : ""}New work for them goes to ${first(backupFor(w, p.id) ?? me)}. Hand the open tasks over from Tasks so nothing goes overdue while they're away.`,
+            undefined,
+            { self: true },
           );
         }
+      }
+      break;
+    }
+    case "addProject": {
+      const name = cmd.name.trim() || fail("Give the project a name.");
+      if (w.projects.some((p) => p.id === cmd.id)) fail("This project was already created.");
+      if (w.projects.some((p) => p.name.toLowerCase() === name.toLowerCase())) fail(`There's already a project called ${name}.`);
+      const lead = w.people.find((p) => p.id === cmd.leadId && p.active !== false) ?? fail("Pick who leads the project.");
+      if (cmd.defaultAssigneeId && !w.people.some((p) => p.id === cmd.defaultAssigneeId && p.active !== false)) fail("Pick who new tasks go to, or leave it empty.");
+      w.projects.push({ id: cmd.id, name, hue: (name.length * 47 + w.projects.length * 83) % 360, leadId: lead.id, defaultAssigneeId: cmd.defaultAssigneeId || undefined });
+      log("created", `Created the project ${name}, led by ${first(lead.id)}${cmd.defaultAssigneeId ? `. New tasks in it go to ${first(cmd.defaultAssigneeId)}` : ""}`);
+      break;
+    }
+    case "editProject": {
+      const pr = w.projects.find((p) => p.id === cmd.projectId) ?? fail("That project no longer exists.");
+      const p = cmd.patch;
+      if (p.name !== undefined) {
+        const name = p.name.trim() || fail("The project needs a name.");
+        if (w.projects.some((x) => x.id !== pr.id && x.name.toLowerCase() === name.toLowerCase())) fail(`There's already a project called ${name}.`);
+        pr.name = name;
+      }
+      if (p.leadId !== undefined) pr.leadId = (w.people.find((x) => x.id === p.leadId && x.active !== false) ?? fail("Pick who leads the project.")).id;
+      if (p.defaultAssigneeId !== undefined) {
+        if (p.defaultAssigneeId && !w.people.some((x) => x.id === p.defaultAssigneeId && x.active !== false)) fail("Pick who new tasks go to, or leave it empty.");
+        pr.defaultAssigneeId = p.defaultAssigneeId || undefined;
+      }
+      log("created", `Updated the project ${pr.name}${pr.defaultAssigneeId ? `. New tasks in it go to ${first(pr.defaultAssigneeId)}` : ""}`);
+      break;
+    }
+    case "updateDepartment": {
+      const dep = w.departments.find((d) => d.id === cmd.departmentId) ?? fail("That department no longer exists.");
+      const p = cmd.patch;
+      if (p.name !== undefined) dep.name = p.name.trim() || fail("The department needs a name.");
+      if (p.description !== undefined) dep.description = p.description.trim();
+      if (p.settings !== undefined) {
+        const st = p.settings ?? undefined;
+        if (st?.workStart && st.workEnd && toMinutes(st.workEnd) <= toMinutes(st.workStart)) fail("The day has to end after it starts.");
+        if (st?.workDays && !st.workDays.length) fail("Keep at least one working day.");
+        dep.settings = st && Object.keys(st).length ? st : undefined;
+      }
+      log("created", `Updated the ${dep.name} department${p.settings !== undefined ? (dep.settings ? "'s own rules" : ": it follows the company rules again") : ""}`);
+      break;
+    }
+    case "setPersonSchedule": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      const sc = cmd.schedule ?? undefined;
+      if (sc?.workStart && sc.workEnd && toMinutes(sc.workEnd) <= toMinutes(sc.workStart)) fail("The day has to end after it starts.");
+      if (sc?.workDays && !sc.workDays.length) fail("Keep at least one working day.");
+      if (sc?.timezone) {
+        try {
+          new Intl.DateTimeFormat("en", { timeZone: sc.timezone });
+        } catch {
+          fail("That time zone isn't recognised.");
+        }
+      }
+      const clean = sc ? (Object.fromEntries(Object.entries(sc).filter(([, v]) => v !== undefined && v !== "")) as WorkSchedule) : undefined;
+      p.schedule = clean && Object.keys(clean).length ? clean : undefined;
+      log("created", p.schedule ? `Set ${first(p.id)}'s own working hours${p.schedule.timezone ? ` (${p.schedule.timezone})` : ""}` : `${first(p.id)} follows their department's working hours again`);
+      break;
+    }
+    case "setSecondaryTeams": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      const ids = Array.from(new Set(cmd.teamIds)).filter((id) => id !== p.teamId);
+      for (const id of ids) if (!w.teams.some((t) => t.id === id)) fail("One of those teams no longer exists.");
+      p.secondaryTeamIds = ids.length ? ids : undefined;
+      const names = ids.map((id) => w.teams.find((t) => t.id === id)!.name);
+      log("reassigned", names.length ? `${first(p.id)} also works in ${names.join(", ")}. Their home team is unchanged.` : `${first(p.id)} is only in their home team now`);
+      break;
+    }
+    case "setBackup": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      if (cmd.backupId) {
+        if (cmd.backupId === p.id) fail("Pick someone else to cover for them.");
+        const b = w.people.find((x) => x.id === cmd.backupId && x.active !== false) ?? fail("Pick a backup who is still in the company.");
+        p.backupId = b.id;
+        log("reassigned", `${first(b.id)} now covers for ${first(p.id)} when they're away`);
+      } else {
+        p.backupId = undefined;
+        log("reassigned", `${first(p.id)} has no named backup: their team lead covers when they're away`);
       }
       break;
     }
@@ -988,6 +1374,11 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       w.dayOrder[me] = cmd.ids;
       break;
     }
+    case "setSavedViews": {
+      if (cmd.views.length > 30) fail("Keep it to 30 saved views. Delete one you don't use.");
+      w.savedViews[me] = cmd.views.map((v) => ({ ...v, name: v.name.trim().slice(0, 60) || "Saved view" }));
+      break;
+    }
 
     default: {
       const never: never = cmd;
@@ -995,6 +1386,22 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     }
   }
 
+  // a deadline or owner that changed moves the moment the work turns overdue (working hours aware);
+  // a date-only deadline is due at the end of the assignee's working day
+  const was = new Map(world.tasks.map((t) => [t.id, `${t.dueAt}|${t.assigneeId}|${t.dueAllDay ?? ""}`]));
+  for (const t of w.tasks) {
+    const key = `${t.dueAt}|${t.assigneeId}|${t.dueAllDay ?? ""}`;
+    if (was.get(t.id) === key && t.overdueAt) continue;
+    if (t.dueAllDay) t.dueAt = endOfWorkingDay(w, t.assigneeId, localDate(t.dueAt, scheduleFor(w, t.assigneeId).timezone));
+    t.overdueAt = overdueFrom(w, t.assigneeId, t.dueAt);
+  }
+
+  // any human action on a task means it isn't idle any more
+  for (const a of acts) {
+    if (!a.taskId || a.actorId === "system") continue;
+    const t = w.tasks.find((x) => x.id === a.taskId);
+    if (t?.idleFlaggedAt) t.idleFlaggedAt = undefined;
+  }
   w.activity = [...acts.reverse(), ...w.activity];
   w.notifications = [...notes, ...w.notifications];
   return w;

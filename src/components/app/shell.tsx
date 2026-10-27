@@ -19,6 +19,7 @@ import { CommandPalette } from "./command";
 import { ReminderEngine } from "./reminder-engine";
 import { Logo } from "./logo";
 import { EngineAlarm, EngineLive } from "./engine-alarm";
+import { IdlePrompt } from "./idle-prompt";
 import { PasswordGate } from "./password-gate";
 import { MotionProvider } from "./motion-provider";
 import { m } from "motion/react";
@@ -114,6 +115,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <CreateTaskDialog />
         <CommandPalette />
         <ReminderEngine />
+        <IdlePrompt />
         <Toaster
           position="top-right"
           offset={16}

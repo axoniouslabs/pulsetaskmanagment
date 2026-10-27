@@ -9,6 +9,36 @@ import { Button } from "@/components/ui/button";
 import { Field, Input, Segmented } from "@/components/ui/primitives";
 import { setThemePref, useThemePref, type ThemePref } from "@/lib/theme";
 import { signOut } from "@/components/app/account-menu";
+import { TimeZoneSelect } from "@/components/app/work-hours";
+
+/** someone working remotely sets their own clock; reminders and lateness follow it */
+function MyTimeZone() {
+  const me = useMe();
+  const company = useApp((s) => s.settings.timezone);
+  const act = useApp((s) => s.act);
+  if (!me) return null;
+  return (
+    <div className="mb-5 flex flex-col gap-2 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <p className="text-[14px] font-medium text-text">My time zone</p>
+        <p className="text-[12.5px] text-muted">Only if you work from another time zone. Your reminders, lateness and morning brief follow your clock.</p>
+      </div>
+      <div className="w-full sm:w-72">
+        <TimeZoneSelect
+          id="my-tz"
+          value={me.schedule?.timezone ?? ""}
+          inheritLabel={`Company time (${company.replace(/_/g, " ")})`}
+          onChange={(tz) => {
+            const rest = { ...(me.schedule ?? {}) };
+            delete rest.timezone;
+            const next = tz ? { ...rest, timezone: tz } : rest;
+            if (act({ type: "setPersonSchedule", personId: me.id, schedule: Object.keys(next).length ? next : null }).ok) toast.success(tz ? "Time zone saved" : "Back on company time");
+          }}
+        />
+      </div>
+    </div>
+  );
+}
 
 /** change your own password; sign out */
 export function AccountSettings() {
@@ -48,6 +78,7 @@ export function AccountSettings() {
           ]}
         />
       </div>
+      <MyTimeZone />
       <p className="text-[13.5px] text-muted">
         Signed in as <span className="font-medium text-text">{me?.email}</span>
       </p>

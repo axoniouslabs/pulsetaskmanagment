@@ -1,14 +1,6 @@
 export type Role = "owner" | "manager" | "employee";
 
-export type TaskStatus =
-  | "draft"
-  | "assigned"
-  | "acknowledged"
-  | "in_progress"
-  | "blocked"
-  | "submitted"
-  | "approved"
-  | "cancelled";
+export type TaskStatus = "draft" | "assigned" | "acknowledged" | "in_progress" | "blocked" | "submitted" | "approved" | "cancelled";
 
 export type Priority = "urgent" | "high" | "normal" | "low";
 export type HeatLevel = 0 | 1 | 2 | 3 | 4;
@@ -38,7 +30,25 @@ export interface Person {
   backupId?: string;
   active?: boolean;
   mustChangePassword?: boolean;
+  /** this person's own hours or time zone, when they differ from their department's and the company's */
+  schedule?: WorkSchedule;
+  /** other teams this person also works in; their home team (teamId) is still where escalation goes */
+  secondaryTeamIds?: string[];
   devices: Device[];
+}
+
+/** working hours and time zone; any field left out comes from the level above */
+export interface WorkSchedule {
+  timezone?: string;
+  workDays?: number[];
+  workStart?: string;
+  workEnd?: string;
+}
+
+/** a department's own rules, overriding the company defaults for everyone in it */
+export interface DepartmentSettings extends Omit<WorkSchedule, "timezone"> {
+  defaultReminder?: Partial<ReminderRule>;
+  approvalByDefault?: boolean;
 }
 
 export interface Department {
@@ -46,6 +56,7 @@ export interface Department {
   name: string;
   headId: string;
   description: string;
+  settings?: DepartmentSettings;
 }
 
 export interface Team {
@@ -68,6 +79,8 @@ export interface Project {
   name: string;
   hue: number;
   leadId: string;
+  /** rule-based assignment: new tasks in this project go to this person unless someone else is picked */
+  defaultAssigneeId?: string;
 }
 
 export interface Subtask {
@@ -83,12 +96,45 @@ export interface Comment {
   at: string;
   kind: "text" | "voice";
   durationSec?: number;
+  /** a reply to another comment on the same task */
+  parentId?: string;
+  /** set when the author changed the text; earlier versions are kept in history */
+  editedAt?: string;
+  history?: { body: string; at: string }[];
+}
+
+/** a stretch of work on a task: from the timer, or added by hand for work done away from Pulse */
+export interface TimeEntry {
+  id: string;
+  personId: string;
+  minutes: number;
+  /** when the work started (timer) or the day it was done (manual) */
+  from: string;
+  to?: string;
+  manual?: boolean;
+  /** stopped by Pulse at the end of working hours, not by the person */
+  autoStopped?: boolean;
+  note?: string;
+  /** who added a manual entry, when it wasn't the person themselves */
+  byId?: string;
+}
+
+/** work aimed at a unit that Pulse hands to one person: by turns, or through the unit's head */
+export interface TaskPool {
+  unitType: "department" | "team" | "group";
+  unitId: string;
+  unitName: string;
+  mode: "roundrobin" | "route";
+  /** route: when the head passed it on */
+  routedAt?: string;
+  /** round-robin: whose turn it was (the assignee may change later) */
+  pickedId?: string;
 }
 
 export interface Attachment {
   id: string;
   name: string;
-  kind: "image" | "file";
+  kind: "image" | "file" | "link";
   sizeKb: number;
   at: string;
   byId: string;
@@ -97,6 +143,10 @@ export interface Attachment {
   /** where the file can be opened; absent for demo placeholders */
   url?: string;
   contentType?: string;
+  /** when the photo was taken, from the device (upload time is `at`) */
+  capturedAt?: string;
+  /** where a proof photo was taken, when the phone shared it */
+  location?: { lat: number; lng: number; accuracyM?: number };
 }
 
 export type Channel = "push" | "inapp" | "email" | "whatsapp";
@@ -160,7 +210,26 @@ export interface Task {
   /** tasks that must be done before this one can start */
   dependsOn?: string[];
   /** open to a whole team or group: the first person to claim it owns it */
-  groupClaim?: { unitName: string; claimed: boolean; unitType?: "team" | "group"; unitId?: string };
+  groupClaim?: { unitName: string; claimed: boolean; unitType?: "department" | "team" | "group"; unitId?: string };
+  /** handed out by turns, or routed through a unit head */
+  pool?: TaskPool;
+  /** every work session and manual entry; loggedMinutes is their total */
+  timeEntries?: TimeEntry[];
+  /** set when the engine flagged it as idle in progress; cleared by any activity */
+  idleFlaggedAt?: string;
+  /** due on a day, not at a time: it counts as due at the end of the assignee's working day */
+  dueAllDay?: boolean;
+  /** when it actually turns overdue: the next working moment at or after the deadline */
+  overdueAt?: string;
+  /** hidden from the usual lists, kept and searchable */
+  archivedAt?: string;
+  /** how far along the assignee says it is, 0 to 100, with their latest one-line update */
+  progress?: number;
+  progressNote?: string;
+  progressAt?: string;
+  /** the assignee is asked for a progress update this often while it's open */
+  updateEveryDays?: number;
+  lastUpdateRemindedAt?: string;
 }
 
 export type ActivityKind =
@@ -191,7 +260,9 @@ export type ActivityKind =
   | "question"
   | "answered"
   | "subtask_done"
-  | "timer";
+  | "timer"
+  | "break"
+  | "security";
 
 export interface Activity {
   id: string;
@@ -203,20 +274,7 @@ export interface Activity {
 }
 
 export type NotificationKind =
-  | "reminder"
-  | "assigned"
-  | "escalation"
-  | "blocked"
-  | "unblocked"
-  | "submitted"
-  | "approved"
-  | "rejected"
-  | "mention"
-  | "announcement"
-  | "question"
-  | "answer"
-  | "digest"
-  | "deadline";
+  "reminder" | "assigned" | "escalation" | "blocked" | "unblocked" | "submitted" | "approved" | "rejected" | "mention" | "announcement" | "question" | "answer" | "digest" | "deadline";
 
 export interface AppNotification {
   id: string;
@@ -258,6 +316,8 @@ export interface AttendanceDay {
   checkIn?: string;
   checkOut?: string;
   breakMin: number;
+  /** breaks taken today; an open one has no end yet */
+  breaks?: { start: string; end?: string }[];
   status: "present" | "late" | "absent" | "leave" | "holiday" | "weekend";
 }
 
@@ -307,6 +367,18 @@ export interface OrgSettings {
   digestMorning: string;
   digestEvening: string;
   retentionMonths: number;
+  /** in-progress work with no activity for this many days is flagged as idle */
+  idleDays?: number;
+  /** finished work leaves the lists this many days after it closed (it stays searchable) */
+  autoArchiveDays?: number;
+}
+
+/** a named set of task filters, kept on the person's account so it follows them across devices */
+export interface StoredView {
+  id: string;
+  name: string;
+  filters: Record<string, unknown>;
+  sort: string;
 }
 
 export interface Timer {

@@ -1,5 +1,6 @@
 import "server-only";
 import { subDays } from "date-fns";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { db, schema } from "./db";
 import { loadActivitySince, loadEngineState, loadWorld, lockOrg, persist, saveEngineState } from "./repo";
 import { runTick } from "@/domain/engine";
@@ -17,7 +18,18 @@ export async function tickOrg(orgId: string, now = new Date()) {
     await lockOrg(tx, orgId);
     const state = await loadEngineState(tx, orgId);
     const before = await loadWorld(tx, orgId, { skipNotifications: true });
-    const r = runTick(before, state, now, newId);
+    // the last time a person (not Pulse) touched each piece of work in progress, for the idle check
+    const working = before.tasks.filter((t) => t.status === "in_progress" && !t.idleFlaggedAt).map((t) => t.id);
+    const lastTouch: Record<string, string> = {};
+    if (working.length) {
+      const rows = await tx
+        .select({ taskId: schema.activity.taskId, at: sql<Date>`max(${schema.activity.at})` })
+        .from(schema.activity)
+        .where(and(eq(schema.activity.orgId, orgId), inArray(schema.activity.taskId, working), ne(schema.activity.actorId, "system")))
+        .groupBy(schema.activity.taskId);
+      for (const row of rows) if (row.taskId && row.at) lastTouch[row.taskId] = new Date(row.at).toISOString();
+    }
+    const r = runTick(before, state, now, newId, { lastTouch });
 
     const dueRollup = !r.state.rollupAt || now.getTime() - new Date(r.state.rollupAt).getTime() >= ROLLUP_EVERY_MIN * 60000 || r.rollupDates.length > 1;
     if (dueRollup) {

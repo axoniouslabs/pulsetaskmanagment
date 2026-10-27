@@ -17,7 +17,24 @@ const S = schema;
 
 const DATE_FIELDS: Record<string, string[]> = {
   templates: ["createdAt"],
-  tasks: ["createdAt", "startAt", "dueAt", "lastReminderAt", "blockedAt", "submittedAt", "acknowledgedAt", "startedAt", "approvedAt", "statusChangedAt", "snoozedUntil"],
+  tasks: [
+    "createdAt",
+    "startAt",
+    "dueAt",
+    "lastReminderAt",
+    "blockedAt",
+    "submittedAt",
+    "acknowledgedAt",
+    "startedAt",
+    "approvedAt",
+    "statusChangedAt",
+    "snoozedUntil",
+    "idleFlaggedAt",
+    "archivedAt",
+    "progressAt",
+    "lastUpdateRemindedAt",
+    "overdueAt",
+  ],
   activity: ["at"],
   notifications: ["at", "pushedAt", "deliveredAt", "seenAt"],
   announcements: ["at", "ackDueAt"],
@@ -110,7 +127,7 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   ]);
 
   w.people = peopleRows.map((r) => {
-    const p = fromRow<Person>(r, ["orgId", "userId", "prefs", "dayOrder", "createdAt"]);
+    const p = fromRow<Person>(r, ["orgId", "userId", "prefs", "dayOrder", "savedViews", "createdAt"]);
     if (!r.mustChangePassword) delete p.mustChangePassword;
     p.devices = deviceRows
       .filter((d) => d.personId === r.id)
@@ -123,6 +140,7 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
       }));
     w.prefs[r.id] = r.prefs ?? {};
     if (r.dayOrder?.length) w.dayOrder[r.id] = r.dayOrder;
+    if (r.savedViews?.length) w.savedViews[r.id] = r.savedViews;
     return p;
   });
   w.departments = deps.map((r) => fromRow(r, ["orgId"]));
@@ -199,7 +217,17 @@ export async function persist(tx: Tx, before: World, after: World) {
 
   const upsert = async <T extends Keyed>(
     name: string,
-    table: typeof S.tasks | typeof S.departments | typeof S.teams | typeof S.groups | typeof S.channels | typeof S.announcements | typeof S.questions | typeof S.deadlineRequests | typeof S.leaves,
+    table:
+      | typeof S.tasks
+      | typeof S.departments
+      | typeof S.teams
+      | typeof S.groups
+      | typeof S.projects
+      | typeof S.channels
+      | typeof S.announcements
+      | typeof S.questions
+      | typeof S.deadlineRequests
+      | typeof S.leaves,
     b: T[],
     a: T[],
   ) => {
@@ -221,6 +249,7 @@ export async function persist(tx: Tx, before: World, after: World) {
   await upsert("departments", S.departments, before.departments, after.departments);
   await upsert("teams", S.teams, before.teams, after.teams);
   await upsert("groups", S.groups, before.groups, after.groups);
+  await upsert("projects", S.projects, before.projects, after.projects);
   await upsert("channels", S.channels, before.channels, after.channels);
   await upsert("announcements", S.announcements, before.announcements, after.announcements);
   await upsert("questions", S.questions, before.questions, after.questions);
@@ -263,7 +292,25 @@ export async function persist(tx: Tx, before: World, after: World) {
   }
 
   // people: profile fields + personal prefs / order
-  const peopleCols = ["name", "initials", "role", "title", "departmentId", "teamId", "hue", "capacityHours", "email", "phone", "workType", "onLeave", "backupId", "active", "mustChangePassword"];
+  const peopleCols = [
+    "name",
+    "initials",
+    "role",
+    "title",
+    "departmentId",
+    "teamId",
+    "hue",
+    "capacityHours",
+    "email",
+    "phone",
+    "workType",
+    "onLeave",
+    "backupId",
+    "active",
+    "mustChangePassword",
+    "schedule",
+    "secondaryTeamIds",
+  ];
   const pb = new Map(before.people.map((p) => [p.id, p]));
   for (const p of after.people) {
     const old = pb.get(p.id);
@@ -276,6 +323,7 @@ export async function persist(tx: Tx, before: World, after: World) {
     }
     if (JSON.stringify(after.prefs[p.id] ?? {}) !== JSON.stringify(before.prefs[p.id] ?? {})) patch.prefs = after.prefs[p.id] ?? {};
     if (JSON.stringify(after.dayOrder[p.id] ?? []) !== JSON.stringify(before.dayOrder[p.id] ?? [])) patch.dayOrder = after.dayOrder[p.id] ?? [];
+    if (JSON.stringify(after.savedViews[p.id] ?? []) !== JSON.stringify(before.savedViews[p.id] ?? [])) patch.savedViews = after.savedViews[p.id] ?? [];
     if (Object.keys(patch).length) await tx.update(S.people).set(patch).where(eq(S.people.id, p.id));
   }
 
@@ -293,6 +341,7 @@ export async function persist(tx: Tx, before: World, after: World) {
       checkIn: a.checkIn ? new Date(a.checkIn) : null,
       checkOut: a.checkOut ? new Date(a.checkOut) : null,
       breakMin: a.breakMin,
+      breaks: a.breaks ?? [],
       status: a.status,
     };
     await tx
@@ -304,6 +353,7 @@ export async function persist(tx: Tx, before: World, after: World) {
           checkIn: row.checkIn,
           checkOut: row.checkOut,
           breakMin: row.breakMin,
+          breaks: row.breaks,
           status: row.status,
         },
       });
@@ -390,7 +440,7 @@ export function scopeWorld(w: World, personId: string): World {
   const people = scopePeople(w, role, personId);
   const peopleIds = new Set(people.map((p) => p.id));
   const visibleTasks = scopeTasks(w, role, personId);
-  const extraTasks = w.tasks.filter((t) => t.reviewerId === personId || t.blockedOwnerId === personId || t.createdById === personId);
+  const extraTasks = w.tasks.filter((t) => t.reviewerId === personId || t.blockedOwnerId === personId || t.createdById === personId || t.watcherIds.includes(personId));
   const tasks = role === "owner" ? w.tasks : Array.from(new Map([...visibleTasks, ...extraTasks].map((t) => [t.id, t])).values());
   const taskIds = new Set(tasks.map((t) => t.id));
   const isOwner = role === "owner";
@@ -412,6 +462,7 @@ export function scopeWorld(w: World, personId: string): World {
     timers: Object.fromEntries(Object.entries(w.timers).filter(([pid]) => isOwner || peopleIds.has(pid) || pid === personId)) as Record<string, Timer | undefined>,
     prefs: { [personId]: w.prefs[personId] ?? {} },
     dayOrder: { [personId]: w.dayOrder[personId] ?? [] },
+    savedViews: { [personId]: w.savedViews[personId] ?? [] },
   };
 }
 

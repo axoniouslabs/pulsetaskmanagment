@@ -9,7 +9,7 @@
  * Column names are snake_case in the database (drizzle `casing: "snake_case"`).
  */
 import { bigint, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import type { Attachment, Comment, OrgSettings, ReminderRule, Subtask } from "@/lib/types";
+import type { Attachment, Comment, DepartmentSettings, OrgSettings, ReminderRule, StoredView, Subtask, TaskPool, TimeEntry, WorkSchedule } from "@/lib/types";
 import type { EngineState } from "@/domain/engine";
 import type { NewTaskInput } from "@/domain/commands";
 
@@ -190,6 +190,12 @@ export const people = pgTable(
     prefs: jsonb().$type<Record<string, boolean>>().notNull().default({}),
     /** the person's own order for My Day */
     dayOrder: text().array().notNull().default([]),
+    /** saved task filters, so they follow the person to every device */
+    savedViews: jsonb().$type<StoredView[]>().notNull().default([]),
+    /** own working hours / time zone, overriding department and company */
+    schedule: jsonb().$type<WorkSchedule>(),
+    /** teams this person also works in, besides their home team */
+    secondaryTeamIds: text().array().notNull().default([]),
     createdAt: ts().notNull().defaultNow(),
   },
   (t) => [index().on(t.orgId)],
@@ -224,6 +230,7 @@ export const departments = pgTable(
     name: text().notNull(),
     headId: text().notNull(),
     description: text().notNull().default(""),
+    settings: jsonb().$type<DepartmentSettings>(),
   },
   (t) => [index().on(t.orgId)],
 );
@@ -262,6 +269,7 @@ export const projects = pgTable(
     name: text().notNull(),
     hue: integer().notNull(),
     leadId: text().notNull(),
+    defaultAssigneeId: text(),
   },
   (t) => [index().on(t.orgId)],
 );
@@ -318,7 +326,18 @@ export const tasks = pgTable(
     recurrenceNextId: text(),
     remindersToday: integer().notNull().default(0),
     dependsOn: text().array().notNull().default([]),
-    groupClaim: jsonb().$type<{ unitName: string; claimed: boolean }>(),
+    groupClaim: jsonb().$type<{ unitName: string; claimed: boolean; unitType?: "department" | "team" | "group"; unitId?: string }>(),
+    pool: jsonb().$type<TaskPool>(),
+    timeEntries: jsonb().$type<TimeEntry[]>().notNull().default([]),
+    idleFlaggedAt: ts(),
+    dueAllDay: boolean().notNull().default(false),
+    overdueAt: ts(),
+    archivedAt: ts(),
+    progress: integer(),
+    progressNote: text(),
+    progressAt: ts(),
+    updateEveryDays: integer(),
+    lastUpdateRemindedAt: ts(),
     updatedAt: ts().notNull().defaultNow(),
   },
   (t) => [index().on(t.orgId, t.status), index().on(t.orgId, t.assigneeId), index().on(t.orgId, t.dueAt)],
@@ -443,6 +462,7 @@ export const attendance = pgTable(
     checkIn: ts(),
     checkOut: ts(),
     breakMin: integer().notNull().default(0),
+    breaks: jsonb().$type<{ start: string; end?: string }[]>().notNull().default([]),
     status: text().notNull(),
   },
   (t) => [uniqueIndex().on(t.personId, t.date), index().on(t.orgId, t.date)],

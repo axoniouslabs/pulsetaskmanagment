@@ -23,6 +23,8 @@ export interface Viewer {
 interface Actions {
   load: () => Promise<void>;
   dispatch: (cmd: Command) => ActionResult;
+  /** dispatch, and show the refusal if the change isn't allowed */
+  act: (cmd: Command) => ActionResult;
 
   openTask: (id: string | null) => void;
   openCreate: (defaults?: Partial<NewTaskInput>) => void;
@@ -47,11 +49,11 @@ interface Actions {
   publishDraft: (taskId: string) => ActionResult;
   toggleSubtask: (taskId: string, subtaskId: string) => ActionResult;
   addSubtask: (taskId: string, title: string) => ActionResult;
-  addComment: (taskId: string, body: string, kind?: "text" | "voice", durationSec?: number) => ActionResult;
+  addComment: (taskId: string, body: string, kind?: "text" | "voice", durationSec?: number, parentId?: string) => ActionResult;
   addAttachment: (taskId: string, name: string, kind: "image" | "file") => ActionResult;
 
   startTimer: (taskId: string) => ActionResult;
-  stopTimer: () => ActionResult;
+  stopTimer: (at?: string) => ActionResult;
 
   markRead: (id: string) => ActionResult;
   markAllRead: () => ActionResult;
@@ -182,6 +184,7 @@ const worldOf = (s: AppState): World => {
     timers: s.timers,
     prefs: s.prefs,
     dayOrder: s.dayOrder,
+    savedViews: s.savedViews,
   } as World;
   for (const k of WORLD_KEYS) (w as unknown as Record<string, unknown>)[k] = s[k];
   return w;
@@ -294,6 +297,7 @@ export const useApp = create<AppState>()((set, get) => {
       }
     },
     dispatch,
+    act: (cmd) => run(cmd),
 
     openTask: (id) => set({ openTaskId: id }),
     openCreate: (defaults) => set({ createOpen: true, createDefaults: defaults ?? null }),
@@ -326,11 +330,11 @@ export const useApp = create<AppState>()((set, get) => {
     publishDraft: (taskId) => run({ type: "publishDraft", taskId }),
     toggleSubtask: (taskId, subtaskId) => run({ type: "toggleSubtask", taskId, subtaskId }),
     addSubtask: (taskId, title) => run({ type: "addSubtask", taskId, title }),
-    addComment: (taskId, body, kind, durationSec) => run({ type: "addComment", taskId, body, kind, durationSec }),
+    addComment: (taskId, body, kind, durationSec, parentId) => run({ type: "addComment", taskId, body, kind, durationSec, parentId }),
     addAttachment: (taskId, name, kind) => run({ type: "addAttachment", taskId, name, kind }),
 
     startTimer: (taskId) => run({ type: "start", taskId }),
-    stopTimer: () => run({ type: "stopTimer" }),
+    stopTimer: (at) => run({ type: "stopTimer", at }),
 
     markRead: (id) => run({ type: "markRead", id }),
     markAllRead: () => run({ type: "markAllRead" }),

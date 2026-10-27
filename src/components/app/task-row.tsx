@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { AnimatePresence, m } from "motion/react";
-import { Paperclip, MessageSquare, ListChecks, Camera, Users } from "lucide-react";
+import { Paperclip, MessageSquare, ListChecks, Camera, Star, Users } from "lucide-react";
 import { EASE_EXIT, SETTLE } from "@/lib/motion";
 import type { Task } from "@/lib/types";
 import { useApp } from "@/lib/store";
@@ -35,6 +35,7 @@ export function TaskRow({
   const assignee = useApp((s) => s.people.find((p) => p.id === task.assigneeId));
   const heat = heatOf(task);
   const doneSubs = task.subtasks.filter((s) => s.done).length;
+  const pinned = useApp((s) => !!s.viewer && !!s.prefs[s.viewer.personId]?.[`pin:${task.id}`]);
 
   // a soft glow when the status changes while the row is on screen (by you or by someone else)
   const [seen, setSeen] = React.useState(task.status);
@@ -86,6 +87,7 @@ export function TaskRow({
           <p
             className={cn("truncate text-[14.5px] font-medium leading-snug text-text", (task.status === "approved" || task.status === "cancelled") && "text-muted line-through decoration-line-strong")}
           >
+            {pinned && <Star className="mr-1.5 inline size-3.5 -translate-y-px fill-heat-1 text-heat-1" aria-label="Pinned" />}
             {task.title}
           </p>
           <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1">
@@ -122,6 +124,16 @@ export function TaskRow({
                 {task.comments.length}
               </span>
             )}
+            {task.progress !== undefined && ["acknowledged", "in_progress", "blocked"].includes(task.status) && <span className="tabular text-[12.5px] text-muted">{task.progress}% done</span>}
+            {task.idleFlaggedAt && task.status === "in_progress" && <span className="text-[12.5px] font-medium text-heat-1">Idle</span>}
+            {task.pool?.mode === "route" && !task.pool.routedAt && ["assigned", "acknowledged"].includes(task.status) && (
+              <span className="text-[12.5px] font-medium text-heat-1">To pass on ({task.pool.unitName})</span>
+            )}
+            {task.tags.slice(0, 3).map((t) => (
+              <span key={t} className="text-[12.5px] text-faint">
+                #{t}
+              </span>
+            ))}
             {task.requiresProof && task.status !== "approved" && (
               <span className="inline-flex items-center gap-1 text-[12.5px] text-faint">
                 <Camera className="size-3.5" /> Proof

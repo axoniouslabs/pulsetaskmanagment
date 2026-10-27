@@ -43,6 +43,20 @@
       "when": 1793116946117,
       "tag": "0005_stats_time_split",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1793140383720,
+      "tag": "0006_per_person_schedules",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1793141581469,
+      "tag": "0007_task_details",
+      "breakpoints": true
     }
   ]
 }

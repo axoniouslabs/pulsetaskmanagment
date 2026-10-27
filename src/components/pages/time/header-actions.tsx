@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Download, LogIn, LogOut } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useNow, useScope, useOrgToday } from "@/lib/hooks";
+import { BreakButton } from "./break-button";
 import { Button } from "@/components/ui/button";
 import { exportAttendanceCsv } from "./lib";
 
@@ -43,7 +44,7 @@ export function ExportButton() {
 export function CheckInChip() {
   const now = useNow();
   const meId = useApp((s) => s.userIds[s.role]);
-  const today = useOrgToday(now);
+  const today = useOrgToday(now, meId);
   const att = useApp((s) => s.attendance.find((a) => a.personId === meId && a.date === today));
   const checkIn = useApp((s) => s.checkIn);
   const checkOut = useApp((s) => s.checkOut);
@@ -54,10 +55,10 @@ export function CheckInChip() {
         variant="primary"
         className="h-10 sm:h-9"
         onClick={() => {
-          checkIn();
-          toast.success("Checked in", {
-            description: `at ${format(new Date(), "h:mm a")}`,
-          });
+          if (checkIn().ok)
+            toast.success("Checked in", {
+              description: `at ${format(new Date(), "h:mm a")}`,
+            });
         }}
       >
         <LogIn /> Check in
@@ -69,15 +70,16 @@ export function CheckInChip() {
         {!att.checkOut && <span className="size-2 animate-pulse-dot rounded-full bg-ok" aria-hidden />}
         {att.checkOut ? `You checked out at ${format(new Date(att.checkOut), "h:mm a")}` : `You're in since ${format(new Date(att.checkIn), "h:mm a")}`}
       </span>
+      {!att.checkOut && <BreakButton onBreak={!!att.breaks?.some((b) => !b.end)} />}
       {!att.checkOut && (
         <Button
           variant="ghost"
           className="h-10 sm:h-9"
           onClick={() => {
-            checkOut();
-            toast("Checked out", {
-              description: "Any running timer was stopped.",
-            });
+            if (checkOut().ok)
+              toast("Checked out", {
+                description: "Any running timer was stopped.",
+              });
           }}
         >
           <LogOut /> Check out

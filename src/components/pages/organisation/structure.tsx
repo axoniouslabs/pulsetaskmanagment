@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRightLeft, ChevronDown, Hash, Layers, MoreHorizontal, Plus, UserRound } from "lucide-react";
+import { ArrowRightLeft, ChevronDown, Hash, Layers, MoreHorizontal, Plus, SlidersHorizontal, UserRound } from "lucide-react";
+import { departmentRulesSummary } from "./rules-projects";
 import type { ChannelSpace, Department, Group, Person, Team } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -20,6 +21,7 @@ export function DepartmentList({
   onMove,
   onChangeHead,
   onChangeLead,
+  onRules,
 }: {
   departments: Department[];
   teams: Team[];
@@ -28,6 +30,7 @@ export function DepartmentList({
   onMove: (p: Person) => void;
   onChangeHead: (d: Department) => void;
   onChangeLead: (t: Team) => void;
+  onRules: (d: Department) => void;
 }) {
   return (
     <div className="space-y-4">
@@ -41,6 +44,7 @@ export function DepartmentList({
           onMove={onMove}
           onChangeHead={() => onChangeHead(d)}
           onChangeLead={onChangeLead}
+          onRules={() => onRules(d)}
         />
       ))}
       <p className="flex items-start gap-2.5 px-1 text-[13px] leading-snug text-muted">
@@ -59,6 +63,7 @@ function DepartmentPanel({
   onMove,
   onChangeHead,
   onChangeLead,
+  onRules,
 }: {
   department: Department;
   teams: Team[];
@@ -67,7 +72,9 @@ function DepartmentPanel({
   onMove: (p: Person) => void;
   onChangeHead: () => void;
   onChangeLead: (t: Team) => void;
+  onRules: () => void;
 }) {
+  const rules = departmentRulesSummary(d);
   const head = people.find((p) => p.id === d.headId);
   const members = people.filter((p) => p.departmentId === d.id);
   return (
@@ -89,8 +96,12 @@ function DepartmentPanel({
             )}
             <span className="tabular text-muted">{plural(members.length, "person", "people")}</span>
           </div>
+          <p className="mt-2 text-[12.5px] text-muted">{rules ? `Own rules: ${rules}.` : "Follows the company's hours and rules."}</p>
         </div>
-        <div className="flex gap-2 self-start">
+        <div className="flex flex-wrap gap-2 self-start">
+          <Button size="sm" variant="ghost" onClick={onRules}>
+            <SlidersHorizontal /> Rules
+          </Button>
           <Button size="sm" variant="ghost" onClick={onChangeHead}>
             <UserRound /> Change head
           </Button>
@@ -116,9 +127,7 @@ function DepartmentPanel({
 function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; people: Person[]; headId: string; onMove: (p: Person) => void; onChangeLead: () => void }) {
   const [open, setOpen] = React.useState(false);
   const lead = people.find((p) => p.id === team.leadId);
-  const members = people
-    .filter((p) => p.teamId === team.id)
-    .sort((a, b) => (a.id === team.leadId ? -1 : b.id === team.leadId ? 1 : a.name.localeCompare(b.name)));
+  const members = people.filter((p) => p.teamId === team.id).sort((a, b) => (a.id === team.leadId ? -1 : b.id === team.leadId ? 1 : a.name.localeCompare(b.name)));
   const listId = `team-${team.id}-members`;
 
   return (
@@ -175,11 +184,7 @@ function MemberRow({ person: p, isLead, isHead, teamName, onMove }: { person: Pe
       <div className="min-w-0 flex-1">
         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5">
           <span className="truncate text-[14px] font-medium text-text">{p.name}</span>
-          {isHead ? (
-            <span className="text-[12px] font-medium text-ink">Department head</span>
-          ) : isLead ? (
-            <span className="text-[12px] font-medium text-ink">Team lead</span>
-          ) : null}
+          {isHead ? <span className="text-[12px] font-medium text-ink">Department head</span> : isLead ? <span className="text-[12px] font-medium text-ink">Team lead</span> : null}
         </p>
         <p className="truncate text-[12.5px] text-muted">{p.title}</p>
       </div>

@@ -8,8 +8,8 @@ export const ACTIVE: TaskStatus[] = ["assigned", "acknowledged", "in_progress", 
 export const isActive = (t: Task) => ACTIVE.includes(t.status);
 export const isOpenWork = (t: Task) => ["assigned", "acknowledged", "in_progress", "blocked"].includes(t.status);
 
-export const isOverdue = (t: Task, now = new Date()) =>
-  isActive(t) && t.status !== "submitted" && new Date(t.dueAt).getTime() < now.getTime();
+/** overdue from the next working moment after the deadline (see overdueFrom), not the deadline itself */
+export const isOverdue = (t: Task, now = new Date()) => isActive(t) && t.status !== "submitted" && new Date(t.overdueAt ?? t.dueAt).getTime() < now.getTime();
 
 /** escalation heat as the owner sees it: overdue is always at least level 3 */
 export function heatOf(t: Task, now = new Date()): HeatLevel {
@@ -40,9 +40,11 @@ export function scopePeople(s: Pick<AppState, "people" | "teams" | "departments"
   if (role === "owner") return people;
   if (role === "employee") return people.filter((p) => p.id === meId);
   const headOf = s.departments.find((d) => d.headId === meId);
-  if (headOf) return people.filter((p) => p.departmentId === headOf.id);
+  const depTeams = headOf ? s.teams.filter((t) => t.departmentId === headOf.id).map((t) => t.id) : [];
+  if (headOf) return people.filter((p) => p.departmentId === headOf.id || p.secondaryTeamIds?.some((id) => depTeams.includes(id)));
   const leads = s.teams.filter((t) => t.leadId === meId).map((t) => t.id);
-  return people.filter((p) => leads.includes(p.teamId) || p.id === meId);
+  // secondary members of a team are in its lead's view too
+  return people.filter((p) => leads.includes(p.teamId) || p.secondaryTeamIds?.some((id) => leads.includes(id)) || p.id === meId);
 }
 
 /** offered to a team or group I belong to, and nobody has claimed it yet */
@@ -53,7 +55,7 @@ export function scopeTasks(s: Pick<AppState, "people" | "teams" | "departments" 
   if (role === "owner") return s.tasks;
   const ids = new Set(scopePeople(s, role, meId).map((p) => p.id));
   if (role === "employee") return s.tasks.filter((t) => t.assigneeId === meId || t.watcherIds.includes(meId) || isOpenToClaim(s, t, meId));
-  return s.tasks.filter((t) => ids.has(t.assigneeId) || t.reviewerId === meId || t.blockedOwnerId === meId || isOpenToClaim(s, t, meId));
+  return s.tasks.filter((t) => ids.has(t.assigneeId) || t.reviewerId === meId || t.blockedOwnerId === meId || t.watcherIds.includes(meId) || isOpenToClaim(s, t, meId));
 }
 
 export interface Attention {
@@ -67,9 +69,7 @@ export interface Attention {
 /** the five things the owner's main screen is about (spec §11) */
 export function attention(s: AppState, tasks: Task[], people: Person[], now = new Date()): Attention {
   const overdue = tasks.filter((t) => isOverdue(t, now)).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-  const unseen = tasks
-    .filter((t) => t.status === "assigned" && !isOverdue(t, now) && t.remindersIgnored >= s.settings.escalation.l1Ignored)
-    .sort((a, b) => b.remindersIgnored - a.remindersIgnored);
+  const unseen = tasks.filter((t) => t.status === "assigned" && !isOverdue(t, now) && t.remindersIgnored >= s.settings.escalation.l1Ignored).sort((a, b) => b.remindersIgnored - a.remindersIgnored);
   const blocked = tasks.filter((t) => t.status === "blocked").sort((a, b) => (a.blockedAt ?? "").localeCompare(b.blockedAt ?? ""));
   const slowReview = tasks
     .filter((t) => t.status === "submitted" && t.submittedAt && differenceInHours(now, new Date(t.submittedAt)) >= s.settings.reviewSlaHours)
