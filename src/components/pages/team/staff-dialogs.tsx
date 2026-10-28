@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, Copy, Eraser, KeyRound, Link2, Loader2, Mail, Trash2, UserMinus, UserPlus, UserRoundCheck, X } from "lucide-react";
+import { Check, Copy, Eraser, KeyRound, LogOut, Link2, Loader2, Mail, Trash2, UserMinus, UserPlus, UserRoundCheck, X } from "lucide-react";
 import { formatDistanceToNowStrict } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "@/lib/store";
@@ -383,7 +383,7 @@ function AddPersonForm({ onDone, switcher }: { onDone: () => void; switcher: Rea
   );
 }
 
-type Mode = "edit" | "reset" | "deactivate" | "reactivate" | "delete" | "purge";
+type Mode = "edit" | "reset" | "deactivate" | "reactivate" | "delete" | "purge" | "logout";
 
 /** owner-only actions on one person */
 export function StaffActions({ person }: { person: Person }) {
@@ -398,6 +398,9 @@ export function StaffActions({ person }: { person: Person }) {
             </Button>
             <Button size="sm" variant="secondary" onClick={() => setMode("reset")}>
               <KeyRound /> Reset password
+            </Button>
+            <Button size="sm" variant="secondary" onClick={() => setMode("logout")}>
+              <LogOut /> Sign out everywhere
             </Button>
             {person.role !== "owner" && (
               <Button size="sm" variant="danger" onClick={() => setMode("deactivate")}>
@@ -546,6 +549,13 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
           </div>
         )}
         {footer("Deactivate", () => go(() => call(`/api/people/${p.id}`, "PATCH", { active: false }), `${first} deactivated`), "dangerSolid", leads.length > 0)}
+      </DialogContent>
+    );
+
+  if (mode === "logout")
+    return (
+      <DialogContent title={`Sign ${first} out everywhere?`} description={`For a lost phone or a shared PC. ${first} signs in again with the same password; reminders keep reaching their devices.`}>
+        {footer("Sign out everywhere", () => go(() => call(`/api/people/${p.id}/sessions`, "DELETE"), `${first} signed out of every device`))}
       </DialogContent>
     );
 

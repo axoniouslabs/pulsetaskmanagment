@@ -6,8 +6,9 @@ import { json } from "@/server/session";
 export async function GET() {
   await connection();
   try {
-    return json({ needsSetup: (await companyCount()) === 0 });
+    // the sign-in page offers "Forgot your password?" only when reset emails can actually be sent
+    return json({ needsSetup: (await companyCount()) === 0, emailEnabled: !!process.env.RESEND_API_KEY });
   } catch {
-    return json({ needsSetup: false });
+    return json({ needsSetup: false, emailEnabled: false });
   }
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BellRing, Building2, CheckCheck, FileDown, FlaskConical, KeyRound, LayoutTemplate, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
+import { BellRing, Building2, CheckCheck, FileDown, FlaskConical, KeyRound, LayoutTemplate, ShieldCheck, Newspaper, Smartphone, TrendingUp, UserRoundCog } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useScope } from "@/lib/hooks";
 import { cn, plural } from "@/lib/utils";
@@ -9,6 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Switch } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/app/page-header";
 import { BackupList } from "@/components/pages/settings/backups";
+import { SignedInDevices, TwoStep } from "@/components/pages/settings/security";
 import { Chips, NumberSetting, SettingRow, SettingsSection, intervalLabel, shortInterval, useSave } from "@/components/pages/settings/parts";
 import { CompanySettings } from "@/components/pages/settings/company";
 import { EscalationLadder } from "@/components/pages/settings/escalation";
@@ -29,6 +30,7 @@ const SECTIONS = [
   { id: "devices", label: "Devices & delivery", icon: Smartphone },
   { id: "templates", label: "Templates", icon: LayoutTemplate },
   { id: "account", label: "Account", icon: KeyRound },
+  { id: "security", label: "Security", icon: ShieldCheck },
   { id: "demo", label: "Demo controls", icon: FlaskConical },
 ];
 
@@ -64,6 +66,10 @@ export default function SettingsPage() {
           )}
           <SettingsSection id="account" title="Account">
             <AccountSettings />
+          </SettingsSection>
+          <SettingsSection id="security" title="Security" description="Where you're signed in, and an extra step at sign-in.">
+            <SignedInDevices />
+            <TwoStep recommended={role !== "employee"} />
           </SettingsSection>
         </div>
       </div>
@@ -215,6 +221,10 @@ export default function SettingsPage() {
 
           <SettingsSection id="account" title="Account">
             <AccountSettings />
+          </SettingsSection>
+          <SettingsSection id="security" title="Security" description="Where you're signed in, and an extra step at sign-in.">
+            <SignedInDevices />
+            <TwoStep recommended />
           </SettingsSection>
 
           {demoMode && (

@@ -67,6 +67,12 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
   const reason = useQueryParam("reason");
   const notice = reason === "deactivated" ? "Your account has been deactivated. Ask the owner if you think that's a mistake." : null;
   const [busy, setBusy] = React.useState<string | null>(null);
+  // two-step sign-in: after the password, the code from the authenticator app
+  const [step, setStep] = React.useState<"password" | "code" | "forgot" | "sent">("password");
+  const [code, setCode] = React.useState("");
+  const [useBackup, setUseBackup] = React.useState(false);
+  const [trust, setTrust] = React.useState(true);
+  const [emailOn, setEmailOn] = React.useState(false);
 
   const done = () => window.location.replace(nextPath());
 
@@ -77,6 +83,7 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
       .then((r) => (r.ok ? r.json() : null))
       .then((d) => {
         if (live && d?.needsSetup) window.location.replace("/setup");
+        if (live) setEmailOn(!!d?.emailEnabled);
       })
       .catch(() => {});
     return () => {
@@ -89,17 +96,55 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
     setError(null);
     if (!email.trim() || !password) return setError("Enter your work email and password.");
     setBusy("form");
-    const { error } = await authClient.signIn.email({
+    const { data, error } = await authClient.signIn.email({
       email: email.trim().toLowerCase(),
       password,
       rememberMe: true,
     });
     if (error) {
       setBusy(null);
-      setError(error.status === 429 ? "Too many attempts. Wait a minute and try again." : "That email and password don't match. Check for typos, or ask your manager to reset your password.");
+      setError(error.status === 429 ? "Too many attempts. Wait a few minutes and try again." : "That email and password don't match. Check for typos, or reset your password.");
+      return;
+    }
+    if ((data as { twoFactorRedirect?: boolean } | null)?.twoFactorRedirect) {
+      setBusy(null);
+      setStep("code");
       return;
     }
     done();
+  }
+
+  async function onCode(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    const c = code.replace(/\s+/g, "");
+    if (!c) return setError(useBackup ? "Enter one of your backup codes." : "Enter the 6-digit code from your authenticator app.");
+    setBusy("code");
+    const { error } = useBackup ? await authClient.twoFactor.verifyBackupCode({ code: c, trustDevice: trust }) : await authClient.twoFactor.verifyTotp({ code: c, trustDevice: trust });
+    if (error) {
+      setBusy(null);
+      setError(
+        error.status === 429
+          ? "Too many attempts. Wait a few minutes and try again."
+          : useBackup
+            ? "That backup code didn't work. Each one works once."
+            : "That code didn't match. Codes change every 30 seconds; try the current one.",
+      );
+      return;
+    }
+    done();
+  }
+
+  async function onForgot(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    if (!email.trim()) return setError("Enter your work email.");
+    setBusy("forgot");
+    const { error } = await authClient.requestPasswordReset({ email: email.trim().toLowerCase(), redirectTo: "/reset" });
+    setBusy(null);
+    if (error && error.status === 429) return setError("Too many requests. Try again in an hour.");
+    // same answer whether or not the address exists, so nobody can probe for accounts
+    setStep("sent");
   }
 
   async function quick(addr: string) {
@@ -166,47 +211,128 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
             <Logo size={32} trace="once" />
             <span className="font-display text-[20px] font-bold tracking-tight text-ink">Pulse</span>
           </div>
-          <h2 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Sign in</h2>
-          <p className="mt-1.5 text-[14.5px] text-muted">Use the work email your company added you with.</p>
-
-          <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
-            <label className="block">
-              <span className="mb-1.5 block text-[13px] font-medium text-text">Work email</span>
-              <Input type="email" autoComplete="username" inputMode="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11" autoFocus />
-            </label>
-            <div className="relative">
+          {step === "code" ? (
+            <form onSubmit={onCode} className="space-y-4" noValidate>
+              <h2 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Two-step sign-in</h2>
+              <p className="text-[14.5px] text-muted">
+                {useBackup ? "Enter one of the backup codes you saved when you turned this on." : "Open your authenticator app and enter the 6-digit code for Pulse."}
+              </p>
               <label className="block">
-                <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
-                <Input type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pr-11" />
+                <span className="mb-1.5 block text-[13px] font-medium text-text">{useBackup ? "Backup code" : "Code"}</span>
+                <Input
+                  value={code}
+                  onChange={(e) => setCode(e.target.value)}
+                  inputMode={useBackup ? "text" : "numeric"}
+                  autoComplete="one-time-code"
+                  className="h-11 font-mono tracking-[0.3em]"
+                  autoFocus
+                  maxLength={useBackup ? 24 : 8}
+                />
               </label>
+              <label className="flex cursor-pointer items-center gap-2 text-[13.5px] text-text">
+                <input type="checkbox" checked={trust} onChange={(e) => setTrust(e.target.checked)} className="size-4 accent-[var(--color-ink)]" /> Don&apos;t ask again on this device for 30 days
+              </label>
+              {error && (
+                <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
+                  {error}
+                </p>
+              )}
+              <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!!busy}>
+                {busy === "code" && <Loader2 className="animate-spin" />} Verify and sign in
+              </Button>
               <button
                 type="button"
-                onClick={() => setShow((v) => !v)}
-                className="absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted"
-                aria-label={show ? "Hide password" : "Show password"}
+                onClick={() => {
+                  setUseBackup((v) => !v);
+                  setCode("");
+                  setError(null);
+                }}
+                className="w-full text-center text-[13px] font-medium text-ink hover:underline"
               >
-                {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+                {useBackup ? "Use the authenticator app instead" : "Lost your phone? Use a backup code"}
               </button>
-            </div>
-            {(error ?? notice) && (
-              <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
-                {error ?? notice}
-              </p>
-            )}
-            <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!!busy}>
-              {busy === "form" ? <Loader2 className="animate-spin" /> : null}
-              Sign in
-            </Button>
-            <p className="text-center text-[13px] text-faint">Forgot your password? Ask your manager or the owner to reset it.</p>
-            <p className="text-center text-[13px] text-muted">
-              Got an invite code?{" "}
-              <Link href="/join" className="font-medium text-ink hover:underline">
-                Join your company
-              </Link>
-            </p>
-          </form>
+            </form>
+          ) : step === "forgot" || step === "sent" ? (
+            <form onSubmit={onForgot} className="space-y-4" noValidate>
+              <h2 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Reset your password</h2>
+              {step === "sent" ? (
+                <p className="rounded-[var(--radius-md)] bg-ok-tint px-4 py-3 text-[14px] leading-relaxed text-text">
+                  If {email.trim()} has a Pulse account, a reset link is on its way. It works for one hour. Check spam if it doesn&apos;t arrive in a few minutes.
+                </p>
+              ) : (
+                <>
+                  <p className="text-[14.5px] text-muted">We&apos;ll email you a link to choose a new password.</p>
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-medium text-text">Work email</span>
+                    <Input type="email" autoComplete="username" inputMode="email" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11" autoFocus />
+                  </label>
+                  {error && (
+                    <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
+                      {error}
+                    </p>
+                  )}
+                  <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!!busy}>
+                    {busy === "forgot" && <Loader2 className="animate-spin" />} Email me a reset link
+                  </Button>
+                </>
+              )}
+              <button type="button" onClick={() => setStep("password")} className="w-full text-center text-[13px] font-medium text-ink hover:underline">
+                Back to sign in
+              </button>
+            </form>
+          ) : (
+            <>
+              <h2 className="font-display text-[28px] font-semibold tracking-[-0.02em] text-text">Sign in</h2>
+              <p className="mt-1.5 text-[14.5px] text-muted">Use the work email your company added you with.</p>
 
-          {demo && accounts.length > 0 && (
+              <form onSubmit={onSubmit} className="mt-7 space-y-4" noValidate>
+                <label className="block">
+                  <span className="mb-1.5 block text-[13px] font-medium text-text">Work email</span>
+                  <Input type="email" autoComplete="username" inputMode="email" placeholder="you@company.com" value={email} onChange={(e) => setEmail(e.target.value)} className="h-11" autoFocus />
+                </label>
+                <div className="relative">
+                  <label className="block">
+                    <span className="mb-1.5 block text-[13px] font-medium text-text">Password</span>
+                    <Input type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="h-11 pr-11" />
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() => setShow((v) => !v)}
+                    className="absolute bottom-0 right-0 flex h-11 w-11 items-center justify-center text-faint transition-colors duration-150 hover:text-muted"
+                    aria-label={show ? "Hide password" : "Show password"}
+                  >
+                    {show ? <EyeOff className="size-[18px]" /> : <Eye className="size-[18px]" />}
+                  </button>
+                </div>
+                {(error ?? notice) && (
+                  <p role="alert" className="rounded-[var(--radius-sm)] bg-heat-3-tint px-3 py-2.5 text-[13.5px] leading-snug text-heat-3">
+                    {error ?? notice}
+                  </p>
+                )}
+                <Button type="submit" variant="primary" size="lg" className="w-full" disabled={!!busy}>
+                  {busy === "form" ? <Loader2 className="animate-spin" /> : null}
+                  Sign in
+                </Button>
+                {emailOn ? (
+                  <p className="text-center text-[13px] text-faint">
+                    <button type="button" onClick={() => setStep("forgot")} className="font-medium text-ink hover:underline">
+                      Forgot your password?
+                    </button>
+                  </p>
+                ) : (
+                  <p className="text-center text-[13px] text-faint">Forgot your password? Ask your manager or the owner to reset it.</p>
+                )}
+                <p className="text-center text-[13px] text-muted">
+                  Got an invite code?{" "}
+                  <Link href="/join" className="font-medium text-ink hover:underline">
+                    Join your company
+                  </Link>
+                </p>
+              </form>
+            </>
+          )}
+
+          {step === "password" && demo && accounts.length > 0 && (
             <section className="mt-10">
               <div className="flex items-center gap-3">
                 <span className="h-px flex-1 bg-line" />

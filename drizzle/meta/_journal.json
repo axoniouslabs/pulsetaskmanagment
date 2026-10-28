@@ -71,6 +71,13 @@
       "when": 1793144208681,
       "tag": "0009_org_channels_invites",
       "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1793177335662,
+      "tag": "0010_security",
+      "breakpoints": true
     }
   ]
 }

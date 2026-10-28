@@ -31,7 +31,26 @@ export const user = pgTable("users", {
   updatedAt: ts().notNull().defaultNow(),
   /** runs the Pulse admin panel (companies, subscriptions, usage) */
   platformAdmin: boolean().notNull().default(false),
+  /** two-step sign-in with an authenticator app */
+  twoFactorEnabled: boolean().notNull().default(false),
 });
+
+/** the authenticator secret and backup codes (Better Auth two-factor plugin) */
+export const twoFactor = pgTable(
+  "two_factor",
+  {
+    id: text().primaryKey(),
+    secret: text().notNull(),
+    backupCodes: text().notNull(),
+    userId: text()
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    verified: boolean().notNull().default(true),
+    failedVerificationCount: integer().notNull().default(0),
+    lockedUntil: ts(),
+  },
+  (t) => [index().on(t.userId), index().on(t.secret)],
+);
 
 export const session = pgTable(
   "session",

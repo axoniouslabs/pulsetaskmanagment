@@ -43,6 +43,9 @@ export async function seedDemo({ reset = false }: { reset?: boolean } = {}): Pro
         .insert(S.account)
         .values({ id: `a_${p.id.slice(2)}`, accountId: userId, providerId: "credential", userId, password: hash })
         .onConflictDoUpdate({ target: S.account.id, set: { password: hash } });
+      // a reset puts every demo login back to password-only, so nobody locks the demo behind their phone
+      await tx.update(S.user).set({ twoFactorEnabled: false }).where(eq(S.user.id, userId));
+      await tx.delete(S.twoFactor).where(eq(S.twoFactor.userId, userId));
       await tx.insert(S.people).values({
         id: p.id,
         orgId: DEMO_ORG_ID,
@@ -101,7 +104,25 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /** remove the demo organisation, including its append-only activity */
 async function wipe(tx: Tx) {
-  const byOrg = [S.devices, S.departments, S.teams, S.groups, S.projects, S.tasks, S.notifications, S.timers, S.channels, S.announcements, S.questions, S.deadlineRequests, S.attendance, S.leaves, S.dailyStats, S.templates, S.files];
+  const byOrg = [
+    S.devices,
+    S.departments,
+    S.teams,
+    S.groups,
+    S.projects,
+    S.tasks,
+    S.notifications,
+    S.timers,
+    S.channels,
+    S.announcements,
+    S.questions,
+    S.deadlineRequests,
+    S.attendance,
+    S.leaves,
+    S.dailyStats,
+    S.templates,
+    S.files,
+  ];
   for (const t of byOrg) await tx.delete(t).where(eq((t as typeof S.tasks).orgId, DEMO_ORG_ID));
   // the log refuses deletes on purpose; the demo reset is the one sanctioned exception
   await tx.execute(sql`alter table activity disable trigger activity_no_delete`);
@@ -110,7 +131,6 @@ async function wipe(tx: Tx) {
   await tx.delete(S.people).where(eq(S.people.orgId, DEMO_ORG_ID));
   await tx.delete(S.organizations).where(eq(S.organizations.id, DEMO_ORG_ID));
 }
-
 
 /**
  * Take the demo company out for good: every row it owns, plus the demo sign-in
