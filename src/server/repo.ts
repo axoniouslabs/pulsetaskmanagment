@@ -4,7 +4,7 @@ import { format, subDays } from "date-fns";
 import type { Person, Task, Timer } from "@/lib/types";
 import type { DailyStat } from "@/lib/seed";
 import { scopePeople, scopeTasks } from "@/lib/selectors";
-import { membersOf, emptyWorld, type World } from "@/domain/world";
+import { channelMembersOf, emptyWorld, type World } from "@/domain/world";
 import type { EngineState } from "@/domain/engine";
 import { db, schema, type DB, type Tx } from "./db";
 
@@ -42,6 +42,7 @@ const DATE_FIELDS: Record<string, string[]> = {
   deadlineRequests: ["newDueAt", "at"],
   attendance: ["checkIn", "checkOut"],
   groups: ["archivedAt"],
+  channels: ["archivedAt"],
   devices: ["lastSeen"],
 };
 
@@ -145,7 +146,8 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
   });
   w.departments = deps.map((r) => fromRow(r, ["orgId"]));
   w.teams = teams.map((r) => fromRow(r, ["orgId"]));
-  w.groups = groups.filter((g) => !g.archivedAt).map((r) => fromRow(r, ["orgId"]));
+  // archived groups stay, so their channel and history remain readable
+  w.groups = groups.map((r) => fromRow(r, ["orgId"]));
   w.projects = projects.map((r) => fromRow(r, ["orgId"]));
   w.tasks = tasks.map((r) => fromRow<Task>(r, ["orgId", "updatedAt"]));
   w.channels = channels.map((r) => fromRow(r, ["orgId"]));
@@ -310,6 +312,8 @@ export async function persist(tx: Tx, before: World, after: World) {
     "mustChangePassword",
     "schedule",
     "secondaryTeamIds",
+    "availability",
+    "contactPurgedAt",
   ];
   const pb = new Map(before.people.map((p) => [p.id, p]));
   for (const p of after.people) {
@@ -319,7 +323,7 @@ export async function persist(tx: Tx, before: World, after: World) {
     for (const k of peopleCols) {
       const nv = (p as unknown as Record<string, unknown>)[k];
       const ov = (old as unknown as Record<string, unknown>)[k];
-      if (JSON.stringify(nv) !== JSON.stringify(ov)) patch[k] = nv ?? null;
+      if (JSON.stringify(nv) !== JSON.stringify(ov)) patch[k] = k === "contactPurgedAt" && typeof nv === "string" ? new Date(nv) : (nv ?? null);
     }
     if (JSON.stringify(after.prefs[p.id] ?? {}) !== JSON.stringify(before.prefs[p.id] ?? {})) patch.prefs = after.prefs[p.id] ?? {};
     if (JSON.stringify(after.dayOrder[p.id] ?? []) !== JSON.stringify(before.dayOrder[p.id] ?? [])) patch.dayOrder = after.dayOrder[p.id] ?? [];
@@ -445,7 +449,8 @@ export function scopeWorld(w: World, personId: string): World {
   const taskIds = new Set(tasks.map((t) => t.id));
   const isOwner = role === "owner";
 
-  const channelIds = new Set(w.channels.filter((c) => isOwner || membersOf(w, c.unitType, c.unitId).includes(personId)).map((c) => c.id));
+  // private channels are for the people invited, the owner included only if invited
+  const channelIds = new Set(w.channels.filter((c) => (isOwner && c.kind !== "private") || channelMembersOf(w, c).includes(personId)).map((c) => c.id));
 
   return {
     ...w,
@@ -460,7 +465,13 @@ export function scopeWorld(w: World, personId: string): World {
     deadlineRequests: w.deadlineRequests.filter((d) => taskIds.has(d.taskId)),
     stats: w.stats.filter((s) => isOwner || peopleIds.has(s.personId) || s.personId === personId),
     timers: Object.fromEntries(Object.entries(w.timers).filter(([pid]) => isOwner || peopleIds.has(pid) || pid === personId)) as Record<string, Timer | undefined>,
-    prefs: { [personId]: w.prefs[personId] ?? {} },
+    // a manager sees (and can set) where their people's notifications go, nothing else of their preferences
+    prefs: {
+      ...Object.fromEntries(
+        people.filter((p) => p.id !== personId && role !== "employee").map((p) => [p.id, Object.fromEntries(Object.entries(w.prefs[p.id] ?? {}).filter(([k]) => /^(push|inapp|email):/.test(k)))]),
+      ),
+      [personId]: w.prefs[personId] ?? {},
+    },
     dayOrder: { [personId]: w.dayOrder[personId] ?? [] },
     savedViews: { [personId]: w.savedViews[personId] ?? [] },
   };

@@ -13,6 +13,8 @@ export async function POST(req: Request) {
   const form = await req.formData().catch(() => null);
   const file = form?.get("file");
   const taskId = String(form?.get("taskId") ?? "");
+  const channelId = String(form?.get("channelId") ?? "");
+  if (file instanceof File && channelId) return shareWithChannel(viewer, channelId, String(form?.get("title") ?? "") || file.name, file);
   if (!(file instanceof File) || !taskId) return json({ ok: false, error: "Pick a file to upload." }, 400);
   const problem = checkFile(file);
   if (problem) return json({ ok: false, error: problem }, 400);
@@ -70,4 +72,21 @@ function located(v: FormDataEntryValue | null | undefined) {
   } catch {
     return undefined;
   }
+}
+
+/** a file shared with a unit: pinned in its channel for everyone in it */
+async function shareWithChannel(viewer: Parameters<typeof runCommand>[0], channelId: string, title: string, file: File) {
+  const problem = checkFile(file);
+  if (problem) return json({ ok: false, error: problem }, 400);
+  const world = await loadWorld(db, viewer.orgId);
+  const pin = { type: "addPin" as const, channelId, title: title.slice(0, 120), fileId: "pending", fileName: file.name };
+  const check = authorize(world, viewer.personId, pin);
+  if (!check.ok) return json({ ok: false, error: check.error }, 403);
+  const stored = await storeFile({ orgId: viewer.orgId, channelId, byId: viewer.personId, file });
+  const r = await runCommand(viewer, { ...pin, fileId: stored.id, fileName: stored.name, url: stored.url });
+  if (!r.ok) {
+    await removeFile(stored.id);
+    return json({ ok: false, error: r.error }, r.status);
+  }
+  return json({ ok: true, file: stored });
 }

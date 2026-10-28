@@ -10,6 +10,7 @@ import { sendDigestEmails } from "./email";
 import { newId } from "./ids";
 import { accessOf } from "@/lib/access";
 import { purgeOld } from "./retention";
+import { makeBackup } from "./backup";
 
 const ROLLUP_EVERY_MIN = 15;
 
@@ -43,13 +44,17 @@ export async function tickOrg(orgId: string, now = new Date()) {
     const today = now.toISOString().slice(0, 10);
     const retention = r.state.retentionDay !== today ? { months: before.settings.retentionMonths } : null;
     if (retention) r.state.retentionDay = today;
+    const backup = r.state.backupDay !== today;
+    if (backup) r.state.backupDay = today;
     const { newNotificationIds } = await persist(tx, before, r.world);
     await saveEngineState(tx, orgId, r.state);
-    return { newNotificationIds, digestIds: r.digestIds, retention };
+    return { newNotificationIds, digestIds: r.digestIds, retention, backup };
   });
   await deliverPush(out.newNotificationIds).catch((e) => console.error("push", orgId, e));
   // once a day: anything older than the company keeps records for is removed
   if (out.retention) await purgeOld(orgId, out.retention.months, now).catch((e) => console.error("retention", orgId, e));
+  // once a day: a full copy of the company, kept two weeks
+  if (out.backup) await makeBackup(orgId, now).catch((e) => console.error("backup", orgId, e));
   if (out.digestIds.length) await sendDigestEmails(out.digestIds).catch((e) => console.error("digest email", orgId, e));
   return { notifications: out.newNotificationIds.length };
 }

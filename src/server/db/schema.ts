@@ -9,7 +9,7 @@
  * Column names are snake_case in the database (drizzle `casing: "snake_case"`).
  */
 import { bigint, boolean, customType, doublePrecision, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
-import type { Attachment, Comment, DepartmentSettings, OrgSettings, ReminderRule, RepeatRule, StoredView, Subtask, TaskPool, TimeEntry, WorkSchedule } from "@/lib/types";
+import type { Attachment, ChannelPin, Comment, NoticeReply, DepartmentSettings, OrgSettings, ReminderRule, RepeatRule, StoredView, Subtask, TaskPool, TimeEntry, WorkSchedule } from "@/lib/types";
 import type { EngineState } from "@/domain/engine";
 import type { NewTaskInput } from "@/domain/commands";
 
@@ -196,6 +196,10 @@ export const people = pgTable(
     schedule: jsonb().$type<WorkSchedule>(),
     /** teams this person also works in, besides their home team */
     secondaryTeamIds: text().array().notNull().default([]),
+    /** "at the depot until 3": who is around */
+    availability: jsonb().$type<{ note: string; until?: string; at: string }>(),
+    /** contact details wiped after deactivation */
+    contactPurgedAt: ts(),
     createdAt: ts().notNull().defaultNow(),
   },
   (t) => [index().on(t.orgId)],
@@ -400,6 +404,10 @@ export const channels = pgTable(
     unitType: text().notNull(),
     unitId: text().notNull(),
     description: text().notNull().default(""),
+    memberIds: text().array(),
+    createdById: text(),
+    archivedAt: ts(),
+    pins: jsonb().$type<ChannelPin[]>(),
   },
   (t) => [index().on(t.orgId)],
 );
@@ -419,6 +427,7 @@ export const announcements = pgTable(
     ackBy: jsonb().$type<Record<string, string>>().notNull().default({}),
     readBy: jsonb().$type<Record<string, string>>().notNull().default({}),
     pinned: boolean().notNull().default(false),
+    replies: jsonb().$type<NoticeReply[]>(),
   },
   (t) => [index().on(t.orgId, t.channelId)],
 );
@@ -540,6 +549,8 @@ export const files = pgTable(
     id: text().primaryKey(),
     orgId: text().notNull(),
     taskId: text(),
+    /** shared with a unit through its channel, rather than attached to a task */
+    channelId: text(),
     byId: text().notNull(),
     name: text().notNull(),
     contentType: text().notNull(),
@@ -549,4 +560,43 @@ export const files = pgTable(
     createdAt: ts().notNull().defaultNow(),
   },
   (t) => [index().on(t.orgId), index().on(t.taskId)],
+);
+
+/* ───────────────────────── Invites & backups ───────────────────────── */
+
+/** a link or code someone uses to join the company and choose their own password */
+export const invites = pgTable(
+  "invites",
+  {
+    id: text().primaryKey(),
+    orgId: text().notNull(),
+    code: text().notNull(),
+    /** when set, only this address can use it */
+    email: text(),
+    role: text().notNull().default("employee"),
+    teamId: text().notNull().default(""),
+    title: text().notNull().default(""),
+    workType: text().notNull().default("desk"),
+    createdById: text().notNull(),
+    createdAt: ts().notNull().defaultNow(),
+    expiresAt: ts().notNull(),
+    usedAt: ts(),
+    usedById: text(),
+    revokedAt: ts(),
+  },
+  (t) => [uniqueIndex().on(t.code), index().on(t.orgId)],
+);
+
+/** a nightly copy of the whole company's data, kept for two weeks */
+export const backups = pgTable(
+  "backups",
+  {
+    id: text().primaryKey(),
+    orgId: text().notNull(),
+    at: ts().notNull().defaultNow(),
+    size: integer().notNull(),
+    /** gzipped JSON, the same shape as the on-demand export */
+    data: bytea().notNull(),
+  },
+  (t) => [index().on(t.orgId, t.at)],
 );

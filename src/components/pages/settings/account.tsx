@@ -10,6 +10,17 @@ import { Field, Input, Segmented } from "@/components/ui/primitives";
 import { setThemePref, useThemePref, type ThemePref } from "@/lib/theme";
 import { signOut } from "@/components/app/account-menu";
 import { TimeZoneSelect } from "@/components/app/work-hours";
+import { AvailabilityEditor } from "@/components/app/availability";
+
+function MyAvailability() {
+  const me = useMe();
+  if (!me) return null;
+  return (
+    <div className="mb-5">
+      <AvailabilityEditor person={me} self />
+    </div>
+  );
+}
 
 /** someone working remotely sets their own clock; reminders and lateness follow it */
 function MyTimeZone() {
@@ -78,6 +89,7 @@ export function AccountSettings() {
           ]}
         />
       </div>
+      <MyAvailability />
       <MyTimeZone />
       <p className="text-[13.5px] text-muted">
         Signed in as <span className="font-medium text-text">{me?.email}</span>

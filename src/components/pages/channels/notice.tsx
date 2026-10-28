@@ -3,13 +3,14 @@
 import * as React from "react";
 import { format, isToday } from "date-fns";
 import { toast } from "sonner";
-import { BellRing, Check, CheckCircle2, ChevronDown, Eye, Pin } from "lucide-react";
+import { BellRing, Check, CheckCircle2, ChevronDown, Eye, MessageSquare, Pin, Send } from "lucide-react";
 import { useApp } from "@/lib/store";
 import type { Announcement } from "@/lib/types";
 import { cn, formatWhen, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Bar } from "@/components/ui/primitives";
 import { Avatar, AvatarStack } from "@/components/app/avatar";
+import { MentionInput, WithMentions } from "./mention-input";
 
 export function Notice({
   notice,
@@ -18,7 +19,10 @@ export function Notice({
   canManage,
   scopeIds,
   now,
+  replyTo,
 }: {
+  /** channel members who can reply; omitted where replies are off (archived channels) */
+  replyTo?: string[];
   notice: Announcement;
   /** channel members minus the author */
   audience: string[];
@@ -51,7 +55,9 @@ export function Notice({
       </header>
 
       <h3 className="mt-3.5 text-[17px] font-semibold leading-snug text-text">{notice.title}</h3>
-      <p className="mt-1.5 max-w-[68ch] whitespace-pre-line text-[14.5px] leading-relaxed text-text/85">{notice.body}</p>
+      <p className="mt-1.5 max-w-[68ch] whitespace-pre-line text-[14.5px] leading-relaxed text-text/85">
+        <WithMentions text={notice.body} />
+      </p>
 
       {notice.requiresAck ? (
         <AckBlock notice={notice} audience={audience} meId={meId} canManage={canManage} scopeIds={scopeIds} now={now} authorFirst={author?.name.split(" ")[0] ?? "The author"} />
@@ -61,7 +67,78 @@ export function Notice({
           {audience.length > 0 && <span>of {audience.length}</span>}
         </p>
       )}
+      <Replies notice={notice} memberIds={replyTo} />
     </article>
+  );
+}
+
+/** discussion under a post: replies notify whoever posted and anyone already in the thread */
+function Replies({ notice, memberIds }: { notice: Announcement; memberIds?: string[] }) {
+  const people = useApp((s) => s.people);
+  const act = useApp((s) => s.act);
+  const replies = notice.replies ?? [];
+  const [open, setOpen] = React.useState(replies.length > 0 && replies.length <= 3);
+  const [text, setText] = React.useState("");
+  if (!replies.length && !memberIds) return null;
+  const send = () => {
+    if (!text.trim()) return;
+    if (act({ type: "replyNotice", id: notice.id, body: text }).ok) setText("");
+  };
+  return (
+    <div className="mt-4 border-t border-line pt-3">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className="-ml-2 inline-flex h-9 items-center gap-1.5 rounded-[var(--radius-sm)] px-2 text-[13px] font-medium text-muted hover:bg-sunken hover:text-text"
+      >
+        <MessageSquare className="size-4" /> {replies.length ? plural(replies.length, "reply", "replies") : "Reply"}
+      </button>
+      {open && (
+        <div className="mt-2 space-y-3">
+          {replies.map((r) => {
+            const p = people.find((x) => x.id === r.authorId);
+            return (
+              <div key={r.id} className="flex gap-2.5">
+                <Avatar person={p} size="sm" />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px]">
+                    <span className="font-medium text-text">{p?.name ?? "Someone"}</span>{" "}
+                    <time className="text-faint" dateTime={r.at}>
+                      {formatWhen(r.at, { withDay: true })}
+                    </time>
+                  </p>
+                  <p className="whitespace-pre-line text-[14px] leading-relaxed text-text/90">
+                    <WithMentions text={r.body} />
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+          {memberIds && (
+            <div className="flex items-end gap-2">
+              <div className="min-w-0 flex-1">
+                <MentionInput
+                  value={text}
+                  onChange={setText}
+                  memberIds={memberIds}
+                  rows={1}
+                  placeholder="Write a reply. Type @ to mention someone."
+                  aria-label="Reply"
+                  className="min-h-10 resize-none"
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) send();
+                  }}
+                />
+              </div>
+              <Button variant="primary" size="sm" className="h-10" onClick={send} disabled={!text.trim()} aria-label="Send reply">
+                <Send />
+              </Button>
+            </div>
+          )}
+        </div>
+      )}
+    </div>
   );
 }
 

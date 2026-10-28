@@ -177,6 +177,14 @@ const settingsPatch = z
     retentionMonths: z.number().int().min(12).max(120),
     idleDays: z.number().int().min(1).max(60),
     autoArchiveDays: z.number().int().min(1).max(365),
+    // a small image, resized in the browser before it is sent
+    logoUrl: z.union([
+      z.literal(""),
+      z
+        .string()
+        .max(120_000)
+        .regex(/^data:image\/(png|webp|jpeg);base64,[A-Za-z0-9+/=]+$/, "Upload a PNG, JPG or WebP image."),
+    ]),
   })
   .partial();
 
@@ -360,6 +368,27 @@ const schema = z.discriminatedUnion("type", [
   }),
   z.object({ type: z.literal("setPref"), key: text(80), value: z.boolean() }),
   z.object({ type: z.literal("setDayOrder"), ids: z.array(id).max(500) }),
+  z.object({ type: z.literal("setPrefFor"), personId: id, key: text(80), value: z.boolean().nullable() }),
+  z.object({ type: z.literal("editGroup"), groupId: id, name: text(100).optional(), description: text(300).optional(), memberIds: z.array(id).max(200).optional() }),
+  z.object({ type: z.literal("archiveGroup"), groupId: id, archived: z.boolean() }),
+  z.object({
+    type: z.literal("addChannel"),
+    id: z.string().regex(/^ch_[a-z0-9]{6,30}$/).optional(),
+    name: text(80),
+    kind: z.enum(["open", "announcement", "private"]),
+    unitType: z.enum(["org", "department", "team", "group"]),
+    unitId: id,
+    description: text(300),
+    memberIds: z.array(id).max(200).optional(),
+  }),
+  z.object({ type: z.literal("editChannel"), channelId: id, name: text(80).optional(), description: text(300).optional(), memberIds: z.array(id).max(200).optional() }),
+  z.object({ type: z.literal("archiveChannel"), channelId: id, archived: z.boolean() }),
+  z.object({ type: z.literal("addPin"), channelId: id, title: text(120), url: text(1000).optional(), fileId: id.optional(), fileName: text(200).optional() }),
+  z.object({ type: z.literal("removePin"), channelId: id, pinId: id }),
+  z.object({ type: z.literal("replyNotice"), id, body: text(2000) }),
+  z.object({ type: z.literal("setAvailability"), personId: id, note: text(120), until: iso.optional() }),
+  z.object({ type: z.literal("purgeContact"), personId: id }),
+  z.object({ type: z.literal("setTeamMember"), teamId: id, personId: id, member: z.boolean() }),
   z.object({
     type: z.literal("setSavedViews"),
     views: z.array(z.object({ id, name: text(60), filters: z.record(z.string(), z.unknown()).refine((f) => JSON.stringify(f).length < 4000, "That view is too large."), sort: text(20) })).max(30),

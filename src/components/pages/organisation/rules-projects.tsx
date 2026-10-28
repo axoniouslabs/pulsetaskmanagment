@@ -114,6 +114,8 @@ function RulesForm({ department, onDone }: { department: Department; onDone: () 
 export function ProjectsSection({ people }: { people: Person[] }) {
   const projects = useApp((s) => s.projects);
   const tasks = useApp((s) => s.tasks);
+  const role = useApp((s) => s.role);
+  const meId = useApp((s) => s.viewer?.personId);
   const [editing, setEditing] = React.useState<Project | "new" | null>(null);
   return (
     <>
@@ -139,9 +141,11 @@ export function ProjectsSection({ people }: { people: Person[] }) {
                       <span className="tabular">{plural(open, "open task")}</span>
                     </p>
                   </div>
-                  <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
-                    <Pencil /> Edit
-                  </Button>
+                  {(role === "owner" || p.leadId === meId) && (
+                    <Button size="sm" variant="ghost" onClick={() => setEditing(p)}>
+                      <Pencil /> Edit
+                    </Button>
+                  )}
                 </li>
               );
             })}

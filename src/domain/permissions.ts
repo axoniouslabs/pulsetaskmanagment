@@ -5,7 +5,7 @@
 import type { Task } from "@/lib/types";
 import { scopePeople } from "@/lib/selectors";
 import type { Command } from "./commands";
-import { membersOf, type World } from "./world";
+import { channelMembersOf, membersOf, type World } from "./world";
 
 export type Decision = { ok: true } | { ok: false; error: string };
 const allow: Decision = { ok: true };
@@ -34,7 +34,76 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
     return isOwner || manages(t.assigneeId) || t.createdById === actorId ? allow : deny(`You can't ${what} for someone outside your team.`);
   };
 
+  /** runs the unit behind a channel: the head of its department (or of the team's department), the team's lead, the group's owner */
+  const runsUnitOf = (unitType: string, unitId: string) =>
+    isOwner ||
+    (unitType === "department" && headsDept(unitId)) ||
+    (unitType === "team" && w.teams.some((t) => t.id === unitId && (t.leadId === actorId || headsDept(t.departmentId)))) ||
+    (unitType === "group" && w.groups.some((g) => g.id === unitId && g.ownerId === actorId));
+  const channel = (id: string) => w.channels.find((c) => c.id === id);
+  const inChannel = (ch: NonNullable<ReturnType<typeof channel>>) => channelMembersOf(w, ch).includes(actorId) || (isOwner && ch.kind !== "private");
+  const LOCKED = ["escalation", "announcement"];
+
   switch (cmd.type) {
+    case "replyNotice": {
+      const a = w.announcements.find((x) => x.id === cmd.id);
+      const ch = a && channel(a.channelId);
+      if (!ch) return deny("That notice no longer exists.");
+      return inChannel(ch) ? allow : deny("Only people in this channel can reply.");
+    }
+    case "addChannel": {
+      if (me.role === "employee") return deny("Only managers and the owner can create channels.");
+      if (cmd.kind === "private") return (cmd.memberIds ?? []).every((id) => person(id)) ? allow : deny("Invite people who are still in the company.");
+      if (cmd.unitType === "org") return isOwner ? allow : deny("Only the owner creates company-wide channels.");
+      return runsUnitOf(cmd.unitType, cmd.unitId) ? allow : deny("You can only add channels to a unit you run.");
+    }
+    case "editChannel":
+    case "archiveChannel": {
+      const ch = channel(cmd.channelId);
+      if (!ch) return deny("That channel no longer exists.");
+      if (ch.kind === "private") return ch.createdById === actorId || (isOwner && inChannel(ch)) ? allow : deny("Only whoever made this private channel can change it.");
+      if (cmd.type === "editChannel" && cmd.memberIds) return deny("Membership follows the unit. Change who is in the team or group instead.");
+      return runsUnitOf(ch.unitType, ch.unitId) ? allow : deny("Only whoever runs this unit can change its channels.");
+    }
+    case "addPin":
+    case "removePin": {
+      const ch = channel(cmd.channelId);
+      if (!ch) return deny("That channel no longer exists.");
+      if (ch.kind === "task_feed") return deny("Task feeds are written by Pulse only.");
+      if (runsUnitOf(ch.unitType, ch.unitId) && ch.kind !== "private") return allow;
+      if (cmd.type === "removePin") {
+        const pin = ch.pins?.find((p) => p.id === cmd.pinId);
+        return pin && (pin.byId === actorId || (ch.kind === "private" && ch.createdById === actorId)) ? allow : deny("Only whoever pinned it, or runs this unit, can remove it.");
+      }
+      return ch.kind !== "announcement" && inChannel(ch) ? allow : deny("Only whoever runs this unit can pin things here.");
+    }
+    case "editGroup":
+    case "archiveGroup": {
+      const g = w.groups.find((x) => x.id === cmd.groupId);
+      if (!g) return deny("That group no longer exists.");
+      if (!(isOwner || g.ownerId === actorId)) return deny("Only whoever created this group, or the owner, can change it.");
+      if (cmd.type === "editGroup" && cmd.memberIds && !cmd.memberIds.every((id) => person(id))) return deny("Pick group members who are still in the company.");
+      return allow;
+    }
+    case "setAvailability":
+      return cmd.personId === actorId || manages(cmd.personId) ? allow : deny("Only they, their manager or the owner can set their availability.");
+    case "purgeContact":
+      return isOwner ? allow : deny("Only the owner can wipe someone's contact details.");
+    case "setTeamMember": {
+      const team = w.teams.find((t) => t.id === cmd.teamId);
+      const p = w.people.find((x) => x.id === cmd.personId);
+      if (!team || !p) return deny("Pick a person and a team.");
+      if (isOwner) return allow;
+      const runs = team.leadId === actorId || headsDept(team.departmentId);
+      if (!runs) return deny("Only the team's lead, the head of its department or the owner can change who is in it.");
+      return p.departmentId === team.departmentId ? allow : deny("Only the owner can bring someone in from another department.");
+    }
+    case "setPrefFor": {
+      if (!(isOwner || manages(cmd.personId))) return deny("Only their manager or the owner can change where their notifications go.");
+      if (!/^(push|inapp|email):[a-z_]+$/.test(cmd.key)) return deny("That isn't a notification setting.");
+      const cat = cmd.key.split(":")[1];
+      return cmd.value === false && LOCKED.includes(cat) ? deny("Escalations and notices that need an OK can't be switched off for anyone.") : allow;
+    }
     case "createTask": {
       // a unit can be given work only by whoever runs it (or a level above)
       const runsUnit = (unitType: string, unitId: string): Decision => {
@@ -224,7 +293,9 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       const ch = w.channels.find((c) => c.id === cmd.channelId);
       if (!ch) return deny("That channel no longer exists.");
       if (ch.kind === "task_feed") return deny("Task feeds are written by Pulse only.");
+      if (ch.kind === "private") return channelMembersOf(w, ch).includes(actorId) ? allow : deny("Only people invited to this channel can post.");
       if (isOwner) return allow;
+      if (ch.unitType === "team" && runsUnitOf("team", ch.unitId)) return allow;
       if (ch.unitType === "org") return deny("Only the owner posts company notices.");
       const runs =
         (ch.unitType === "department" && w.departments.some((d) => d.id === ch.unitId && d.headId === actorId)) ||
@@ -232,7 +303,7 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
         (ch.unitType === "group" && w.groups.some((g) => g.id === ch.unitId && g.ownerId === actorId));
       if (runs) return allow;
       // an open channel is the unit's own noticeboard: any member may post there
-      if (ch.kind === "open" && membersOf(w, ch.unitType, ch.unitId).includes(actorId)) return allow;
+      if (ch.kind === "open" && channelMembersOf(w, ch).includes(actorId)) return allow;
       return deny("Only the head of this unit can post notices here.");
     }
     case "remindAnnouncement": {
@@ -251,7 +322,7 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       const a = w.announcements.find((x) => x.id === cmd.id);
       const ch = a && w.channels.find((c) => c.id === a.channelId);
       if (!ch) return deny("That notice no longer exists.");
-      return isOwner || membersOf(w, ch.unitType, ch.unitId).includes(actorId) ? allow : deny("This notice isn't for you.");
+      return isOwner || channelMembersOf(w, ch).includes(actorId) ? allow : deny("This notice isn't for you.");
     }
 
     case "decideLeave": {

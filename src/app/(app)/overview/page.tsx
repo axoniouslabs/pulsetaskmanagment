@@ -7,7 +7,9 @@ import { isToday, differenceInHours, format } from "date-fns";
 import { toast } from "sonner";
 import { CheckCircle2, MessageCircleQuestion, ChevronRight, Plus, CalendarClock, Check } from "lucide-react";
 import { useApp } from "@/lib/store";
-import { useNow, useScope } from "@/lib/hooks";
+import { useNow, useOrgToday, useScope } from "@/lib/hooks";
+import { isAway } from "@/domain/time";
+import { backupFor } from "@/domain/world";
 import { attention, heatOf, isOpenWork } from "@/lib/selectors";
 import type { Task } from "@/lib/types";
 import { ago, cn, plural } from "@/lib/utils";
@@ -24,6 +26,16 @@ export default function OverviewPage() {
   const state = useApp();
   const a = React.useMemo(() => attention(state, tasks, people, now), [state, tasks, people, now]);
   const total = a.overdue.length + a.unseen.length + a.blocked.length + a.slowReview.length + a.quiet.length;
+  // people who are away today with work still on their name: the leave hand-over queue
+  const today = useOrgToday(now);
+  const awayQueue = React.useMemo(
+    () =>
+      people
+        .filter((p) => p.role !== "owner" && p.active !== false && isAway(state, p.id, today))
+        .map((p) => ({ person: p, tasks: tasks.filter((t) => t.assigneeId === p.id && ["assigned", "acknowledged", "in_progress", "blocked"].includes(t.status)), backup: backupFor(state, p.id) }))
+        .filter((r) => r.tasks.length > 0),
+    [people, tasks, state, today],
+  );
   // overdue work, one group per person, the person with the most first (spec §11)
   const overdueBy = React.useMemo(() => {
     const by = new Map<string, Task[]>();
@@ -151,6 +163,44 @@ export default function OverviewPage() {
               {a.slowReview.map((t) => (
                 <TaskRow key={t.id} task={t} reason={reasonFor(t, "review")} showStatus={false} showActions />
               ))}
+            </Block>
+          )}
+          {awayQueue.length > 0 && (
+            <Block
+              title="Away, with work still on their name"
+              count={awayQueue.reduce((n, r) => n + r.tasks.length, 0)}
+              tone={2}
+              note="Reminders are paused for them, so these won't move until someone else has them."
+            >
+              {awayQueue.map(({ person, tasks: list, backup }) => {
+                const cover = allPeople.find((p) => p.id === backup);
+                return (
+                  <React.Fragment key={person.id}>
+                    <div className="flex flex-wrap items-center gap-2 border-b border-line bg-hover px-4 py-2 text-[13px]">
+                      <Avatar person={person} size="xs" />
+                      <span className="font-semibold text-text">{person.name}</span>
+                      <span className="text-muted">{person.onLeave ? "on leave" : "on approved leave today"}</span>
+                      {cover && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          className="ml-auto h-8"
+                          onClick={() => {
+                            let moved = 0;
+                            for (const t of list) if (state.reassign(t.id, cover.id, `${person.name.split(" ")[0]} is away`).ok) moved++;
+                            if (moved) toast.success(`${plural(moved, "task")} handed to ${cover.name.split(" ")[0]}`);
+                          }}
+                        >
+                          Hand all to {cover.name.split(" ")[0]}
+                        </Button>
+                      )}
+                    </div>
+                    {list.map((t) => (
+                      <TaskRow key={t.id} task={t} showStatus showActions showAssignee={false} />
+                    ))}
+                  </React.Fragment>
+                );
+              })}
             </Block>
           )}
           {a.quiet.length > 0 && (

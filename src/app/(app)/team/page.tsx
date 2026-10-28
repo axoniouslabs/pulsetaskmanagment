@@ -12,7 +12,7 @@ import { LoadView } from "@/components/pages/team/load-view";
 import { PeopleView } from "@/components/pages/team/people-view";
 import { PersonPanel } from "@/components/pages/team/person-panel";
 import { upcomingWorkDays } from "@/components/pages/team/shared";
-import { AddPersonDialog, StaffActions } from "@/components/pages/team/staff-dialogs";
+import { AddPersonDialog, PendingInvites, StaffActions } from "@/components/pages/team/staff-dialogs";
 import { Avatar } from "@/components/app/avatar";
 import { Button } from "@/components/ui/button";
 
@@ -26,6 +26,7 @@ export default function TeamPage() {
   const workDays = useApp((s) => s.settings.workDays);
   const [view, setView] = React.useState<View>("load");
   const [adding, setAdding] = React.useState(false);
+  const [invited, setInvited] = React.useState(0);
   const allPeople = useApp((s) => s.people);
   const former = React.useMemo(() => allPeople.filter((p) => p.active === false), [allPeople]);
 
@@ -89,7 +90,7 @@ export default function TeamPage() {
           <EmptyState
             icon={Users}
             title="Nobody here yet"
-            body={role === "owner" ? "Add your people here. Each gets a sign-in and a temporary password to share with them." : "Nobody is in your department yet. Ask the owner to add people."}
+            body={role === "owner" ? "Add your people here. Send each an invite, or create their sign-in yourself." : "Nobody is in your department yet. Ask the owner to add people."}
             action={
               role === "owner" ? (
                 <Button variant="primary" onClick={() => setAdding(true)}>
@@ -130,7 +131,8 @@ export default function TeamPage() {
         </details>
       )}
 
-      <AddPersonDialog open={adding} onOpenChange={setAdding} />
+      {role === "owner" && <PendingInvites refresh={invited} />}
+      <AddPersonDialog open={adding} onOpenChange={setAdding} onInvited={() => setInvited((n) => n + 1)} />
       <PersonPanel personId={openId} onClose={() => openPerson(null)} />
     </div>
   );

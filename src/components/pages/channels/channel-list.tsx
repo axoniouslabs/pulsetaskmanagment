@@ -6,43 +6,28 @@ import { cn, plural } from "@/lib/utils";
 import { Tip } from "@/components/ui/primitives";
 import { channelType, type ChannelCounts } from "./lib";
 
-export function ChannelList({
-  channels,
-  counts,
-  activeId,
-  onSelect,
-}: {
-  channels: ChannelSpace[];
-  counts: Record<string, ChannelCounts>;
-  activeId?: string;
-  onSelect: (id: string) => void;
-}) {
+export function ChannelList({ channels, counts, activeId, onSelect }: { channels: ChannelSpace[]; counts: Record<string, ChannelCounts>; activeId?: string; onSelect: (id: string) => void }) {
   return (
     <nav aria-label="Channels" className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
       <ul>
-        {channels.map((c) => {
+        {channels.map((c, i) => {
           const t = channelType(c);
+          const section = sectionOf(c);
+          const heading = i === 0 || sectionOf(channels[i - 1]) !== section ? section : null;
           const Icon = t.icon;
           const k = counts[c.id] ?? { needsOk: 0, unread: 0 };
           const active = c.id === activeId;
           return (
             <li key={c.id} className="border-b border-line last:border-b-0">
+              {heading && channels.length > 8 && <p className="border-b border-line bg-hover px-4 py-1.5 text-[12px] font-semibold text-muted">{heading}</p>}
               <button
                 type="button"
                 onClick={() => onSelect(c.id)}
                 aria-current={active ? "true" : undefined}
-                className={cn(
-                  "relative flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover",
-                  active && "bg-ink-tint/55 hover:bg-ink-tint/70",
-                )}
+                className={cn("relative flex min-h-[60px] w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover", active && "bg-ink-tint/55 hover:bg-ink-tint/70")}
               >
                 {active && <span className="absolute inset-y-2 left-0 w-[3px] rounded-r-full bg-ink" aria-hidden />}
-                <span
-                  className={cn(
-                    "flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-sunken text-muted",
-                    active && "bg-surface text-ink",
-                  )}
-                >
+                <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-sunken text-muted", active && "bg-surface text-ink")}>
                   <Icon className="size-[18px]" />
                 </span>
                 <span className="min-w-0 flex-1">
@@ -74,4 +59,12 @@ export function ChannelList({
       </ul>
     </nav>
   );
+}
+
+/** headings for a long list: notices and private first, then units, then task feeds */
+function sectionOf(c: ChannelSpace) {
+  if (c.archivedAt) return "Archived";
+  if (c.kind === "task_feed") return "Task feeds";
+  if (c.kind === "announcement" || c.kind === "private") return "Notices and private";
+  return c.unitType === "group" ? "Groups" : "Departments and teams";
 }

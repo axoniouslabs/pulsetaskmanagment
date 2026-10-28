@@ -4,7 +4,7 @@ import { create } from "zustand";
 import { toast } from "sonner";
 import { DEFAULT_REMINDER } from "./seed";
 import type { Leave, OrgSettings, Role } from "./types";
-import { emptyWorld, membersOf, WORLD_KEYS, type World } from "@/domain/world";
+import { channelMembersOf, emptyWorld, membersOf, WORLD_KEYS, type World } from "@/domain/world";
 import { tryCommand, type Command, type CommandResult, type NewTaskInput } from "@/domain/commands";
 
 export type { NewTaskInput };
@@ -397,7 +397,7 @@ if (typeof window !== "undefined") {
   } catch {}
 }
 
-export { membersOf };
+export { membersOf, channelMembersOf };
 export const useMe = () => useApp((s) => s.people.find((p) => p.id === s.viewer?.personId)!);
 export const useMeId = () => useApp((s) => s.viewer?.personId ?? "");
 

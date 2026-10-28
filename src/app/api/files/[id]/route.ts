@@ -3,6 +3,7 @@ import { db, schema as S } from "@/server/db";
 import { getViewer } from "@/server/session";
 import { authorize } from "@/domain/permissions";
 import { loadWorld } from "@/server/repo";
+import { channelMembersOf } from "@/domain/world";
 
 /** Serve an uploaded file to people in the same organisation. */
 export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> }) {
@@ -15,6 +16,13 @@ export async function GET(_req: Request, ctx: { params: Promise<{ id: string }> 
   if (f.taskId && f.byId !== viewer.personId) {
     const world = await loadWorld(db, viewer.orgId);
     if (!authorize(world, viewer.personId, { type: "addComment", taskId: f.taskId, body: "-" }).ok) return new Response("Not found", { status: 404 });
+  }
+  // a file shared with a unit is for the people in its channel
+  if (f.channelId && f.byId !== viewer.personId) {
+    const world = await loadWorld(db, viewer.orgId);
+    const ch = world.channels.find((c) => c.id === f.channelId);
+    const owner = world.people.find((p) => p.id === viewer.personId)?.role === "owner";
+    if (!ch || !(channelMembersOf(world, ch).includes(viewer.personId) || (owner && ch.kind !== "private"))) return new Response("Not found", { status: 404 });
   }
   if (f.blobUrl) return Response.redirect(f.blobUrl, 302);
   if (!f.data) return new Response("Not found", { status: 404 });

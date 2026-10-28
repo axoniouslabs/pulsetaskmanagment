@@ -47,10 +47,15 @@ const CATEGORIES: {
 const defaultOn = (cat: string, ch: ChannelKey) => (ch === "email" ? cat === "digest" : true);
 
 /** what reaches the current user, and where */
-export function NotificationMatrix() {
+export function NotificationMatrix({ personId }: { personId?: string } = {}) {
   const meId = useApp((s) => s.userIds[s.role]);
-  const mine = useApp((s) => s.prefs[meId]);
-  const setPref = useApp((s) => s.setPref);
+  const who = personId ?? meId;
+  const other = who !== meId;
+  const mine = useApp((s) => s.prefs[who]);
+  const setOwn = useApp((s) => s.setPref);
+  const act = useApp((s) => s.act);
+  const first = useApp((s) => s.people.find((p) => p.id === who)?.name.split(" ")[0] ?? "they");
+  const setPref = (key: string, value: boolean) => (other ? act({ type: "setPrefFor", personId: who, key, value }) : setOwn(key, value));
   const get = (cat: string, ch: ChannelKey) => mine?.[`${ch}:${cat}`] ?? defaultOn(cat, ch);
 
   return (
@@ -92,7 +97,13 @@ export function NotificationMatrix() {
                           </span>
                         </Tip>
                       ) : locked ? (
-                        <Tip label="Always on. You can't switch off accountability notifications addressed to you.">
+                        <Tip
+                          label={
+                            other
+                              ? `Always on. Nobody can switch off accountability notifications addressed to ${first}.`
+                              : "Always on. You can't switch off accountability notifications addressed to you."
+                          }
+                        >
                           <span className="inline-flex size-10 items-center justify-center text-muted" aria-label={`${cat.label} by ${ch.label}: always on`}>
                             <Lock className="size-4" />
                           </span>
@@ -103,7 +114,7 @@ export function NotificationMatrix() {
                             checked={get(cat.key, ch.key)}
                             aria-label={`${cat.label} by ${ch.label}`}
                             onCheckedChange={(v) => {
-                              setPref(`${ch.key}:${cat.key}`, v === true);
+                              if (!setPref(`${ch.key}:${cat.key}`, v === true).ok) return;
                               toast.success("Saved", {
                                 id: "settings-saved",
                                 duration: 1600,
@@ -122,7 +133,9 @@ export function NotificationMatrix() {
       </div>
       <p className="flex items-start gap-2 border-t border-line px-4 py-3 text-[12.5px] leading-snug text-muted sm:px-5">
         <Lock className="mt-0.5 size-3.5 shrink-0" />
-        You can&apos;t switch off accountability notifications addressed to you. Escalations and notices that need your OK always arrive by push and in-app.
+        {other
+          ? `Escalations and notices that need ${first}'s OK always arrive by push and in-app. ${first} sees any change you make here in their own settings.`
+          : "You can't switch off accountability notifications addressed to you. Escalations and notices that need your OK always arrive by push and in-app."}
       </p>
     </>
   );

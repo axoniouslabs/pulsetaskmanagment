@@ -16,7 +16,7 @@
  */
 import { addDays, differenceInMinutes } from "date-fns";
 import type { Activity, ActivityKind, AppNotification, HeatLevel, NotificationKind, Task } from "@/lib/types";
-import { headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
+import { channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
 import { isAway, isWorkDay, isWorkingTimeFor, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes, zonedInstant } from "./time";
 import { describeRule, nextDue, ruleOf } from "./repeat";
 
@@ -44,6 +44,8 @@ export interface EngineState {
   absentDay?: string;
   /** the UTC date old records were last cleared (data retention) */
   retentionDay?: string;
+  /** UTC date of the last nightly backup */
+  backupDay?: string;
 }
 
 export interface TickResult {
@@ -174,11 +176,22 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     const head = unitHead ? (headOf(w, unitHead) ?? ownerOf(w)) : headOf(w, t.assigneeId);
     const owner = ownerOf(w);
     const audience = level === 4 ? [owner, head, lead] : level === 3 ? [lead, head, opts.overdue ? owner : (head ?? owner)] : level === 2 ? [lead ?? head ?? owner] : [];
-    const title = opts.unit ? `Nobody in ${t.groupClaim?.unitName ?? "the team"} has claimed it: ${t.title}` : level === 4 ? `${who} has not responded for ${Math.round(minsSince(t.overdueAt ?? t.dueAt) / 60)} hours past the deadline` : `${who}: ${why}`;
+    const title = opts.unit
+      ? `Nobody in ${t.groupClaim?.unitName ?? "the team"} has claimed it: ${t.title}`
+      : level === 4
+        ? `${who} has not responded for ${Math.round(minsSince(t.overdueAt ?? t.dueAt) / 60)} hours past the deadline`
+        : `${who}: ${why}`;
     const told = Array.from(new Set(audience.filter((x): x is string => !!x && x !== t.assigneeId)));
     for (const r of told) note(r, "escalation", title, `${t.title} is now level ${level}.`, t.id);
     // the person themselves hears that it has gone up (spec §16), not just the people above them
-    if (level >= 2 && !opts.unit && told.length) note(t.assigneeId, "escalation", `${t.title} has been escalated`, `${told.map(first).join(" and ")} ${told.length === 1 ? "has" : "have"} been told. Acknowledge, start or mark it blocked to bring it back down.`, t.id);
+    if (level >= 2 && !opts.unit && told.length)
+      note(
+        t.assigneeId,
+        "escalation",
+        `${t.title} has been escalated`,
+        `${told.map(first).join(" and ")} ${told.length === 1 ? "has" : "have"} been told. Acknowledge, start or mark it blocked to bring it back down.`,
+        t.id,
+      );
   };
   // every reminder that doesn't go out, and why, is in the history once a day (spec §7)
   const skipped = { ...(next.skipLogged?.date === l.date ? next.skipLogged : { date: l.date, keys: [] as string[] }) };
@@ -251,7 +264,12 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
           const pl = localNow(now, sc.timezone);
           const dayOff = !sc.workDays.includes(pl.dow) || sc.holidays.some((h) => h.date === pl.date);
           if (away) skip(t, "away", `${first(t.assigneeId)} is on leave or away today`);
-          else if (snoozed) skip(t, "snooze", `${first(t.assigneeId)} snoozed it until ${new Intl.DateTimeFormat("en-GB", { timeZone: sc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(t.snoozedUntil!))}`);
+          else if (snoozed)
+            skip(
+              t,
+              "snooze",
+              `${first(t.assigneeId)} snoozed it until ${new Intl.DateTimeFormat("en-GB", { timeZone: sc.timezone, hour: "numeric", minute: "2-digit" }).format(new Date(t.snoozedUntil!))}`,
+            );
           else if (dayOff) skip(t, "dayoff", sc.holidays.some((h) => h.date === pl.date) ? "today is a holiday" : `today is a day off for ${first(t.assigneeId)}`);
           else skip(t, "hours", `outside ${first(t.assigneeId)}'s working hours (${sc.workStart} to ${sc.workEnd})`);
         }
@@ -350,7 +368,8 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       const ago = `${Math.round(waitH)} hours`;
       if (waitH >= sla * 3 && t.escalationLevel < 4) {
         t.escalationLevel = 4;
-        if (owner && owner !== t.reviewerId) note(owner, "escalation", `${first(t.reviewerId)} has not reviewed ${first(t.assigneeId)}'s work for ${ago}`, `${t.title}. Flagged as unresponsive.`, t.id);
+        if (owner && owner !== t.reviewerId)
+          note(owner, "escalation", `${first(t.reviewerId)} has not reviewed ${first(t.assigneeId)}'s work for ${ago}`, `${t.title}. Flagged as unresponsive.`, t.id);
         log("escalated", `Review unanswered for ${ago}: ${first(t.reviewerId)} flagged to the owner as unresponsive`, t.id);
       } else if (waitH >= sla * 2 && t.escalationLevel < 3) {
         t.escalationLevel = 3;
@@ -367,6 +386,9 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       }
     }
   }
+
+  /* ---------- 2a. availability notes clear themselves once their time has passed ---------- */
+  for (const p of w.people) if (p.availability?.until && p.availability.until <= now.toISOString()) p.availability = undefined;
 
   /* ---------- 2b. forgotten timers stop at the end of the working day ---------- */
   for (const [personId, timer] of Object.entries(w.timers)) {
@@ -689,7 +711,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       if (!a.requiresAck) continue;
       const ch = w.channels.find((c) => c.id === a.channelId);
       if (!ch) continue;
-      const waiting = membersOf(w, ch.unitType, ch.unitId).filter((id) => !a.ackBy[id] && id !== a.authorId && !isAway(w, id, l.date));
+      const waiting = channelMembersOf(w, ch).filter((id) => !a.ackBy[id] && id !== a.authorId && !isAway(w, id, l.date));
       if (!waiting.length) {
         delete reminded[a.id];
         continue;
@@ -714,13 +736,23 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
             const mgr = leadOf(w, id) ?? headOf(w, id);
             if (mgr && mgr !== a.authorId && !per[`${id}:mgr`]) {
               per[`${id}:mgr`] = nowIso;
-              note(mgr, "announcement", `${first(id)} hasn't acknowledged "${a.title}"`, `It was due ${new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(a.ackDueAt))}.`);
+              note(
+                mgr,
+                "announcement",
+                `${first(id)} hasn't acknowledged "${a.title}"`,
+                `It was due ${new Intl.DateTimeFormat("en-GB", { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(new Date(a.ackDueAt))}.`,
+              );
             }
           }
           const owner = ownerOf(w);
           if (owner && owner !== a.authorId && !per.__owner && minsSince(a.ackDueAt) >= 24 * 60) {
             per.__owner = nowIso;
-            note(owner, "announcement", `${waiting.length} still haven't acknowledged "${a.title}"`, `${waiting.map(first).slice(0, 6).join(", ")}${waiting.length > 6 ? " and others" : ""}, a day after it was due.`);
+            note(
+              owner,
+              "announcement",
+              `${waiting.length} still haven't acknowledged "${a.title}"`,
+              `${waiting.map(first).slice(0, 6).join(", ")}${waiting.length > 6 ? " and others" : ""}, a day after it was due.`,
+            );
           }
         }
         // overdue notice: the author hears who is still missing, once

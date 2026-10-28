@@ -34,6 +34,10 @@ export interface Person {
   schedule?: WorkSchedule;
   /** other teams this person also works in; their home team (teamId) is still where escalation goes */
   secondaryTeamIds?: string[];
+  /** a short note on when they're around ("At the Lahore depot until 3"); clears itself after `until` */
+  availability?: { note: string; until?: string; at: string };
+  /** a deactivated person's phone and email were wiped; their history stays */
+  contactPurgedAt?: string;
   devices: Device[];
 }
 
@@ -72,6 +76,8 @@ export interface Group {
   description: string;
   memberIds: string[];
   ownerId: string;
+  /** archived when its purpose ends; its history and channel stay readable */
+  archivedAt?: string;
 }
 
 export interface Project {
@@ -319,10 +325,34 @@ export interface AppNotification {
 export interface ChannelSpace {
   id: string;
   name: string;
-  kind: "announcement" | "open" | "task_feed";
+  kind: "announcement" | "open" | "task_feed" | "private";
   unitType: "org" | "department" | "team" | "group";
   unitId: string;
   description: string;
+  /** private channels only: who was invited (the creator always is) */
+  memberIds?: string[];
+  createdById?: string;
+  archivedAt?: string;
+  /** SOPs, templates, contact lists, shared files: what people ask for repeatedly */
+  pins?: ChannelPin[];
+}
+
+export interface ChannelPin {
+  id: string;
+  title: string;
+  /** a link, or a file shared with the unit */
+  url?: string;
+  fileId?: string;
+  fileName?: string;
+  byId: string;
+  at: string;
+}
+
+export interface NoticeReply {
+  id: string;
+  authorId: string;
+  at: string;
+  body: string;
 }
 
 export interface Announcement {
@@ -337,6 +367,8 @@ export interface Announcement {
   ackBy: Record<string, string>;
   readBy: Record<string, string>;
   pinned?: boolean;
+  /** discussion under a post */
+  replies?: NoticeReply[];
 }
 
 export interface AttendanceDay {
@@ -402,6 +434,8 @@ export interface OrgSettings {
   idleDays?: number;
   /** finished work leaves the lists this many days after it closed (it stays searchable) */
   autoArchiveDays?: number;
+  /** the company logo, shown in the sidebar and on the sign-in page */
+  logoUrl?: string;
 }
 
 /** a named set of task filters, kept on the person's account so it follows them across devices */

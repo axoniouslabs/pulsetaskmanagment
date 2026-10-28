@@ -2,12 +2,14 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { ArrowRightLeft, ChevronDown, Hash, Layers, MoreHorizontal, Plus, SlidersHorizontal, UserRound } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRightLeft, ChevronDown, Hash, Layers, MoreHorizontal, Pencil, Plus, SlidersHorizontal, UserMinus, UserRound } from "lucide-react";
+import { toast } from "sonner";
+import { useApp } from "@/lib/store";
 import { departmentRulesSummary } from "./rules-projects";
 import type { ChannelSpace, Department, Group, Person, Team } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/primitives";
+import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger, Select } from "@/components/ui/primitives";
 import { EmptyState, Panel } from "@/components/app/page-header";
 import { Avatar, AvatarStack } from "@/components/app/avatar";
 import { WorkTag } from "@/components/pages/team/shared";
@@ -22,6 +24,8 @@ export function DepartmentList({
   onChangeHead,
   onChangeLead,
   onRules,
+  isOwner = true,
+  meId = "",
 }: {
   departments: Department[];
   teams: Team[];
@@ -31,6 +35,8 @@ export function DepartmentList({
   onChangeHead: (d: Department) => void;
   onChangeLead: (t: Team) => void;
   onRules: (d: Department) => void;
+  isOwner?: boolean;
+  meId?: string;
 }) {
   return (
     <div className="space-y-4">
@@ -45,6 +51,8 @@ export function DepartmentList({
           onChangeHead={() => onChangeHead(d)}
           onChangeLead={onChangeLead}
           onRules={() => onRules(d)}
+          isOwner={isOwner}
+          meId={meId}
         />
       ))}
       <p className="flex items-start gap-2.5 px-1 text-[13px] leading-snug text-muted">
@@ -64,6 +72,8 @@ function DepartmentPanel({
   onChangeHead,
   onChangeLead,
   onRules,
+  isOwner,
+  meId,
 }: {
   department: Department;
   teams: Team[];
@@ -73,7 +83,10 @@ function DepartmentPanel({
   onChangeHead: () => void;
   onChangeLead: (t: Team) => void;
   onRules: () => void;
+  isOwner: boolean;
+  meId: string;
 }) {
+  const heads = isOwner || d.headId === meId;
   const rules = departmentRulesSummary(d);
   const head = people.find((p) => p.id === d.headId);
   const members = people.filter((p) => p.departmentId === d.id);
@@ -98,23 +111,38 @@ function DepartmentPanel({
           </div>
           <p className="mt-2 text-[12.5px] text-muted">{rules ? `Own rules: ${rules}.` : "Follows the company's hours and rules."}</p>
         </div>
-        <div className="flex flex-wrap gap-2 self-start">
-          <Button size="sm" variant="ghost" onClick={onRules}>
-            <SlidersHorizontal /> Rules
-          </Button>
-          <Button size="sm" variant="ghost" onClick={onChangeHead}>
-            <UserRound /> Change head
-          </Button>
-          <Button size="sm" onClick={onAddTeam}>
-            <Plus /> Add team
-          </Button>
-        </div>
+        {heads && (
+          <div className="flex flex-wrap gap-2 self-start">
+            <Button size="sm" variant="ghost" onClick={onRules}>
+              <SlidersHorizontal /> Rules
+            </Button>
+            {isOwner && (
+              <Button size="sm" variant="ghost" onClick={onChangeHead}>
+                <UserRound /> Change head
+              </Button>
+            )}
+            <Button size="sm" onClick={onAddTeam}>
+              <Plus /> Add team
+            </Button>
+          </div>
+        )}
       </div>
 
       {teams.length ? (
         <ul className="border-t border-line">
           {teams.map((t) => (
-            <TeamRow key={t.id} team={t} people={people} headId={d.headId} onMove={onMove} onChangeLead={() => onChangeLead(t)} />
+            <TeamRow
+              key={t.id}
+              team={t}
+              people={people}
+              headId={d.headId}
+              onMove={onMove}
+              onChangeLead={() => onChangeLead(t)}
+              heads={heads}
+              runs={heads || t.leadId === meId}
+              isOwner={isOwner}
+              defaultOpen={!heads && t.leadId === meId}
+            />
           ))}
         </ul>
       ) : (
@@ -124,10 +152,41 @@ function DepartmentPanel({
   );
 }
 
-function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; people: Person[]; headId: string; onMove: (p: Person) => void; onChangeLead: () => void }) {
-  const [open, setOpen] = React.useState(false);
+function TeamRow({
+  team,
+  people,
+  headId,
+  onMove,
+  onChangeLead,
+  heads,
+  runs,
+  isOwner,
+  defaultOpen,
+}: {
+  team: Team;
+  people: Person[];
+  headId: string;
+  onMove: (p: Person) => void;
+  onChangeLead: () => void;
+  /** owner or the department's head: can move people and change the lead */
+  heads: boolean;
+  /** also the team's own lead: can add and remove people who work here alongside their home team */
+  runs: boolean;
+  isOwner: boolean;
+  defaultOpen: boolean;
+}) {
+  const [open, setOpen] = React.useState(defaultOpen);
+  const act = useApp((s) => s.act);
+  const allTeams = useApp((s) => s.teams);
   const lead = people.find((p) => p.id === team.leadId);
   const members = people.filter((p) => p.teamId === team.id).sort((a, b) => (a.id === team.leadId ? -1 : b.id === team.leadId ? 1 : a.name.localeCompare(b.name)));
+  const also = people.filter((p) => p.teamId !== team.id && p.secondaryTeamIds?.includes(team.id));
+  const eligible = people.filter((p) => p.role !== "owner" && p.teamId !== team.id && !p.secondaryTeamIds?.includes(team.id) && (isOwner || p.departmentId === team.departmentId));
+  const attach = (personId: string, member: boolean) => {
+    const p = people.find((x) => x.id === personId);
+    if (act({ type: "setTeamMember", teamId: team.id, personId, member }).ok)
+      toast.success(member ? `${p?.name.split(" ")[0]} added to ${team.name}` : `${p?.name.split(" ")[0]} taken off ${team.name}`);
+  };
   const listId = `team-${team.id}-members`;
 
   return (
@@ -160,23 +219,53 @@ function TeamRow({ team, people, headId, onMove, onChangeLead }: { team: Team; p
 
       {open && (
         <ul id={listId} className="border-t border-line bg-hover pb-1">
-          <li className="flex justify-end px-4 pt-2 sm:px-5">
-            <Button size="sm" variant="ghost" onClick={onChangeLead}>
-              <UserRound /> Change lead
-            </Button>
-          </li>
+          {runs && (
+            <li className="flex flex-wrap items-center justify-end gap-2 px-4 pt-2 sm:px-5">
+              {eligible.length > 0 && (
+                <Select value="" onChange={(e) => e.target.value && attach(e.target.value, true)} className="h-9 w-auto max-w-full text-[13px]" aria-label={`Add someone to ${team.name}`}>
+                  <option value="">Add someone who also works here</option>
+                  {eligible.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}, {p.title}
+                    </option>
+                  ))}
+                </Select>
+              )}
+              {heads && (
+                <Button size="sm" variant="ghost" onClick={onChangeLead}>
+                  <UserRound /> Change lead
+                </Button>
+              )}
+            </li>
+          )}
           {members.length ? (
-            members.map((p) => <MemberRow key={p.id} person={p} isLead={p.id === team.leadId} isHead={p.id === headId} teamName={team.name} onMove={() => onMove(p)} />)
+            members.map((p) => <MemberRow key={p.id} person={p} isLead={p.id === team.leadId} isHead={p.id === headId} teamName={team.name} onMove={heads ? () => onMove(p) : undefined} />)
           ) : (
             <li className="px-5 py-3 pl-12 text-[13px] text-muted">Nobody in this team yet. Move people in from another team&apos;s list.</li>
           )}
+          {also.map((p) => (
+            <li key={p.id} className="flex items-center gap-3 py-2 pl-11 pr-2 sm:pl-12 sm:pr-3">
+              <Avatar person={p} size="md" />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[14px] font-medium text-text">{p.name}</p>
+                <p className="truncate text-[12.5px] text-muted">
+                  {p.title}. Also works here; home team is {allTeams.find((t) => t.id === p.teamId)?.name ?? "not set"}.
+                </p>
+              </div>
+              {runs && (
+                <Button size="sm" variant="ghost" onClick={() => attach(p.id, false)} aria-label={`Take ${p.name} off ${team.name}`}>
+                  <UserMinus /> Remove
+                </Button>
+              )}
+            </li>
+          ))}
         </ul>
       )}
     </li>
   );
 }
 
-function MemberRow({ person: p, isLead, isHead, teamName, onMove }: { person: Person; isLead: boolean; isHead: boolean; teamName: string; onMove: () => void }) {
+function MemberRow({ person: p, isLead, isHead, teamName, onMove }: { person: Person; isLead: boolean; isHead: boolean; teamName: string; onMove?: () => void }) {
   const locked = isLead || isHead;
   return (
     <li className="flex items-center gap-3 py-2 pl-11 pr-2 sm:pl-12 sm:pr-3">
@@ -196,15 +285,17 @@ function MemberRow({ person: p, isLead, isHead, teamName, onMove }: { person: Pe
           </Button>
         </MenuTrigger>
         <MenuContent className="w-64">
-          <MenuItem disabled={locked} onSelect={onMove}>
-            <ArrowRightLeft /> Move to another team
-          </MenuItem>
-          {locked && (
+          {onMove && (
+            <MenuItem disabled={locked} onSelect={onMove}>
+              <ArrowRightLeft /> Move to another team
+            </MenuItem>
+          )}
+          {onMove && locked && (
             <p className="px-2.5 pb-2 pt-0.5 text-[12px] leading-snug text-muted">
               {p.name.split(" ")[0]} {isHead ? "heads this department" : `leads ${teamName}`}. Give the role to someone else before moving them.
             </p>
           )}
-          <MenuSeparator />
+          {onMove && <MenuSeparator />}
           <MenuItem asChild>
             <Link href={`/team?person=${p.id}`}>
               <UserRound /> Open in Team
@@ -217,7 +308,24 @@ function MemberRow({ person: p, isLead, isHead, teamName, onMove }: { person: Pe
 }
 
 /* ---------------- groups ---------------- */
-export function GroupList({ groups, people, channels, onCreate }: { groups: Group[]; people: Person[]; channels: ChannelSpace[]; onCreate: () => void }) {
+export function GroupList({
+  groups,
+  people,
+  channels,
+  onCreate,
+  onEdit,
+  canManage,
+}: {
+  groups: Group[];
+  people: Person[];
+  channels: ChannelSpace[];
+  onCreate?: () => void;
+  onEdit: (g: Group) => void;
+  canManage: (g: Group) => boolean;
+}) {
+  const act = useApp((s) => s.act);
+  const live = groups.filter((g) => !g.archivedAt);
+  const archived = groups.filter((g) => g.archivedAt);
   if (!groups.length)
     return (
       <Panel>
@@ -226,49 +334,85 @@ export function GroupList({ groups, people, channels, onCreate }: { groups: Grou
           title="No groups yet"
           body="Create a group for work that crosses departments, like a big customer or a launch."
           action={
-            <Button variant="primary" onClick={onCreate}>
-              <Plus /> New group
-            </Button>
+            onCreate ? (
+              <Button variant="primary" onClick={onCreate}>
+                <Plus /> New group
+              </Button>
+            ) : undefined
           }
         />
       </Panel>
     );
+  const archive = (g: Group, on: boolean) => {
+    if (act({ type: "archiveGroup", groupId: g.id, archived: on }).ok)
+      toast.success(on ? `${g.name} archived` : `${g.name} restored`, { description: on ? "Its channel and history stay readable." : undefined });
+  };
+  const row = (g: Group) => {
+    const owner = people.find((p) => p.id === g.ownerId);
+    const channel = channels.find((c) => c.unitType === "group" && c.unitId === g.id && c.kind !== "private");
+    return (
+      <li key={g.id} className={cn("flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:gap-6 sm:px-5", g.archivedAt && "opacity-70")}>
+        <div className="min-w-0 flex-1">
+          <p className="text-[14.5px] font-medium text-text">
+            {g.name}
+            {g.archivedAt && <span className="ml-2 rounded-full bg-sunken px-2 py-0.5 text-[12px] font-medium text-muted">Archived</span>}
+          </p>
+          {g.description && <p className="mt-0.5 text-[13px] text-muted">{g.description}</p>}
+          <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-muted">
+            {owner && (
+              <span className="flex items-center gap-1.5">
+                <Avatar person={owner} size="xs" /> Run by {owner.name}
+              </span>
+            )}
+            {channel ? (
+              <Link href={`/channels?channel=${channel.id}`} className="flex items-center gap-1 hover:text-text hover:underline">
+                <Hash className="size-3.5" /> {channel.name}
+              </Link>
+            ) : (
+              <span className="flex items-center gap-1 text-faint">
+                <Hash className="size-3.5" /> No channel yet
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="flex shrink-0 items-center gap-2.5">
+          <AvatarStack ids={g.memberIds} max={5} />
+          <span className="tabular text-[12.5px] text-muted">{plural(g.memberIds.length, "member")}</span>
+          {canManage(g) && (
+            <Menu>
+              <MenuTrigger asChild>
+                <Button variant="ghost" size="icon" aria-label={`Actions for ${g.name}`}>
+                  <MoreHorizontal />
+                </Button>
+              </MenuTrigger>
+              <MenuContent>
+                {!g.archivedAt && (
+                  <MenuItem onSelect={() => onEdit(g)}>
+                    <Pencil /> Edit name and members
+                  </MenuItem>
+                )}
+                <MenuItem onSelect={() => archive(g, !g.archivedAt)}>
+                  {g.archivedAt ? <ArchiveRestore /> : <Archive />} {g.archivedAt ? "Restore group" : "Archive group"}
+                </MenuItem>
+              </MenuContent>
+            </Menu>
+          )}
+        </div>
+      </li>
+    );
+  };
   return (
-    <Panel>
-      <ul>
-        {groups.map((g) => {
-          const owner = people.find((p) => p.id === g.ownerId);
-          const channel = channels.find((c) => c.unitType === "group" && c.unitId === g.id);
-          return (
-            <li key={g.id} className="flex flex-col gap-3 border-b border-line px-4 py-4 last:border-b-0 sm:flex-row sm:items-center sm:gap-6 sm:px-5">
-              <div className="min-w-0 flex-1">
-                <p className="text-[14.5px] font-medium text-text">{g.name}</p>
-                {g.description && <p className="mt-0.5 text-[13px] text-muted">{g.description}</p>}
-                <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[12.5px] text-muted">
-                  {owner && (
-                    <span className="flex items-center gap-1.5">
-                      <Avatar person={owner} size="xs" /> Run by {owner.name}
-                    </span>
-                  )}
-                  {channel ? (
-                    <Link href="/channels" className="flex items-center gap-1 hover:text-text hover:underline">
-                      <Hash className="size-3.5" /> {channel.name}
-                    </Link>
-                  ) : (
-                    <span className="flex items-center gap-1 text-faint">
-                      <Hash className="size-3.5" /> No channel yet
-                    </span>
-                  )}
-                </div>
-              </div>
-              <div className="flex shrink-0 items-center gap-2.5">
-                <AvatarStack ids={g.memberIds} max={5} />
-                <span className="tabular text-[12.5px] text-muted">{plural(g.memberIds.length, "member")}</span>
-              </div>
-            </li>
-          );
-        })}
-      </ul>
-    </Panel>
+    <>
+      <Panel>
+        <ul>{live.map(row)}</ul>
+        {!live.length && <p className="px-5 py-4 text-[13px] text-muted">Every group is archived.</p>}
+      </Panel>
+      {archived.length > 0 && (
+        <details className="mt-3 rounded-[var(--radius-lg)] border border-line bg-surface">
+          <summary className="cursor-pointer px-4 py-3 text-[13.5px] font-medium sm:px-5">Archived groups ({archived.length})</summary>
+          <ul className="border-t border-line">{archived.map(row)}</ul>
+        </details>
+      )}
+    </>
   );
 }

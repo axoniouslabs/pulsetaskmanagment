@@ -12,6 +12,7 @@ import type {
   Activity,
   ActivityKind,
   AppNotification,
+  ChannelSpace,
   DepartmentSettings,
   HeatLevel,
   Leave,
@@ -26,7 +27,7 @@ import type {
   TaskTemplate,
   WorkSchedule,
 } from "@/lib/types";
-import { backupFor, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
+import { backupFor, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
 import { endOfWorkingDay, isAway, localDate, localNowFor, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
 
 export interface NewTaskInput {
@@ -185,6 +186,19 @@ export type Command =
   | { type: "setDepartmentHead"; departmentId: string; personId: string }
   | { type: "setOnLeave"; personId: string; onLeave: boolean }
   | { type: "setPref"; key: string; value: boolean }
+  /** a manager or the owner sets where someone's notifications go (spec §12, per-user overrides) */
+  | { type: "setPrefFor"; personId: string; key: string; value: boolean | null }
+  | { type: "editGroup"; groupId: string; name?: string; description?: string; memberIds?: string[] }
+  | { type: "archiveGroup"; groupId: string; archived: boolean }
+  | { type: "addChannel"; id?: string; name: string; kind: "open" | "announcement" | "private"; unitType: ChannelSpace["unitType"]; unitId: string; description: string; memberIds?: string[] }
+  | { type: "editChannel"; channelId: string; name?: string; description?: string; memberIds?: string[] }
+  | { type: "archiveChannel"; channelId: string; archived: boolean }
+  | { type: "addPin"; channelId: string; title: string; url?: string; fileId?: string; fileName?: string }
+  | { type: "removePin"; channelId: string; pinId: string }
+  | { type: "replyNotice"; id: string; body: string }
+  | { type: "setAvailability"; personId: string; note: string; until?: string }
+  | { type: "purgeContact"; personId: string }
+  | { type: "setTeamMember"; teamId: string; personId: string; member: boolean }
   | { type: "setDayOrder"; ids: string[] }
   | { type: "setSavedViews"; views: StoredView[] };
 
@@ -218,6 +232,43 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
   const tz = w.settings.timezone || "Asia/Karachi";
   const fmt = (iso: string | Date, pattern: string) => format(new TZDate(new Date(iso), tz), pattern);
   const first = (id: string) => w.people.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
+  /** people named in a post: @everyone or @channel, a group's name, or a person's first or full name */
+  const mentioned = (text: string, members: string[]) => {
+    const out = new Set<string>();
+    const lower = text.toLowerCase();
+    /** "@name" followed by something that isn't part of a longer word */
+    const has = (name: string) => {
+      for (let at = lower.indexOf(`@${name}`); at >= 0; at = lower.indexOf(`@${name}`, at + 1)) {
+        const next = lower[at + name.length + 1];
+        if (!next || !/[a-z0-9]/.test(next)) return true;
+      }
+      return false;
+    };
+    if (has("everyone") || has("channel") || has("all")) members.forEach((id) => out.add(id));
+    for (const g of w.groups) if (!g.archivedAt && has(g.name.toLowerCase())) [...g.memberIds, g.ownerId].forEach((id) => out.add(id));
+    for (const p of w.people) {
+      if (p.active === false) continue;
+      const full = p.name.toLowerCase();
+      if (has(full) || has(full.split(" ")[0])) out.add(p.id);
+    }
+    out.delete(me);
+    return [...out];
+  };
+  const muted = (personId: string, channelId: string) => !!w.prefs[personId]?.[`mute:${channelId}`];
+  /** a unit's own channels, made when it is: day-to-day, plus notices and a task feed for departments and teams */
+  const unitChannels = (unitType: ChannelSpace["unitType"], unitId: string, name: string, description: string, kinds: ChannelSpace["kind"][]) => {
+    for (const kind of kinds)
+      w.channels.push({
+        id: ctx.uid("c"),
+        name: kind === "announcement" ? `${name} notices` : kind === "task_feed" ? `${name} task feed` : name,
+        kind,
+        unitType,
+        unitId,
+        description:
+          kind === "announcement" ? `Notices for everyone in ${name}` : kind === "task_feed" ? `Every task event in ${name}, posted by Pulse` : description || `Day-to-day coordination for ${name}`,
+        createdById: me,
+      });
+  };
 
   const log = (kind: ActivityKind, text: string, taskId?: string, actorId?: string) =>
     acts.push({
@@ -753,7 +804,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       log("deadline_changed", `Deadline moved from ${fmt(old, "EEE d MMM h:mm a")} to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}: ${cmd.reason}`, t.id);
       note(t.assigneeId, "deadline", "Deadline changed", `${t.title} is now due ${fmt(cmd.newDueAt, "EEE h:mm a")}`, t.id);
       const mgr = leadOf(w, t.assigneeId) ?? headOf(w, t.assigneeId);
-      if (mgr && mgr !== t.assigneeId) note(mgr, "deadline", `Deadline moved for ${first(t.assigneeId)}`, `${t.title}: ${fmt(old, "EEE d MMM h:mm a")} to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}. ${cmd.reason}`, t.id);
+      if (mgr && mgr !== t.assigneeId)
+        note(mgr, "deadline", `Deadline moved for ${first(t.assigneeId)}`, `${t.title}: ${fmt(old, "EEE d MMM h:mm a")} to ${fmt(cmd.newDueAt, "EEE d MMM h:mm a")}. ${cmd.reason}`, t.id);
       break;
     }
 
@@ -1020,10 +1072,17 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         ackBy: {},
         readBy: { [me]: nowIso },
       });
+      if (ch.archivedAt) fail("This channel is archived. Restore it to post here.");
       log("announcement", `Posted "${title}" in ${ch.name}`);
-      for (const r of membersOf(w, ch.unitType, ch.unitId)) {
+      const members = channelMembersOf(w, ch);
+      const named = new Set(mentioned(`${title} ${cmd.body}`, members));
+      for (const r of members) {
+        if (named.has(r)) continue;
+        // a notice that needs an OK always arrives; anything else respects the person's mute
+        if (!cmd.requiresAck && muted(r, ch.id)) continue;
         note(r, "announcement", cmd.requiresAck ? `${first(me)} posted a notice that needs your OK` : `New notice in ${ch.name}`, title);
       }
+      for (const r of named) note(r, "mention", `${first(me)} mentioned you in ${ch.name}`, title);
       break;
     }
     case "ackAnnouncement": {
@@ -1043,7 +1102,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const a = w.announcements.find((x) => x.id === cmd.id) ?? fail("That notice no longer exists.");
       if (!a.requiresAck) fail("This notice doesn't ask for an acknowledgment.");
       const ch = w.channels.find((c) => c.id === a.channelId) ?? fail("That channel no longer exists.");
-      const waiting = membersOf(w, ch.unitType, ch.unitId).filter((id) => !a.ackBy[id] && id !== a.authorId);
+      const waiting = channelMembersOf(w, ch).filter((id) => !a.ackBy[id] && id !== a.authorId);
       if (!waiting.length) fail("Everyone has already acknowledged this notice.");
       for (const r of waiting) note(r, "announcement", `${first(me)} is waiting for your OK`, `Please read and acknowledge "${a.title}".`);
       log("announcement", `Reminded ${waiting.length} ${waiting.length === 1 ? "person" : "people"} to acknowledge "${a.title}"`);
@@ -1201,26 +1260,21 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (head.role === "employee") head.role = "manager";
       head.departmentId = id;
       head.teamId = "";
-      w.channels.push({
-        id: ctx.uid("c"),
-        name,
-        kind: "open",
-        unitType: "department",
-        unitId: id,
-        description: `Day-to-day coordination for ${name}`,
-      });
+      unitChannels("department", id, name, "", ["open", "task_feed"]);
       log("created", `Created the ${name} department`);
       break;
     }
     case "addTeam": {
       const name = cmd.name.trim() || fail("Give the team a name.");
       if (!w.departments.some((d) => d.id === cmd.departmentId)) fail("Pick a department.");
+      const teamId = ctx.uid("t");
       w.teams.push({
-        id: ctx.uid("t"),
+        id: teamId,
         name,
         departmentId: cmd.departmentId,
         leadId: cmd.leadId,
       });
+      unitChannels("team", teamId, name, "", ["open", "task_feed"]);
       log("created", `Created the ${name} team`);
       break;
     }
@@ -1234,14 +1288,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         memberIds: cmd.memberIds,
         ownerId: me,
       });
-      w.channels.push({
-        id: ctx.uid("c"),
-        name,
-        kind: "open",
-        unitType: "group",
-        unitId: id,
-        description: cmd.description.trim(),
-      });
+      unitChannels("group", id, name, cmd.description.trim(), ["open"]);
       log("created", `Created the group "${name}"`);
       break;
     }
@@ -1381,6 +1428,139 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         p.backupId = undefined;
         log("reassigned", `${first(p.id)} has no named backup: their team lead covers when they're away`);
       }
+      break;
+    }
+    case "replyNotice": {
+      const a = w.announcements.find((x) => x.id === cmd.id) ?? fail("That notice no longer exists.");
+      const ch = w.channels.find((c) => c.id === a.channelId) ?? fail("That channel no longer exists.");
+      if (ch.archivedAt) fail("This channel is archived.");
+      const body = cmd.body.trim() || fail("Write a reply first.");
+      if (body.length > 2000) fail("Keep replies under 2,000 characters.");
+      a.replies = [...(a.replies ?? []), { id: ctx.uid("rp"), authorId: me, at: nowIso, body }];
+      const members = channelMembersOf(w, ch);
+      const named = new Set(mentioned(body, members));
+      for (const r of named) note(r, "mention", `${first(me)} mentioned you in ${ch.name}`, body.slice(0, 140));
+      // whoever posted, and anyone already in the thread, hears about replies
+      const thread = new Set([a.authorId, ...(a.replies ?? []).map((r) => r.authorId)]);
+      for (const r of thread) if (!named.has(r) && !muted(r, ch.id) && members.includes(r)) note(r, "mention", `${first(me)} replied to "${a.title}"`, body.slice(0, 140));
+      break;
+    }
+    case "addChannel": {
+      const name = cmd.name.trim() || fail("Give the channel a name.");
+      if (cmd.id && w.channels.some((c) => c.id === cmd.id)) fail("This channel was already created.");
+      // the id comes from the browser, so the channel it shows straight away is the one that is saved
+      const chId = cmd.id ?? ctx.uid("c");
+      if (cmd.kind === "private") {
+        const ids = Array.from(new Set([...(cmd.memberIds ?? []), me]));
+        if (ids.length < 2) fail("Invite at least one other person.");
+        w.channels.push({ id: chId, name, kind: "private", unitType: cmd.unitType, unitId: cmd.unitId, description: cmd.description.trim(), memberIds: ids, createdById: me });
+        for (const r of ids) note(r, "announcement", `${first(me)} added you to ${name}`, "A private channel: only invited people can see it.");
+      } else {
+        w.channels.push({ id: chId, name, kind: cmd.kind, unitType: cmd.unitType, unitId: cmd.unitId, description: cmd.description.trim(), createdById: me });
+      }
+      log("created", `Created the channel ${name}`);
+      break;
+    }
+    case "editChannel": {
+      const ch = w.channels.find((c) => c.id === cmd.channelId) ?? fail("That channel no longer exists.");
+      if (cmd.name !== undefined) ch.name = cmd.name.trim() || fail("Give the channel a name.");
+      if (cmd.description !== undefined) ch.description = cmd.description.trim();
+      if (cmd.memberIds) {
+        if (ch.kind !== "private") fail("Membership follows the unit. Change who is in the team or group instead.");
+        const before = new Set(channelMembersOf(w, ch));
+        ch.memberIds = Array.from(new Set([...cmd.memberIds, ch.createdById ?? me]));
+        for (const r of ch.memberIds) if (!before.has(r)) note(r, "announcement", `${first(me)} added you to ${ch.name}`, "A private channel: only invited people can see it.");
+      }
+      log("created", `Updated the channel ${ch.name}`);
+      break;
+    }
+    case "archiveChannel": {
+      const ch = w.channels.find((c) => c.id === cmd.channelId) ?? fail("That channel no longer exists.");
+      ch.archivedAt = cmd.archived ? nowIso : undefined;
+      log("created", cmd.archived ? `Archived the channel ${ch.name}. Its notices stay readable.` : `Restored the channel ${ch.name}`);
+      break;
+    }
+    case "addPin": {
+      const ch = w.channels.find((c) => c.id === cmd.channelId) ?? fail("That channel no longer exists.");
+      const title = cmd.title.trim() || fail("Give it a name people will recognise.");
+      if (!cmd.url && !cmd.fileId) fail("Add a link or a file.");
+      if (cmd.url && !/^https?:\/\//i.test(cmd.url.trim())) fail("Links start with http:// or https://");
+      if ((ch.pins?.length ?? 0) >= 30) fail("A channel holds up to 30 pinned items. Remove one first.");
+      ch.pins = [...(ch.pins ?? []), { id: ctx.uid("pin"), title, url: cmd.url?.trim() || undefined, fileId: cmd.fileId, fileName: cmd.fileName, byId: me, at: nowIso }];
+      log("created", `Pinned "${title}" in ${ch.name}`);
+      break;
+    }
+    case "removePin": {
+      const ch = w.channels.find((c) => c.id === cmd.channelId) ?? fail("That channel no longer exists.");
+      const pin = ch.pins?.find((p) => p.id === cmd.pinId) ?? fail("That item is no longer pinned.");
+      ch.pins = ch.pins!.filter((p) => p.id !== pin.id);
+      log("created", `Unpinned "${pin.title}" from ${ch.name}`);
+      break;
+    }
+    case "editGroup": {
+      const g = w.groups.find((x) => x.id === cmd.groupId) ?? fail("That group no longer exists.");
+      if (cmd.name !== undefined) {
+        const name = cmd.name.trim() || fail("Give the group a name.");
+        for (const ch of w.channels) if (ch.unitType === "group" && ch.unitId === g.id && ch.name === g.name) ch.name = name;
+        g.name = name;
+      }
+      if (cmd.description !== undefined) g.description = cmd.description.trim();
+      if (cmd.memberIds) {
+        const added = cmd.memberIds.filter((id) => !g.memberIds.includes(id));
+        const removed = g.memberIds.filter((id) => !cmd.memberIds!.includes(id));
+        g.memberIds = Array.from(new Set(cmd.memberIds));
+        for (const r of added) note(r, "announcement", `${first(me)} added you to ${g.name}`, g.description || "You'll see its channel and the work sent to it.");
+        if (added.length || removed.length)
+          log("reassigned", `${g.name}: ${[added.length ? `added ${added.map(first).join(", ")}` : "", removed.length ? `removed ${removed.map(first).join(", ")}` : ""].filter(Boolean).join("; ")}`);
+      }
+      break;
+    }
+    case "archiveGroup": {
+      const g = w.groups.find((x) => x.id === cmd.groupId) ?? fail("That group no longer exists.");
+      if (cmd.archived && w.tasks.some((t) => t.pool?.unitType === "group" && t.pool.unitId === g.id && !["approved", "cancelled"].includes(t.status) && !t.pool.pickedId))
+        fail("Work sent to this group is still waiting for someone. Assign or cancel it first.");
+      g.archivedAt = cmd.archived ? nowIso : undefined;
+      // its channels go with it, and stay readable
+      for (const ch of w.channels) if (ch.unitType === "group" && ch.unitId === g.id) ch.archivedAt = cmd.archived ? nowIso : undefined;
+      log("created", cmd.archived ? `Archived the group ${g.name}. Its history stays.` : `Restored the group ${g.name}`);
+      break;
+    }
+    case "setAvailability": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      const note_ = cmd.note.trim();
+      if (note_.length > 120) fail("Keep it short: under 120 characters.");
+      if (cmd.until && cmd.until <= nowIso) fail("Pick a time later than now.");
+      p.availability = note_ ? { note: note_, until: cmd.until, at: nowIso } : undefined;
+      break;
+    }
+    case "purgeContact": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      if (p.active !== false) fail("Deactivate them first. Contact details are only wiped for people who have left.");
+      p.phone = "";
+      p.availability = undefined;
+      p.contactPurgedAt = nowIso;
+      log("security", `Wiped ${first(p.id)}'s personal contact details. Their work history stays.`);
+      break;
+    }
+    case "setTeamMember": {
+      const team = w.teams.find((t) => t.id === cmd.teamId) ?? fail("That team no longer exists.");
+      const p = w.people.find((x) => x.id === cmd.personId && x.active !== false) ?? fail("That person is no longer in the company.");
+      if (p.teamId === team.id) fail(`${team.name} is ${first(p.id)}'s home team. Move them to another team first.`);
+      const cur = new Set(p.secondaryTeamIds ?? []);
+      if (cmd.member) cur.add(team.id);
+      else cur.delete(team.id);
+      p.secondaryTeamIds = [...cur];
+      if (cmd.member) note(p.id, "announcement", `${first(me)} added you to ${team.name}`, "You'll see its work and channel. Your home team stays the same.");
+      log("reassigned", cmd.member ? `Added ${first(p.id)} to ${team.name}` : `Took ${first(p.id)} off ${team.name}`);
+      break;
+    }
+    case "setPrefFor": {
+      if (!w.people.some((x) => x.id === cmd.personId)) fail("That person no longer exists.");
+      const cur = { ...(w.prefs[cmd.personId] ?? {}) };
+      if (cmd.value === null) delete cur[cmd.key];
+      else cur[cmd.key] = cmd.value;
+      w.prefs[cmd.personId] = cur;
+      log("security", `Changed where ${first(cmd.personId)}'s ${cmd.key.split(":")[1] ?? ""} notifications go`);
       break;
     }
     case "setPref": {

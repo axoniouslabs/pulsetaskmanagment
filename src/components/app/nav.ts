@@ -1,17 +1,4 @@
-import {
-  Activity,
-  BarChart3,
-  CheckCheck,
-  Clock3,
-  Gauge,
-  ListTodo,
-  Megaphone,
-  Network,
-  Settings,
-  Sun,
-  Users,
-  type LucideIcon,
-} from "lucide-react";
+import { Activity, BarChart3, CheckCheck, Clock3, Gauge, ListTodo, Megaphone, Network, Settings, Sun, Users, type LucideIcon } from "lucide-react";
 import type { Role } from "@/lib/types";
 
 export interface NavItem {
@@ -44,7 +31,7 @@ export const NAV: Record<Role, NavItem[][]> = {
   manager: [
     [ALL.overview, ALL.today, ALL.tasks, ALL.approvals, ALL.team],
     [ALL.channels, ALL.time, ALL.reports, ALL.activity],
-    [ALL.settings],
+    [{ ...ALL.organisation, label: "My units" }, ALL.settings],
   ],
   employee: [
     [ALL.today, { ...ALL.tasks, label: "My tasks" }],

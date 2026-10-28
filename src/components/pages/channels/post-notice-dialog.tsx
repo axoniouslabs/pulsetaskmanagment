@@ -6,16 +6,19 @@ import { useApp } from "@/lib/store";
 import type { ChannelSpace } from "@/lib/types";
 import { plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, Field, Input, Switch, Textarea } from "@/components/ui/primitives";
+import { Dialog, DialogContent, Field, Input, Switch } from "@/components/ui/primitives";
+import { MentionInput } from "./mention-input";
 
 export function PostNoticeDialog({
   channel,
   audienceCount,
+  memberIds,
   open,
   onOpenChange,
 }: {
   channel: ChannelSpace;
   audienceCount: number;
+  memberIds: string[];
   open: boolean;
   onOpenChange: (o: boolean) => void;
 }) {
@@ -23,10 +26,10 @@ export function PostNoticeDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open && (
         <DialogContent
-          title="Post a notice"
+          title={channel.kind === "announcement" || (channel.unitType === "org" && channel.kind !== "private") ? "Post a notice" : `Post in ${channel.name}`}
           description={`Goes to ${plural(audienceCount, "person", "people")} in ${channel.name}, on their phone and PC.`}
         >
-          <PostNoticeForm channel={channel} audienceCount={audienceCount} onDone={() => onOpenChange(false)} />
+          <PostNoticeForm channel={channel} audienceCount={audienceCount} memberIds={memberIds} onDone={() => onOpenChange(false)} />
         </DialogContent>
       )}
     </Dialog>
@@ -34,7 +37,7 @@ export function PostNoticeDialog({
 }
 
 /** mounted fresh each time the dialog opens, so the form always starts empty */
-function PostNoticeForm({ channel, audienceCount, onDone }: { channel: ChannelSpace; audienceCount: number; onDone: () => void }) {
+function PostNoticeForm({ channel, audienceCount, memberIds, onDone }: { channel: ChannelSpace; audienceCount: number; memberIds: string[]; onDone: () => void }) {
   const post = useApp((s) => s.postAnnouncement);
   const [title, setTitle] = React.useState("");
   const [body, setBody] = React.useState("");
@@ -54,12 +57,10 @@ function PostNoticeForm({ channel, audienceCount, onDone }: { channel: ChannelSp
       }
       ackDueAt = d.toISOString();
     }
-    post({ channelId: channel.id, title: title.trim(), body: body.trim(), requiresAck, ackDueAt });
+    if (!post({ channelId: channel.id, title: title.trim(), body: body.trim(), requiresAck, ackDueAt }).ok) return;
     onDone();
-    toast.success("Notice posted", {
-      description: requiresAck
-        ? `${plural(audienceCount, "person", "people")} will be reminded until they acknowledge.`
-        : `${plural(audienceCount, "person", "people")} notified.`,
+    toast.success("Posted", {
+      description: requiresAck ? `${plural(audienceCount, "person", "people")} will be reminded until they acknowledge.` : `${plural(audienceCount, "person", "people")} notified.`,
     });
   };
 
@@ -68,8 +69,8 @@ function PostNoticeForm({ channel, audienceCount, onDone }: { channel: ChannelSp
       <Field label="Title" htmlFor="notice-title">
         <Input id="notice-title" autoFocus value={title} onChange={(e) => setTitle(e.target.value)} placeholder="What is this about?" maxLength={120} />
       </Field>
-      <Field label="Message" htmlFor="notice-body" hint="Keep it to what people need to know or do. Questions and back-and-forth belong on WhatsApp.">
-        <Textarea id="notice-body" value={body} onChange={(e) => setBody(e.target.value)} className="min-h-28" placeholder="Write the notice" />
+      <Field label="Message" htmlFor="notice-body" hint="Type @ to mention a person, a group or @everyone. Mentioned people are notified even if they muted this channel.">
+        <MentionInput id="notice-body" value={body} onChange={setBody} memberIds={memberIds} className="min-h-28" placeholder="Write what people need to know or do" />
       </Field>
 
       <div className="rounded-[var(--radius-md)] border border-line p-3.5">
@@ -110,7 +111,7 @@ function PostNoticeForm({ channel, audienceCount, onDone }: { channel: ChannelSp
           Cancel
         </Button>
         <Button type="submit" variant="primary" disabled={!title.trim() || !body.trim()}>
-          Post notice
+          Post
         </Button>
       </div>
     </form>

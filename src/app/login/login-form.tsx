@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import Link from "next/link";
 import { ArrowRight, BellRing, Check, Eye, EyeOff, Loader2, ShieldCheck } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 import { cn } from "@/lib/utils";
@@ -197,6 +198,12 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
               Sign in
             </Button>
             <p className="text-center text-[13px] text-faint">Forgot your password? Ask your manager or the owner to reset it.</p>
+            <p className="text-center text-[13px] text-muted">
+              Got an invite code?{" "}
+              <Link href="/join" className="font-medium text-ink hover:underline">
+                Join your company
+              </Link>
+            </p>
           </form>
 
           {demo && accounts.length > 0 && (

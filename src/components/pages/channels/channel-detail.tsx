@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { format, isToday, isYesterday } from "date-fns";
-import { Activity as ActivityIcon, ChevronLeft, Info, Megaphone, Plus } from "lucide-react";
+import { Activity as ActivityIcon, Archive, ChevronLeft, Info, Lock, Megaphone, Plus } from "lucide-react";
 import { useApp } from "@/lib/store";
 import { useNow, useScope } from "@/lib/hooks";
 import type { Activity, ChannelSpace } from "@/lib/types";
@@ -13,7 +13,8 @@ import { AvatarStack } from "@/components/app/avatar";
 import { ActivityLine } from "@/components/app/task-detail";
 import { Notice } from "./notice";
 import { PostNoticeDialog } from "./post-notice-dialog";
-import { audienceOf, canPostIn, channelLead, channelMembers, type Org } from "./lib";
+import { audienceOf, canPinIn, canPostIn, channelLead, channelMembers, runsChannel, type Org } from "./lib";
+import { ChannelMenu, MuteButton, PinnedPanel } from "./channel-tools";
 
 export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace; org: Org; onBack: () => void }) {
   const { role, meId, people: scoped } = useScope();
@@ -26,13 +27,13 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
   const leadId = channelLead(org, channel);
   const lead = org.people.find((p) => p.id === leadId);
   const canPost = canPostIn(org, channel, role, meId);
+  const runs = runsChannel(org, channel, role, meId);
+  const isMember = members.includes(meId);
+  const canPin = canPinIn(org, channel, role, meId);
   const scopeIds = React.useMemo(() => (role === "manager" ? new Set(scoped.map((p) => p.id)) : undefined), [role, scoped]);
 
   const notices = React.useMemo(
-    () =>
-      announcements
-        .filter((a) => a.channelId === channel.id)
-        .sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.at.localeCompare(a.at)),
+    () => announcements.filter((a) => a.channelId === channel.id).sort((a, b) => Number(!!b.pinned) - Number(!!a.pinned) || b.at.localeCompare(a.at)),
     [announcements, channel.id],
   );
 
@@ -47,12 +48,15 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
   }, [unreadKey, readAnnouncement]);
 
   const audienceCount = members.filter((id) => id !== meId).length;
-  const who =
-    channel.kind === "announcement"
+  const who = channel.archivedAt
+    ? "Archived. Everything here stays readable, but nobody can post until it's restored."
+    : channel.kind === "announcement"
       ? `Only ${lead?.name.split(" ")[0] ?? "the owner"} posts here. Every notice reaches everyone's phone and PC.`
       : channel.kind === "task_feed"
         ? "Pulse posts here by itself whenever a task changes. Nobody can post or edit."
-        : `${lead?.name.split(" ")[0] ?? "The lead"} and the owner post notices here. Questions and quick replies stay on WhatsApp.`;
+        : channel.kind === "private"
+          ? "Private: only the people invited can see it. Replies and mentions notify the right people."
+          : `Anyone in ${channel.name} can post and reply. Notices that need an OK are tracked like tasks.`;
 
   return (
     <div className="min-w-0 space-y-4">
@@ -67,25 +71,37 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
       <Panel className="p-5 sm:p-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="min-w-0">
-            <h2 className="font-display text-[22px] font-semibold leading-tight text-text sm:text-[24px]">{channel.name}</h2>
-            <p className="mt-1 text-[14px] leading-snug text-muted">
-              {channel.description}
-            </p>
+            <h2 className="flex items-center gap-2 font-display text-[22px] font-semibold leading-tight text-text sm:text-[24px]">
+              {channel.kind === "private" && <Lock className="size-5 text-faint" aria-label="Private" />}
+              {channel.name}
+              {channel.archivedAt && (
+                <span className="inline-flex items-center gap-1 rounded-full bg-sunken px-2 py-0.5 font-sans text-[12px] font-medium text-muted">
+                  <Archive className="size-3" /> Archived
+                </span>
+              )}
+            </h2>
+            <p className="mt-1 text-[14px] leading-snug text-muted">{channel.description}</p>
             <div className="mt-3.5 flex items-center gap-2.5">
               <AvatarStack ids={members} max={6} />
               <span className="text-[13px] text-muted">{plural(members.length, "member")}</span>
             </div>
           </div>
-          {canPost && (
-            <Button variant="primary" className="h-10 self-start sm:h-9" onClick={() => setPosting(true)}>
-              <Plus /> Post notice
-            </Button>
-          )}
+          <div className="flex shrink-0 items-center gap-2 self-start">
+            {canPost && (
+              <Button variant="primary" className="h-10 sm:h-9" onClick={() => setPosting(true)}>
+                <Plus /> {channel.kind === "announcement" || (channel.unitType === "org" && channel.kind !== "private") ? "Post notice" : "New post"}
+              </Button>
+            )}
+            {isMember && channel.kind !== "task_feed" && <MuteButton channel={channel} />}
+            {runs && channel.kind !== "task_feed" && <ChannelMenu channel={channel} />}
+          </div>
         </div>
         <p className="mt-4 flex items-start gap-2 border-t border-line pt-3.5 text-[13px] leading-snug text-muted">
           <Info className="mt-px size-4 shrink-0 text-faint" /> {who}
         </p>
       </Panel>
+
+      {channel.kind !== "task_feed" && <PinnedPanel channel={channel} canPin={canPin} canRemove={(byId) => !channel.archivedAt && (byId === meId || runs)} />}
 
       {channel.kind === "task_feed" ? (
         <TaskFeed channel={channel} members={members} />
@@ -99,6 +115,7 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
               meId={meId}
               now={now}
               canManage={role === "owner" || role === "manager" || n.authorId === meId}
+              replyTo={!channel.archivedAt && (isMember || (role === "owner" && channel.kind !== "private")) ? members : undefined}
               scopeIds={n.authorId === meId || canPost ? undefined : scopeIds}
             />
           ))}
@@ -107,7 +124,7 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
         <Panel>
           <EmptyState
             icon={Megaphone}
-            title="No notices yet"
+            title={channel.kind === "announcement" || (channel.unitType === "org" && channel.kind !== "private") ? "No notices yet" : "Nothing posted yet"}
             body={
               canPost
                 ? `Post a notice when something applies to everyone in ${channel.name}. Turn on acknowledgment when you need proof that each person has read it.`
@@ -124,7 +141,7 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
         </Panel>
       )}
 
-      {canPost && <PostNoticeDialog channel={channel} audienceCount={audienceCount} open={posting} onOpenChange={setPosting} />}
+      {canPost && <PostNoticeDialog channel={channel} audienceCount={audienceCount} memberIds={members} open={posting} onOpenChange={setPosting} />}
     </div>
   );
 }
@@ -133,16 +150,10 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
 function TaskFeed({ channel, members }: { channel: ChannelSpace; members: string[] }) {
   const activity = useApp((s) => s.activity);
   const tasks = useApp((s) => s.tasks);
-  const unitName = useApp((s) =>
-    channel.unitType === "department" ? s.departments.find((d) => d.id === channel.unitId)?.name : undefined,
-  );
+  const unitName = useApp((s) => (channel.unitType === "department" ? s.departments.find((d) => d.id === channel.unitId)?.name : undefined));
 
   const days = React.useMemo(() => {
-    const inUnit = new Set(
-      tasks
-        .filter((t) => (channel.unitType === "department" ? t.departmentId === channel.unitId : members.includes(t.assigneeId)))
-        .map((t) => t.id),
-    );
+    const inUnit = new Set(tasks.filter((t) => (channel.unitType === "department" ? t.departmentId === channel.unitId : members.includes(t.assigneeId))).map((t) => t.id));
     const items = activity
       .filter((a) => a.taskId && inUnit.has(a.taskId))
       .sort((a, b) => b.at.localeCompare(a.at))

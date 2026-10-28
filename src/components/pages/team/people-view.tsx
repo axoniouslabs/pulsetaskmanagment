@@ -1,5 +1,6 @@
 "use client";
 
+import { AvailabilityNote } from "@/components/app/availability";
 import * as React from "react";
 import { BellOff, ChevronRight } from "lucide-react";
 import type { AttendanceDay, Department, Person, Task, Team } from "@/lib/types";
@@ -31,7 +32,10 @@ export function PeopleView({
   onOpen: (id: string) => void;
 }) {
   const { groups, loose } = groupByTeam(people, teams, departments);
-  const sections = [...groups.map((g) => ({ key: g.team.id, title: g.team.name, sub: g.department?.name, people: g.people })), ...(loose.length ? [{ key: "none", title: "No team yet", sub: undefined, people: loose }] : [])];
+  const sections = [
+    ...groups.map((g) => ({ key: g.team.id, title: g.team.name, sub: g.department?.name, people: g.people })),
+    ...(loose.length ? [{ key: "none", title: "No team yet", sub: undefined, people: loose }] : []),
+  ];
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
@@ -68,21 +72,7 @@ export function PeopleView({
   );
 }
 
-function PersonLine({
-  person: p,
-  isLead,
-  tasks,
-  att,
-  now,
-  onOpen,
-}: {
-  person: Person;
-  isLead: boolean;
-  tasks: Task[];
-  att: AttendanceDay | undefined;
-  now: Date;
-  onOpen: (id: string) => void;
-}) {
+function PersonLine({ person: p, isLead, tasks, att, now, onOpen }: { person: Person; isLead: boolean; tasks: Task[]; att: AttendanceDay | undefined; now: Date; onOpen: (id: string) => void }) {
   const mine = tasks.filter((t) => t.assigneeId === p.id);
   const open = mine.filter(isOpenWork).length;
   const overdue = mine.filter((t) => isOverdue(t, now)).length;
@@ -110,6 +100,7 @@ function PersonLine({
               {p.title}
               {isLead ? ", team lead" : ""}
             </p>
+            <AvailabilityNote person={p} className="mt-0.5" />
             {warning && (
               <p className="mt-1 flex items-center gap-1.5 text-[12.5px] font-medium text-heat-2">
                 <BellOff className="size-3.5 shrink-0" /> {warning}

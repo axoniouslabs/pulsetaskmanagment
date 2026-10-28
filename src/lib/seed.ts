@@ -1187,6 +1187,31 @@ export function createSeed(realNow = new Date()): SeedData {
       description: "Automatic stream of task events",
     },
   ];
+  // every unit has its own channels, as it would if it had been created in the app
+  for (const d of departments)
+    if (!channels.some((c) => c.unitId === d.id && c.kind === "task_feed"))
+      channels.push({ id: `cf_${d.id}`, name: `${d.name} task feed`, kind: "task_feed", unitType: "department", unitId: d.id, description: `Every task event in ${d.name}, posted by Pulse` });
+  for (const t of teams) {
+    channels.push({ id: `c_${t.id}`, name: t.name, kind: "open", unitType: "team", unitId: t.id, description: `Day-to-day coordination for ${t.name}` });
+    channels.push({ id: `cf_${t.id}`, name: `${t.name} task feed`, kind: "task_feed", unitType: "team", unitId: t.id, description: `Every task event in ${t.name}, posted by Pulse` });
+  }
+  channels.push({
+    id: "c_mgmt",
+    name: "Managers",
+    kind: "private",
+    unitType: "org",
+    unitId: "org",
+    description: "Heads of department and the owner: planning before it goes to teams",
+    memberIds: ["p_imran", ...departments.map((d) => d.headId)],
+    createdById: "p_imran",
+    pins: [{ id: "pin_m1", title: "Quarterly targets sheet", url: "https://docs.google.com/spreadsheets/", byId: "p_imran", at: h(-72) }],
+  });
+  const salesCh = channels.find((c) => c.id === "c_sales");
+  if (salesCh)
+    salesCh.pins = [
+      { id: "pin_s1", title: "Dealer price list (October)", url: "https://drive.google.com/", byId: "p_hina", at: h(-96) },
+      { id: "pin_s2", title: "Visit report SOP", url: "https://docs.google.com/document/", byId: "p_hina", at: h(-200) },
+    ];
 
   const everyone = people.map((p) => p.id);
   const ackSome = (ids: string[], hoursAgo: number) => Object.fromEntries(ids.map((id, i) => [id, h(-hoursAgo + i * 0.3)]));

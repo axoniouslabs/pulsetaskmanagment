@@ -113,6 +113,9 @@ export function CompanySettings() {
           {nameError && <p className="text-[12px] text-heat-3">{nameError}</p>}
         </div>
       </SettingRow>
+      <SettingRow htmlFor="company-logo" label="Logo" hint="Shown in the sidebar and on the invite page. A square image works best.">
+        <LogoField />
+      </SettingRow>
       <SettingRow htmlFor="org-timezone" label="Time zone" hint="All deadlines, reminders and reports use this time zone.">
         <Select id="org-timezone" value={settings.timezone} onChange={(e) => save({ timezone: e.target.value }, "Time zone saved")} className="max-w-xs">
           {Array.from(new Set([settings.timezone, ...TIME_ZONES])).map((tz) => (
@@ -212,5 +215,57 @@ export function CompanySettings() {
         </div>
       </SettingRow>
     </>
+  );
+}
+
+/** pick an image; it is shrunk to 160px in the browser so it stays tiny */
+function LogoField() {
+  const logo = useApp((s) => s.settings.logoUrl);
+  const save = useSave();
+  const [busy, setBusy] = React.useState(false);
+  const pick = async (file: File | undefined) => {
+    if (!file) return;
+    if (!/^image\/(png|jpeg|webp|svg\+xml)$/.test(file.type)) return toast.error("Choose a PNG, JPG, WebP or SVG image.");
+    setBusy(true);
+    try {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      await new Promise((ok, fail) => {
+        img.onload = ok;
+        img.onerror = fail;
+        img.src = url;
+      });
+      const side = 160;
+      const scale = Math.min(1, side / Math.max(img.naturalWidth || side, img.naturalHeight || side));
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round((img.naturalWidth || side) * scale));
+      canvas.height = Math.max(1, Math.round((img.naturalHeight || side) * scale));
+      canvas.getContext("2d")!.drawImage(img, 0, 0, canvas.width, canvas.height);
+      URL.revokeObjectURL(url);
+      let data = canvas.toDataURL("image/webp", 0.9);
+      if (!data.startsWith("data:image/webp")) data = canvas.toDataURL("image/png");
+      if (data.length > 120_000) return toast.error("That image is too detailed. Try a simpler version of the logo.");
+      save({ logoUrl: data }, "Logo saved");
+    } catch {
+      toast.error("Couldn't read that image. Try another file.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="flex items-center gap-3">
+      <span className="flex size-12 shrink-0 items-center justify-center overflow-hidden rounded-[var(--radius-md)] border border-line bg-surface">
+        {logo ? <img src={logo} alt="Company logo" className="size-full object-contain" /> : <span className="text-[11px] text-faint">None</span>}
+      </span>
+      <label className="inline-flex h-9 cursor-pointer items-center rounded-[var(--radius-sm)] border border-line bg-surface px-3 text-[13.5px] font-medium text-text hover:bg-hover">
+        {busy ? "Saving..." : logo ? "Change" : "Upload"}
+        <input id="company-logo" type="file" accept="image/png,image/jpeg,image/webp,image/svg+xml" className="sr-only" onChange={(e) => pick(e.target.files?.[0])} />
+      </label>
+      {logo && (
+        <button type="button" onClick={() => save({ logoUrl: "" }, "Logo removed")} className="text-[13px] font-medium text-muted hover:text-text">
+          Remove
+        </button>
+      )}
+    </div>
   );
 }

@@ -5,7 +5,7 @@ import Link from "next/link";
 import { toast } from "sonner";
 import { ChevronRight } from "lucide-react";
 import { useApp } from "@/lib/store";
-import type { Department, Person, Team } from "@/lib/types";
+import type { Department, Group, Person, Team } from "@/lib/types";
 import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Dialog, DialogContent, Field, Input, Select, Textarea } from "@/components/ui/primitives";
@@ -305,13 +305,26 @@ export function NewGroupDialog({ open, onOpenChange }: DialogProps) {
   );
 }
 
-function NewGroupForm({ onDone }: { onDone: () => void }) {
+export function EditGroupDialog({ group, onOpenChange }: { group: Group | null; onOpenChange: (o: boolean) => void }) {
+  return (
+    <Dialog open={!!group} onOpenChange={onOpenChange}>
+      {group && (
+        <DialogContent title={`Edit ${group.name}`} description="People you add see its channel and any work sent to the group. Reporting lines don't change." wide>
+          <NewGroupForm group={group} onDone={() => onOpenChange(false)} />
+        </DialogContent>
+      )}
+    </Dialog>
+  );
+}
+
+function NewGroupForm({ onDone, group }: { onDone: () => void; group?: Group }) {
   const people = useApp((s) => s.people);
   const departments = useApp((s) => s.departments);
   const addGroup = useApp((s) => s.addGroup);
-  const [name, setName] = React.useState("");
-  const [description, setDescription] = React.useState("");
-  const [members, setMembers] = React.useState<string[]>([]);
+  const act = useApp((s) => s.act);
+  const [name, setName] = React.useState(group?.name ?? "");
+  const [description, setDescription] = React.useState(group?.description ?? "");
+  const [members, setMembers] = React.useState<string[]>(group?.memberIds ?? []);
   const toggle = (id: string, on: boolean) => setMembers((m) => (on ? [...m, id] : m.filter((x) => x !== id)));
   const staff = people.filter((p) => p.role !== "owner" && p.active !== false);
 
@@ -320,6 +333,12 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
       onSubmit={(e) => {
         e.preventDefault();
         if (!name.trim() || !members.length) return;
+        if (group) {
+          if (!act({ type: "editGroup", groupId: group.id, name: name.trim(), description: description.trim(), memberIds: members }).ok) return;
+          onDone();
+          toast.success("Group updated");
+          return;
+        }
         if (
           !addGroup({
             name: name.trim(),
@@ -379,7 +398,7 @@ function NewGroupForm({ onDone }: { onDone: () => void }) {
         </div>
       </fieldset>
 
-      <Actions onCancel={onDone} submitLabel="Create group" disabled={!name.trim() || !members.length} />
+      <Actions onCancel={onDone} submitLabel={group ? "Save group" : "Create group"} disabled={!name.trim() || !members.length} />
     </form>
   );
 }

@@ -1,8 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { Activity, Megaphone, Users, UsersRound, type LucideIcon } from "lucide-react";
-import { membersOf } from "@/lib/store";
+import { Activity, Lock, Megaphone, Users, UsersRound, type LucideIcon } from "lucide-react";
+import { channelMembersOf } from "@/lib/store";
 import type { Announcement, ChannelSpace, Department, Group, Person, Role, Team } from "@/lib/types";
 
 export interface Org {
@@ -19,14 +19,17 @@ export function channelType(c: ChannelSpace): {
 } {
   if (c.kind === "announcement") return { label: "Notices", icon: Megaphone };
   if (c.kind === "task_feed") return { label: "Task feed", icon: Activity };
+  if (c.kind === "private") return { label: "Private", icon: Lock };
   if (c.unitType === "group") return { label: "Group", icon: UsersRound };
   return { label: "Team", icon: Users };
 }
 
-const ORDER = (c: ChannelSpace) => (c.kind === "announcement" ? 0 : c.kind === "task_feed" ? 3 : c.unitType === "group" ? 2 : 1);
-export const sortChannels = (list: ChannelSpace[]) => [...list].sort((a, b) => ORDER(a) - ORDER(b));
+const ORDER = (c: ChannelSpace) => (c.kind === "announcement" ? 0 : c.kind === "private" ? 1 : c.kind === "task_feed" ? 4 : c.unitType === "group" ? 3 : 2);
+const LEVEL = { org: 0, department: 1, team: 2, group: 3 } as const;
+export const sortChannels = (list: ChannelSpace[]) =>
+  [...list].sort((a, b) => Number(!!a.archivedAt) - Number(!!b.archivedAt) || ORDER(a) - ORDER(b) || LEVEL[a.unitType] - LEVEL[b.unitType] || a.name.localeCompare(b.name));
 
-export const channelMembers = (org: Org, c: ChannelSpace) => membersOf(org, c.unitType, c.unitId);
+export const channelMembers = (org: Org, c: ChannelSpace) => channelMembersOf(org, c);
 
 /** the person who runs the unit behind a channel */
 export function channelLead(org: Org, c: ChannelSpace): string | undefined {
@@ -41,8 +44,10 @@ export function channelLead(org: Org, c: ChannelSpace): string | undefined {
  * announcement channel; any member in an open channel. Company-wide notices are owner-only.
  */
 export function canPostIn(org: Org, c: ChannelSpace, role: Role, meId: string) {
-  if (c.kind === "task_feed") return false;
+  if (c.kind === "task_feed" || c.archivedAt) return false;
+  if (c.kind === "private") return channelMembers(org, c).includes(meId);
   if (role === "owner") return true;
+  if (c.unitType === "team" && org.departments.some((d) => d.headId === meId && org.teams.some((t) => t.id === c.unitId && t.departmentId === d.id))) return true;
   const runsIt = channelLead(org, c) === meId;
   // open channels: any member posts; announcement channels: only whoever runs the unit
   if (c.kind === "open") return runsIt || channelMembers(org, c).includes(meId);
@@ -83,4 +88,19 @@ export function useMediaQuery(query: string) {
     () => window.matchMedia(query).matches,
     () => false,
   );
+}
+
+/** runs the unit behind a channel (or the company, for the owner) */
+export function runsChannel(org: Org, c: ChannelSpace, role: Role, meId: string) {
+  if (c.kind === "private") return c.createdById === meId;
+  if (role === "owner") return true;
+  if (channelLead(org, c) === meId) return true;
+  return c.unitType === "team" && org.departments.some((d) => d.headId === meId && org.teams.some((t) => t.id === c.unitId && t.departmentId === d.id));
+}
+
+/** pinning: whoever runs the unit; any member of an open or private channel */
+export function canPinIn(org: Org, c: ChannelSpace, role: Role, meId: string) {
+  if (c.kind === "task_feed" || c.archivedAt) return false;
+  if (runsChannel(org, c, role, meId)) return true;
+  return c.kind !== "announcement" && channelMembers(org, c).includes(meId);
 }

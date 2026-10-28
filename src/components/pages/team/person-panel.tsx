@@ -13,6 +13,8 @@ import { ago, cn, minutesToLabel, pct, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { StaffActions } from "./staff-dialogs";
 import { WorkPattern } from "./work-pattern";
+import { AvailabilityEditor, AvailabilityNote } from "@/components/app/availability";
+import { NotificationMatrix } from "@/components/pages/settings/notifications";
 import { Bar, Sheet, SheetClose } from "@/components/ui/primitives";
 import { SectionHeading } from "@/components/app/page-header";
 import { Avatar } from "@/components/app/avatar";
@@ -82,6 +84,7 @@ function PersonDetail({ person: p }: { person: Person }) {
               {p.onLeave && <LeaveTag />}
               {dept && <span className="text-[12.5px] text-muted">{dept.name} department</span>}
             </div>
+            <AvailabilityNote person={p} className="mt-1.5" />
           </div>
         </div>
         <div className="mt-4 flex flex-wrap gap-2">
@@ -130,7 +133,18 @@ function PersonDetail({ person: p }: { person: Person }) {
           </section>
         )}
 
+        {(p.id === meId || canManage) && p.active !== false && <AvailabilityEditor person={p} self={p.id === meId} />}
+
         <WorkPattern person={p} canEdit={role === "owner" || canManage} canEditTeams={role === "owner" || departments.some((d) => d.id === p.departmentId && d.headId === meId)} />
+
+        {canManage && p.active !== false && (
+          <details className="rounded-[var(--radius-md)] border border-line">
+            <summary className="cursor-pointer px-4 py-3 text-[14px] font-semibold text-text">Where {first}&apos;s notifications go</summary>
+            <div className="border-t border-line">
+              <NotificationMatrix personId={p.id} />
+            </div>
+          </details>
+        )}
 
         {/* today */}
         <section>

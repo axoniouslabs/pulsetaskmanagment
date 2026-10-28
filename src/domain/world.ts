@@ -136,6 +136,12 @@ export function membersOf(w: Pick<World, "people" | "teams" | "groups">, unitTyp
   return [];
 }
 
+/** who is in a channel: its invited list when private, otherwise whoever is in its unit (no list to maintain) */
+export function channelMembersOf(w: Pick<World, "people" | "teams" | "groups">, ch: Pick<ChannelSpace, "kind" | "unitType" | "unitId" | "memberIds" | "createdById">): string[] {
+  if (ch.kind === "private") return Array.from(new Set([...(ch.memberIds ?? []), ...(ch.createdById ? [ch.createdById] : [])])).filter((id) => w.people.some((p) => p.id === id && p.active !== false));
+  return membersOf(w, ch.unitType, ch.unitId);
+}
+
 /** someone who can still act on a notice: in the company and not deactivated */
 const activeId = (w: Pick<World, "people">, id: string | undefined) => (id && w.people.some((x) => x.id === id && x.active !== false) ? id : undefined);
 

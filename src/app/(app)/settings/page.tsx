@@ -8,6 +8,7 @@ import { cn, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Input, Switch } from "@/components/ui/primitives";
 import { PageHeader } from "@/components/app/page-header";
+import { BackupList } from "@/components/pages/settings/backups";
 import { Chips, NumberSetting, SettingRow, SettingsSection, intervalLabel, shortInterval, useSave } from "@/components/pages/settings/parts";
 import { CompanySettings } from "@/components/pages/settings/company";
 import { EscalationLadder } from "@/components/pages/settings/escalation";
@@ -192,6 +193,9 @@ export default function SettingsPage() {
                   <FileDown /> Download all data
                 </a>
               </Button>
+            </SettingRow>
+            <SettingRow label="Nightly backups" hint="Pulse saves a full copy every night and keeps the last two weeks. Download one if you ever need to look back.">
+              <BackupList />
             </SettingRow>
           </SettingsSection>
 

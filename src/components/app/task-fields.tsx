@@ -64,14 +64,28 @@ export function TagInput({ value, onChange, id }: { value: string[]; onChange: (
 }
 
 /* ---------------- watchers ---------------- */
-export function WatcherPicker({ value, onChange, exclude, id }: { value: string[]; onChange: (ids: string[]) => void; exclude?: string[]; id?: string }) {
+export function WatcherPicker({
+  value,
+  onChange,
+  exclude,
+  id,
+  addLabel = ["Add someone to keep in the loop", "Add another watcher"],
+  removeLabel = (n: string) => `Stop ${n} watching`,
+}: {
+  value: string[];
+  onChange: (ids: string[]) => void;
+  exclude?: string[];
+  id?: string;
+  addLabel?: [string, string];
+  removeLabel?: (name: string) => string;
+}) {
   const people = useApp((s) => s.people);
   const options = people.filter((p) => p.active !== false && !value.includes(p.id) && !exclude?.includes(p.id));
   const name = (pid: string) => people.find((p) => p.id === pid)?.name ?? "Someone";
   return (
     <div className="space-y-2">
       <Select id={id} value="" onChange={(e) => e.target.value && onChange([...value, e.target.value])}>
-        <option value="">{value.length ? "Add another watcher" : "Add someone to keep in the loop"}</option>
+        <option value="">{value.length ? addLabel[1] : addLabel[0]}</option>
         {options.map((p: Person) => (
           <option key={p.id} value={p.id}>
             {p.name}, {p.title}
@@ -87,7 +101,7 @@ export function WatcherPicker({ value, onChange, exclude, id }: { value: string[
                 type="button"
                 onClick={() => onChange(value.filter((x) => x !== pid))}
                 className="rounded-full p-0.5 text-faint hover:bg-hover hover:text-text"
-                aria-label={`Stop ${name(pid)} watching`}
+                aria-label={removeLabel(name(pid))}
               >
                 <X className="size-3" />
               </button>

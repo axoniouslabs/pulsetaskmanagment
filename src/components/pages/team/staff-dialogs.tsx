@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Check, Copy, KeyRound, Loader2, UserMinus, UserPlus, UserRoundCheck } from "lucide-react";
+import { Check, Copy, Eraser, KeyRound, Link2, Loader2, Mail, Trash2, UserMinus, UserPlus, UserRoundCheck, X } from "lucide-react";
+import { formatDistanceToNowStrict } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
 import { useApp } from "@/lib/store";
 import type { Person } from "@/lib/types";
@@ -53,18 +54,251 @@ function PasswordReveal({ name, email, password, onDone }: { name: string; email
   );
 }
 
-export function AddPersonDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
+export function AddPersonDialog({ open, onOpenChange, onInvited }: { open: boolean; onOpenChange: (o: boolean) => void; onInvited?: () => void }) {
+  const [how, setHow] = React.useState<"invite" | "create">("invite");
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      {open && <AddPersonForm onDone={() => onOpenChange(false)} />}
+      {open &&
+        (how === "invite" ? (
+          <InviteForm onDone={() => onOpenChange(false)} onInvited={onInvited} switcher={<HowSwitch how={how} setHow={setHow} />} />
+        ) : (
+          <AddPersonForm onDone={() => onOpenChange(false)} switcher={<HowSwitch how={how} setHow={setHow} />} />
+        ))}
     </Dialog>
   );
 }
 
-function AddPersonForm({ onDone }: { onDone: () => void }) {
+function HowSwitch({ how, setHow }: { how: "invite" | "create"; setHow: (h: "invite" | "create") => void }) {
+  return (
+    <Segmented
+      value={how}
+      onChange={setHow}
+      options={[
+        { value: "invite", label: "Send an invite" },
+        { value: "create", label: "Create the account myself" },
+      ]}
+      className="mb-5 w-full [&>button]:flex-1 [&>button]:justify-center"
+    />
+  );
+}
+
+function TeamSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   const teams = useApp((s) => s.teams);
   const departments = useApp((s) => s.departments);
-  const [f, setF] = React.useState({ name: "", email: "", phone: "", title: "", role: "employee" as "employee" | "manager", teamId: teams[0]?.id ?? "", workType: "desk" as "desk" | "field", capacityHours: 8 });
+  return (
+    <Select value={value} onChange={(e) => onChange(e.target.value)}>
+      <option value="">No team yet</option>
+      {departments.map((d) => (
+        <optgroup key={d.id} label={d.name}>
+          {teams
+            .filter((t) => t.departmentId === d.id)
+            .map((t) => (
+              <option key={t.id} value={t.id}>
+                {t.name}
+              </option>
+            ))}
+        </optgroup>
+      ))}
+    </Select>
+  );
+}
+
+interface MadeInvite {
+  code: string;
+  link: string;
+  email: string | null;
+  emailed: boolean;
+}
+
+/** invite by email, or make a code to hand over; they choose their own password */
+function InviteForm({ onDone, onInvited, switcher }: { onDone: () => void; onInvited?: () => void; switcher: React.ReactNode }) {
+  const teams = useApp((s) => s.teams);
+  const [f, setF] = React.useState({ email: "", title: "", role: "employee" as "employee" | "manager", teamId: teams[0]?.id ?? "", workType: "desk" as "desk" | "field" });
+  const [busy, setBusy] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
+  const [made, setMade] = React.useState<MadeInvite | null>(null);
+  const [copied, setCopied] = React.useState(false);
+  const set = (patch: Partial<typeof f>) => setF((x) => ({ ...x, ...patch }));
+
+  if (made) {
+    const text = `You're invited to join us on Pulse.\nOpen: ${made.link}\nOr enter the code ${made.code} at ${window.location.origin}/join\nThe invite works for 7 days.`;
+    return (
+      <DialogContent
+        title="Invite ready"
+        description={made.emailed ? `We emailed the link to ${made.email}. You can also share it yourself.` : "Share this link or code. They choose their own password when they open it."}
+      >
+        <div className="space-y-3 rounded-[var(--radius-md)] border border-line bg-sunken p-4 text-[14px]">
+          <p className="flex items-center gap-2">
+            <span className="text-muted">Code:</span> <span className="font-mono text-[18px] font-semibold tracking-[0.2em]">{made.code}</span>
+          </p>
+          <p className="break-all text-[13px] text-muted">{made.link}</p>
+        </div>
+        <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+          <Button
+            variant="secondary"
+            onClick={async () => {
+              try {
+                await navigator.clipboard.writeText(text);
+                setCopied(true);
+              } catch {
+                toast.error("Couldn't copy. Select the text and copy it instead.");
+              }
+            }}
+          >
+            {copied ? <Check /> : <Copy />} {copied ? "Copied" : "Copy invite"}
+          </Button>
+          <Button variant="primary" onClick={onDone}>
+            Done
+          </Button>
+        </div>
+      </DialogContent>
+    );
+  }
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/invites", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(f) });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error ?? "That didn't go through.");
+      setMade(data.invite);
+      onInvited?.();
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <DialogContent title="Add a person" description="They get a link or code, set up their own account, and land in the right team.">
+      {switcher}
+      <form onSubmit={submit} className="space-y-4">
+        <Field label="Work email (optional)" hint="We email the link when email is set up. Leave it empty to get a code you share yourself.">
+          <Input type="email" autoFocus value={f.email} onChange={(e) => set({ email: e.target.value })} placeholder="bilal@company.com" />
+        </Field>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Team">
+            <TeamSelect value={f.teamId} onChange={(teamId) => set({ teamId })} />
+          </Field>
+          <Field label="Job title (optional)">
+            <Input value={f.title} onChange={(e) => set({ title: e.target.value })} placeholder="e.g. Sales Officer" />
+          </Field>
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Role">
+            <Segmented
+              value={f.role}
+              onChange={(v) => set({ role: v })}
+              options={[
+                { value: "employee", label: "Employee" },
+                { value: "manager", label: "Manager" },
+              ]}
+              className="w-full [&>button]:flex-1 [&>button]:justify-center"
+            />
+          </Field>
+          <Field label="Works">
+            <Segmented
+              value={f.workType}
+              onChange={(v) => set({ workType: v })}
+              options={[
+                { value: "desk", label: "Desk" },
+                { value: "field", label: "Field" },
+              ]}
+              className="w-full [&>button]:flex-1 [&>button]:justify-center"
+            />
+          </Field>
+        </div>
+        {error && <p className="text-[13px] text-heat-3">{error}</p>}
+        <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
+          <Button type="button" variant="ghost" onClick={onDone}>
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary" disabled={busy}>
+            {busy ? <Loader2 className="animate-spin" /> : f.email.trim() ? <Mail /> : <Link2 />} {f.email.trim() ? "Send invite" : "Make invite code"}
+          </Button>
+        </div>
+      </form>
+    </DialogContent>
+  );
+}
+
+interface InviteRow {
+  id: string;
+  code: string;
+  email: string | null;
+  role: string;
+  teamId: string;
+  expiresAt: string;
+  usedAt: string | null;
+  revokedAt: string | null;
+}
+
+/** open invites, so the owner can see who hasn't joined and cancel what's no longer needed */
+export function PendingInvites({ refresh }: { refresh: number }) {
+  const teams = useApp((s) => s.teams);
+  const [rows, setRows] = React.useState<InviteRow[] | null>(null);
+  const [reload, setReload] = React.useState(0);
+  React.useEffect(() => {
+    let live = true;
+    fetch("/api/invites", { cache: "no-store" })
+      .then((x) => (x.ok ? x.json() : null))
+      .then((r) => live && setRows(r?.invites ?? []))
+      .catch(() => live && setRows([]));
+    return () => {
+      live = false;
+    };
+  }, [refresh, reload]);
+  const load = () => setReload((n) => n + 1);
+  const [now] = React.useState(() => Date.now());
+  const open = (rows ?? []).filter((r) => !r.usedAt && !r.revokedAt && new Date(r.expiresAt).getTime() > now);
+  if (!open.length) return null;
+  return (
+    <details className="mt-8 rounded-[var(--radius-lg)] border border-line bg-surface" open>
+      <summary className="cursor-pointer px-4 py-3 text-[14px] font-medium sm:px-5">Invites not used yet ({open.length})</summary>
+      <ul className="border-t border-line">
+        {open.map((r) => (
+          <li key={r.id} className="flex flex-wrap items-center gap-3 border-b border-line px-4 py-3 last:border-0 sm:px-5">
+            <span className="font-mono text-[14px] font-semibold tracking-[0.15em]">{r.code}</span>
+            <span className="min-w-0 flex-1 text-[13px] text-muted">
+              {r.email ?? "Anyone with the code"}, {r.role === "manager" ? "manager" : "employee"}
+              {r.teamId ? ` in ${teams.find((t) => t.id === r.teamId)?.name ?? "a team"}` : ""}. Expires in {formatDistanceToNowStrict(new Date(r.expiresAt))}.
+            </span>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                const res = await fetch(`/api/invites/${r.id}`, { method: "DELETE" });
+                if (!res.ok) toast.error((await res.json().catch(() => ({}))).error ?? "Couldn't cancel it.");
+                else {
+                  toast.success("Invite cancelled");
+                  void load();
+                }
+              }}
+            >
+              <X /> Cancel invite
+            </Button>
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+function AddPersonForm({ onDone, switcher }: { onDone: () => void; switcher: React.ReactNode }) {
+  const teams = useApp((s) => s.teams);
+  const [f, setF] = React.useState({
+    name: "",
+    email: "",
+    phone: "",
+    title: "",
+    role: "employee" as "employee" | "manager",
+    teamId: teams[0]?.id ?? "",
+    workType: "desk" as "desk" | "field",
+    capacityHours: 8,
+  });
   const [busy, setBusy] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [made, setMade] = React.useState<{ password: string } | null>(null);
@@ -88,10 +322,8 @@ function AddPersonForm({ onDone }: { onDone: () => void }) {
   };
 
   return (
-    <DialogContent
-      title="Add a person"
-      description="They get a sign-in with a temporary password, and can be assigned tasks straight away."
-    >
+    <DialogContent title="Add a person" description="They get a sign-in with a temporary password, and can be assigned tasks straight away.">
+      {switcher}
       <form onSubmit={submit} className="space-y-4">
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Full name">
@@ -108,23 +340,30 @@ function AddPersonForm({ onDone }: { onDone: () => void }) {
           </Field>
         </div>
         <Field label="Team">
-          <Select value={f.teamId} onChange={(e) => set({ teamId: e.target.value })}>
-            <option value="">No team yet</option>
-            {departments.map((d) => (
-              <optgroup key={d.id} label={d.name}>
-                {teams.filter((t) => t.departmentId === d.id).map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </Select>
+          <TeamSelect value={f.teamId} onChange={(teamId) => set({ teamId })} />
         </Field>
         <div className="grid gap-4 sm:grid-cols-3">
           <Field label="Role">
-            <Segmented value={f.role} onChange={(v) => set({ role: v })} options={[{ value: "employee", label: "Employee" }, { value: "manager", label: "Manager" }]} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
+            <Segmented
+              value={f.role}
+              onChange={(v) => set({ role: v })}
+              options={[
+                { value: "employee", label: "Employee" },
+                { value: "manager", label: "Manager" },
+              ]}
+              className="w-full [&>button]:flex-1 [&>button]:justify-center"
+            />
           </Field>
           <Field label="Works">
-            <Segmented value={f.workType} onChange={(v) => set({ workType: v })} options={[{ value: "desk", label: "Desk" }, { value: "field", label: "Field" }]} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
+            <Segmented
+              value={f.workType}
+              onChange={(v) => set({ workType: v })}
+              options={[
+                { value: "desk", label: "Desk" },
+                { value: "field", label: "Field" },
+              ]}
+              className="w-full [&>button]:flex-1 [&>button]:justify-center"
+            />
           </Field>
           <Field label="Hours a day">
             <Input type="number" min={1} max={16} value={f.capacityHours} onChange={(e) => set({ capacityHours: Number(e.target.value) || 8 })} />
@@ -132,7 +371,9 @@ function AddPersonForm({ onDone }: { onDone: () => void }) {
         </div>
         {error && <p className="text-[13px] text-heat-3">{error}</p>}
         <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:justify-end">
-          <Button type="button" variant="ghost" onClick={onDone}>Cancel</Button>
+          <Button type="button" variant="ghost" onClick={onDone}>
+            Cancel
+          </Button>
           <Button type="submit" variant="primary" disabled={busy || !f.name.trim() || !f.email.trim() || !f.title.trim()}>
             {busy ? <Loader2 className="animate-spin" /> : <UserPlus />} Add person
           </Button>
@@ -142,7 +383,7 @@ function AddPersonForm({ onDone }: { onDone: () => void }) {
   );
 }
 
-type Mode = "edit" | "reset" | "deactivate" | "reactivate";
+type Mode = "edit" | "reset" | "deactivate" | "reactivate" | "delete" | "purge";
 
 /** owner-only actions on one person */
 export function StaffActions({ person }: { person: Person }) {
@@ -152,7 +393,9 @@ export function StaffActions({ person }: { person: Person }) {
       <div className="flex flex-wrap gap-2">
         {person.active !== false ? (
           <>
-            <Button size="sm" variant="secondary" onClick={() => setMode("edit")}>Edit details</Button>
+            <Button size="sm" variant="secondary" onClick={() => setMode("edit")}>
+              Edit details
+            </Button>
             <Button size="sm" variant="secondary" onClick={() => setMode("reset")}>
               <KeyRound /> Reset password
             </Button>
@@ -161,11 +404,23 @@ export function StaffActions({ person }: { person: Person }) {
                 <UserMinus /> Deactivate
               </Button>
             )}
+            {person.role !== "owner" && (
+              <Button size="sm" variant="ghost" onClick={() => setMode("delete")}>
+                <Trash2 /> Delete
+              </Button>
+            )}
           </>
         ) : (
-          <Button size="sm" variant="primary" onClick={() => setMode("reactivate")}>
-            <UserRoundCheck /> Reactivate
-          </Button>
+          <>
+            <Button size="sm" variant="primary" onClick={() => setMode("reactivate")}>
+              <UserRoundCheck /> Reactivate
+            </Button>
+            {!person.contactPurgedAt && (
+              <Button size="sm" variant="ghost" onClick={() => setMode("purge")}>
+                <Eraser /> Wipe contact details
+              </Button>
+            )}
+          </>
         )}
       </div>
       <Dialog open={!!mode} onOpenChange={(o) => !o && setMode(null)}>
@@ -206,7 +461,9 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
     <>
       {error && <p className="mt-3 text-[13px] text-heat-3">{error}</p>}
       <div className="mt-5 flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button variant="ghost" onClick={onDone}>Cancel</Button>
+        <Button variant="ghost" onClick={onDone}>
+          Cancel
+        </Button>
         <Button variant={variant} onClick={onClick} disabled={busy || blocked}>
           {busy && <Loader2 className="animate-spin" />} {label}
         </Button>
@@ -235,11 +492,27 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
           <div className="grid gap-4 sm:grid-cols-2">
             {f.role && (
               <Field label="Role" hint="Managers can assign and review work for their team.">
-                <Segmented value={f.role} onChange={(v) => setF({ ...f, role: v })} options={[{ value: "employee", label: "Employee" }, { value: "manager", label: "Manager" }]} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
+                <Segmented
+                  value={f.role}
+                  onChange={(v) => setF({ ...f, role: v })}
+                  options={[
+                    { value: "employee", label: "Employee" },
+                    { value: "manager", label: "Manager" },
+                  ]}
+                  className="w-full [&>button]:flex-1 [&>button]:justify-center"
+                />
               </Field>
             )}
             <Field label="Works">
-              <Segmented value={f.workType} onChange={(v) => setF({ ...f, workType: v })} options={[{ value: "desk", label: "Desk" }, { value: "field", label: "Field" }]} className="w-full [&>button]:flex-1 [&>button]:justify-center" />
+              <Segmented
+                value={f.workType}
+                onChange={(v) => setF({ ...f, workType: v })}
+                options={[
+                  { value: "desk", label: "Desk" },
+                  { value: "field", label: "Field" },
+                ]}
+                className="w-full [&>button]:flex-1 [&>button]:justify-center"
+              />
             </Field>
           </div>
         </div>
@@ -259,11 +532,48 @@ function StaffDialog({ person: p, mode, onDone }: { person: Person; mode: Mode; 
       <DialogContent title={`Deactivate ${first}?`} description={`${first} can no longer sign in and stops receiving reminders. Their history and reports stay. You can reactivate them later.`}>
         {(openTasks > 0 || leads.length > 0) && (
           <div className="space-y-1 rounded-[var(--radius-md)] bg-heat-1-tint px-3.5 py-3 text-[13.5px] text-text">
-            {openTasks > 0 && <p>{first} still has {openTasks} open task{openTasks === 1 ? "" : "s"}. They move to you when you deactivate, along with any reviews, so nothing is dropped. You can hand them on from Tasks.</p>}
-            {leads.length > 0 && <p>{first} runs {leads.join(", ")}. Choose someone else in Organisation first, so escalations still reach a person.</p>}
+            {openTasks > 0 && (
+              <p>
+                {first} still has {openTasks} open task{openTasks === 1 ? "" : "s"}. They move to you when you deactivate, along with any reviews, so nothing is dropped. You can hand them on from
+                Tasks.
+              </p>
+            )}
+            {leads.length > 0 && (
+              <p>
+                {first} runs {leads.join(", ")}. Choose someone else in Organisation first, so escalations still reach a person.
+              </p>
+            )}
           </div>
         )}
         {footer("Deactivate", () => go(() => call(`/api/people/${p.id}`, "PATCH", { active: false }), `${first} deactivated`), "dangerSolid", leads.length > 0)}
+      </DialogContent>
+    );
+
+  if (mode === "delete")
+    return (
+      <DialogContent
+        title={`Delete ${first}?`}
+        description={`Only for someone added by mistake. If ${first} has been given work, checked in or done anything, Pulse keeps their record and you should deactivate them instead.`}
+      >
+        {footer("Delete for good", () => go(() => call(`/api/people/${p.id}`, "DELETE"), `${first} deleted`), "dangerSolid")}
+      </DialogContent>
+    );
+
+  if (mode === "purge")
+    return (
+      <DialogContent
+        title={`Wipe ${first}'s contact details?`}
+        description={`Their phone number and availability note are removed for good. Their name, work history and reports stay, so past records still make sense.`}
+      >
+        {footer(
+          "Wipe contact details",
+          () =>
+            go(async () => {
+              const r = useApp.getState().act({ type: "purgeContact", personId: p.id });
+              if (!r.ok) throw new Error(r.error);
+            }, "Contact details wiped"),
+          "dangerSolid",
+        )}
       </DialogContent>
     );
 

@@ -9,7 +9,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { BellRing, Check, CheckCircle2, GripVertical, LogIn, LogOut, Megaphone, MessageCircleQuestion, Pause, Play, Sparkles, CircleCheckBig, ChevronDown } from "lucide-react";
 import { PushCard, usePushState } from "@/components/app/push-card";
 import { BreakButton } from "@/components/pages/time/break-button";
-import { useApp, membersOf } from "@/lib/store";
+import { useApp, channelMembersOf } from "@/lib/store";
 import { useNow, useScope, useOrgToday } from "@/lib/hooks";
 import { NEXT_UP_SCORE, isOpenWork } from "@/lib/selectors";
 import type { Task } from "@/lib/types";
@@ -41,7 +41,7 @@ export default function TodayPage() {
   const notices = s.announcements.filter((a) => {
     if (!a.requiresAck || a.ackBy[meId] || a.authorId === meId) return false;
     const ch = s.channels.find((c) => c.id === a.channelId);
-    return !!ch && membersOf(s, ch.unitType, ch.unitId).includes(meId);
+    return !!ch && channelMembersOf(s, ch).includes(meId);
   });
   const myQuestions = s.questions.filter((q) => q.fromId === meId).slice(0, 3);
 

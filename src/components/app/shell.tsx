@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
 import { Lock, Menu as MenuIcon, Plus, Search, X } from "lucide-react";
-import { useApp, useMeId, membersOf } from "@/lib/store";
+import { useApp, useMeId, channelMembersOf } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { isOpenWork } from "@/lib/selectors";
 import { Button } from "@/components/ui/button";
@@ -61,7 +61,7 @@ function useBadges() {
       s.announcements.filter((a) => {
         if (!a.requiresAck || a.ackBy[meId] || a.authorId === meId) return false;
         const ch = s.channels.find((c) => c.id === a.channelId);
-        return !!ch && membersOf(s, ch.unitType, ch.unitId).includes(meId);
+        return !!ch && channelMembersOf(s, ch).includes(meId);
       }).length,
   );
   const today = useApp((s) => s.tasks.filter((t) => t.assigneeId === meId && t.status === "assigned").length);
@@ -240,12 +240,13 @@ function NavLink({ item, badges, onClick, group = "side" }: { item: NavItem; bad
 function Sidebar() {
   const role = useApp((s) => s.role);
   const org = useApp((s) => s.settings.name);
+  const logo = useApp((s) => s.settings.logoUrl);
   const openCreate = useApp((s) => s.openCreate);
   const badges = useBadges();
   return (
     <aside className="sticky top-0 hidden h-dvh w-[248px] shrink-0 flex-col border-r border-line bg-surface lg:flex">
       <div className="flex items-center gap-2.5 px-5 pb-4 pt-5">
-        <Logo />
+        {logo ? <img src={logo} alt="" className="size-9 shrink-0 rounded-[8px] object-contain" /> : <Logo />}
         <div className="min-w-0">
           <p className="font-display text-[17px] font-bold leading-none tracking-tight text-ink">Pulse</p>
           <p className="mt-1 truncate text-[12px] text-muted">{org}</p>

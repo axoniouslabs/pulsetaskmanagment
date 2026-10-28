@@ -6,7 +6,8 @@ import { newId } from "./ids";
 
 // Vercel functions accept request bodies up to 4.5 MB; photos are shrunk in the browser first
 export const MAX_FILE_BYTES = 4 * 1024 * 1024;
-const ALLOWED = /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf|text\/plain|text\/csv|application\/(msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|vnd\.ms-excel|zip)|audio\/(webm|ogg|mpeg|mp4))$/;
+const ALLOWED =
+  /^(image\/(jpeg|png|webp|gif|heic|heif)|application\/pdf|text\/plain|text\/csv|application\/(msword|vnd\.openxmlformats-officedocument\.(wordprocessingml\.document|spreadsheetml\.sheet|presentationml\.presentation)|vnd\.ms-excel|zip)|audio\/(webm|ogg|mpeg|mp4))$/;
 
 export function checkFile(file: File): string | null {
   if (file.size === 0) return "That file is empty.";
@@ -20,7 +21,7 @@ export function checkFile(file: File): string | null {
  * go to Blob; otherwise they're kept in Postgres. Either way the file is served
  * through /api/files/<id>, which checks the viewer belongs to the organisation.
  */
-export async function storeFile(input: { orgId: string; taskId?: string; byId: string; file: File }) {
+export async function storeFile(input: { orgId: string; taskId?: string; channelId?: string; byId: string; file: File }) {
   const id = newId("f");
   const bytes = Buffer.from(await input.file.arrayBuffer());
   const name = input.file.name.replace(/[^\w.\- ()]+/g, "_").slice(0, 120) || "file";
@@ -33,6 +34,7 @@ export async function storeFile(input: { orgId: string; taskId?: string; byId: s
     id,
     orgId: input.orgId,
     taskId: input.taskId ?? null,
+    channelId: input.channelId ?? null,
     byId: input.byId,
     name,
     contentType: input.file.type,
