@@ -61,6 +61,7 @@ export interface Department {
   headId: string;
   description: string;
   settings?: DepartmentSettings;
+  archivedAt?: string;
 }
 
 export interface Team {
@@ -68,6 +69,7 @@ export interface Team {
   name: string;
   departmentId: string;
   leadId: string;
+  archivedAt?: string;
 }
 
 export interface Group {
@@ -143,6 +145,8 @@ export interface TimeEntry {
   manual?: boolean;
   /** stopped by Pulse at the end of working hours, not by the person */
   autoStopped?: boolean;
+  /** changed by a manager afterwards: what it was, who changed it and why (0 minutes = struck out) */
+  corrected?: { fromMinutes: number; byId: string; at: string; reason: string };
   note?: string;
   /** who added a manual entry, when it wasn't the person themselves */
   byId?: string;
@@ -306,6 +310,8 @@ export interface Activity {
   kind: ActivityKind;
   taskId?: string;
   text: string;
+  /** whose record this counts against in reports: the assignee for their reminders, the reviewer for a slow review, the blocker for a block */
+  aboutId?: string;
 }
 
 export type NotificationKind =
@@ -380,6 +386,8 @@ export interface AttendanceDay {
   /** breaks taken today; an open one has no end yet */
   breaks?: { start: string; end?: string }[];
   status: "present" | "late" | "absent" | "leave" | "holiday" | "weekend";
+  /** fixed by a manager (a forgotten check-out, a wrong time): who, when and why */
+  corrected?: { byId: string; at: string; reason: string };
 }
 
 export interface Leave {
@@ -436,6 +444,8 @@ export interface OrgSettings {
   autoArchiveDays?: number;
   /** the company logo, shown in the sidebar and on the sign-in page */
   logoUrl?: string;
+  /** the owner lets managers skip review on low-priority work (spec §10, optional bypass) */
+  lowPriorityNoApproval?: boolean;
 }
 
 /** a named set of task filters, kept on the person's account so it follows them across devices */

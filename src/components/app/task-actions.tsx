@@ -32,7 +32,7 @@ import { format, addHours } from "date-fns";
 import { useShallow } from "zustand/react/shallow";
 import { useApp, useMeId } from "@/lib/store";
 import type { Task } from "@/lib/types";
-import { scopePeople } from "@/lib/selectors";
+import { committedHours, scopePeople } from "@/lib/selectors";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { uploadToTask, ACCEPT } from "@/lib/upload";
@@ -184,6 +184,11 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
       <MenuItem onSelect={() => setDialog("ask")}>
         <MessageCircleQuestion /> Ask a question
       </MenuItem>
+      {r.role === "manager" && (
+        <MenuItem onSelect={() => setDialog("reassign")}>
+          <UserRoundCog /> Hand down to someone in my team
+        </MenuItem>
+      )}
       <MenuItem onSelect={() => setDialog("request")}>
         <CalendarClock /> Ask for more time
       </MenuItem>
@@ -406,7 +411,9 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
   const people = React.useMemo(() => everyone.filter((p) => p.active !== false), [everyone]);
   // hand-over targets: the owner may pick anyone; a manager only people in their scope
   const scopeIds = useApp(useShallow((s) => (s.role === "owner" ? null : scopePeople(s, s.role, meId).map((p) => p.id))));
-  const handoverTargets = React.useMemo(() => people.filter((p) => !scopeIds || scopeIds.includes(p.id)), [people, scopeIds]);
+  const handoverTargets = React.useMemo(() => people.filter((p) => (!scopeIds || scopeIds.includes(p.id)) && p.role !== "owner"), [people, scopeIds]);
+  const allTasks = useApp((s) => s.tasks);
+  const nowMs = React.useMemo(() => new Date(), []);
   const askable = React.useMemo(() => people.filter((p) => p.id !== meId && p.role !== "employee"), [people, meId]);
   const [text, setText] = React.useState("");
   const [when, setWhen] = React.useState(() => toLocalInput(addHours(new Date(Math.max(Date.now(), new Date(task.dueAt).getTime())), 24).toISOString()));
@@ -625,6 +632,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
                         <span className="block text-[14px] font-medium">{p.name}</span>
                         <span className="block text-[12.5px] text-muted">{p.onLeave ? "On leave today" : p.title}</span>
                       </span>
+                      <LoadPill hours={committedHours(allTasks, p.id, nowMs)} capacity={p.capacityHours} />
                       {person === p.id && <Check className="size-4 text-ink" />}
                     </button>
                   ))}
@@ -789,5 +797,18 @@ function ProgressDialog({ task, onClose }: { task: Task; onClose: () => void }) 
         </Button>
       </div>
     </DialogContent>
+  );
+}
+
+/** today's committed hours against the person's day, so nobody gets an impossible load (spec §6 workload guardrail) */
+export function LoadPill({ hours, capacity }: { hours: number; capacity: number }) {
+  const pct = capacity ? Math.round((hours / capacity) * 100) : 0;
+  return (
+    <span
+      className={cn("tabular shrink-0 rounded-full px-2 py-0.5 text-[12px] font-medium", pct > 100 ? "bg-heat-3-tint text-heat-3" : pct >= 80 ? "bg-heat-1-tint text-heat-1" : "bg-sunken text-muted")}
+      title={`${Math.round(hours * 10) / 10}h committed of ${capacity}h today`}
+    >
+      {Math.round(hours * 10) / 10}/{capacity}h
+    </span>
   );
 }

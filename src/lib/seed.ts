@@ -37,6 +37,10 @@ export interface DailyStat {
   waitHours: number;
   workHours: number;
   blockedHours: number;
+  reworkHours?: number;
+  reviewsDone?: number;
+  reviewGivenHours?: number;
+  blockingHours?: number;
 }
 
 export interface SeedData {
@@ -1188,6 +1192,8 @@ export function createSeed(realNow = new Date()): SeedData {
     },
   ];
   // every unit has its own channels, as it would if it had been created in the app
+  for (const d of departments)
+    channels.push({ id: `cn_${d.id}`, name: `${d.name} notices`, kind: "announcement", unitType: "department", unitId: d.id, description: `Notices for everyone in ${d.name}` });
   for (const d of departments)
     if (!channels.some((c) => c.unitId === d.id && c.kind === "task_feed"))
       channels.push({ id: `cf_${d.id}`, name: `${d.name} task feed`, kind: "task_feed", unitType: "department", unitId: d.id, description: `Every task event in ${d.name}, posted by Pulse` });

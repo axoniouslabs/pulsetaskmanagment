@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { toast } from "sonner";
-import { Loader2, LogOut } from "lucide-react";
+import { FileDown, Loader2, LogOut } from "lucide-react";
 import { changeMyPassword } from "./actions";
 import { useApp, useMe } from "@/lib/store";
 import { Button } from "@/components/ui/button";
@@ -91,6 +91,19 @@ export function AccountSettings() {
       </div>
       <MyAvailability />
       <MyTimeZone />
+      <div className="mb-5 flex flex-col gap-2 border-b border-line pb-5 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0">
+          <p className="text-[14px] font-medium text-text">Your record</p>
+          <p className="text-[12.5px] text-muted">
+            Everything Pulse holds about you: your tasks, every reminder and escalation, attendance and your stats. Nothing measured about you is hidden from you.
+          </p>
+        </div>
+        <Button asChild variant="secondary" className="shrink-0">
+          <a href="/api/me/record" download>
+            <FileDown /> Download my record
+          </a>
+        </Button>
+      </div>
       <p className="text-[13.5px] text-muted">
         Signed in as <span className="font-medium text-text">{me?.email}</span>
       </p>

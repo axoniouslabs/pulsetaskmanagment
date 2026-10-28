@@ -254,6 +254,8 @@ export const departments = pgTable(
     headId: text().notNull(),
     description: text().notNull().default(""),
     settings: jsonb().$type<DepartmentSettings>(),
+    /** wound up: kept for history, gone from the structure */
+    archivedAt: ts(),
   },
   (t) => [index().on(t.orgId)],
 );
@@ -266,6 +268,7 @@ export const teams = pgTable(
     departmentId: text().notNull(),
     name: text().notNull(),
     leadId: text().notNull(),
+    archivedAt: ts(),
   },
   (t) => [index().on(t.orgId)],
 );
@@ -379,6 +382,8 @@ export const activity = pgTable(
     kind: text().notNull(),
     taskId: text(),
     text: text().notNull(),
+    /** whose record this counts against (assignee, reviewer or blocker) */
+    aboutId: text(),
   },
   (t) => [index().on(t.orgId, t.at), index().on(t.taskId)],
 );
@@ -496,6 +501,7 @@ export const attendance = pgTable(
     breakMin: integer().notNull().default(0),
     breaks: jsonb().$type<{ start: string; end?: string }[]>().notNull().default([]),
     status: text().notNull(),
+    corrected: jsonb().$type<{ byId: string; at: string; reason: string }>(),
   },
   (t) => [uniqueIndex().on(t.personId, t.date), index().on(t.orgId, t.date)],
 );
@@ -538,6 +544,13 @@ export const dailyStats = pgTable(
     waitHours: doublePrecision().notNull().default(0),
     workHours: doublePrecision().notNull().default(0),
     blockedHours: doublePrecision().notNull().default(0),
+    /** work redone after being sent back, separate from the first pass */
+    reworkHours: doublePrecision().notNull().default(0),
+    /** as a reviewer: decisions made, and the average wait before each */
+    reviewsDone: integer().notNull().default(0),
+    reviewGivenHours: doublePrecision().notNull().default(0),
+    /** other people's time spent blocked waiting on this person */
+    blockingHours: doublePrecision().notNull().default(0),
   },
   (t) => [uniqueIndex().on(t.personId, t.date), index().on(t.orgId, t.date)],
 );

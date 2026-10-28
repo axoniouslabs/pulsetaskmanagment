@@ -9,7 +9,7 @@ import { Avatar } from "@/components/app/avatar";
 import { Bar, Menu, MenuContent, MenuItem, MenuTrigger } from "@/components/ui/primitives";
 import { METRICS, hoursLabel, type MetricKey, type PersonRow } from "./metrics";
 
-type SortKey = "name" | MetricKey | "volume" | "cycle" | "accuracy";
+type SortKey = "name" | MetricKey | "volume" | "cycle" | "accuracy" | "reviewSpeed" | "blocking";
 
 const COLS: { key: SortKey; label: string; className?: string }[] = [
   { key: "name", label: "Person", className: "text-left pl-4 sm:pl-5" },
@@ -22,6 +22,8 @@ const COLS: { key: SortKey; label: string; className?: string }[] = [
   { key: "escalations", label: "Escalations" },
   { key: "cycle", label: "Typical cycle" },
   { key: "accuracy", label: "Time vs estimate" },
+  { key: "reviewSpeed", label: "Reviews" },
+  { key: "blocking", label: "Others blocked" },
 ];
 
 const def = (k: MetricKey) => METRICS.find((m) => m.key === k)!;
@@ -31,6 +33,8 @@ export function valueOf(r: PersonRow, k: SortKey): number | string {
   if (k === "volume") return r.rates.volume;
   if (k === "cycle") return r.rates.cycle ?? Infinity;
   if (k === "accuracy") return r.rates.accuracy === null ? Infinity : Math.abs(r.rates.accuracy - 100);
+  if (k === "reviewSpeed") return r.rates.reviewSpeed ?? Infinity;
+  if (k === "blocking") return r.rates.blocking;
   return r.rates[k] ?? -1;
 }
 
@@ -61,7 +65,7 @@ export function PeopleTable({
   return (
     <div className="overflow-hidden rounded-[var(--radius-lg)] border border-line bg-surface">
       <div className="thin-scrollbar relative overflow-x-auto">
-        <table className="w-full min-w-[1040px] border-collapse text-[13.5px]">
+        <table className="w-full min-w-[1240px] border-collapse text-[13.5px]">
           <thead>
             <tr className="border-b border-line bg-hover">
               {COLS.map((c) => {
@@ -137,7 +141,10 @@ export function PeopleTable({
                   <td className="tabular px-3 py-2.5 text-right">{def("firstReminder").format(r.rates.firstReminder)}</td>
                   <td className={cn("tabular px-3 py-2.5 text-right", highRework && "font-medium text-heat-2")}>{def("rework").format(r.rates.rework)}</td>
                   <td className={cn("tabular px-3 py-2.5 text-right", r.rates.escalations >= 4 && "font-medium text-heat-3")}>{r.rates.escalations}</td>
-                  <td className="tabular px-3 py-2.5 text-right" title="Average time from assignment to approval">
+                  <td
+                    className="tabular px-3 py-2.5 text-right"
+                    title="Their own part: assignment to submission, including rework. Time blocked by others and waiting for review isn't counted against them."
+                  >
                     {r.rates.cycle === null ? "–" : hoursLabel(r.rates.cycle)}
                   </td>
                   <td
@@ -145,6 +152,15 @@ export function PeopleTable({
                     title="Hours actually worked against the estimate. 100% is spot on; above 100% took longer."
                   >
                     {r.rates.accuracy === null ? "–" : `${Math.round(r.rates.accuracy)}%`}
+                  </td>
+                  <td
+                    className={cn("tabular px-3 py-2.5 text-right", r.rates.reviewSpeed !== null && r.rates.reviewSpeed > 24 && "font-medium text-heat-2")}
+                    title="As a reviewer: decisions made, and how long work waited for each"
+                  >
+                    {r.rates.reviewsDone ? `${r.rates.reviewsDone}, ${hoursLabel(r.rates.reviewSpeed ?? 0)} wait` : "–"}
+                  </td>
+                  <td className={cn("tabular px-3 py-2.5 text-right", r.rates.blocking >= 8 && "font-medium text-heat-2")} title="Hours other people spent blocked, waiting on them">
+                    {r.rates.blocking ? hoursLabel(r.rates.blocking) : "–"}
                   </td>
                   <td className="pr-2 text-right print:hidden" onClick={(e) => e.stopPropagation()}>
                     <Menu>

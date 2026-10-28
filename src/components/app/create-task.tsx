@@ -8,6 +8,7 @@ import { membersOf, useApp, useMeId } from "@/lib/store";
 import type { Priority, RepeatRule } from "@/lib/types";
 import { ruleOf } from "@/domain/repeat";
 import { RepeatEditor } from "./repeat-editor";
+import { approvalOptional } from "@/domain/world";
 import { committedHours, scopePeople } from "@/lib/selectors";
 import { parseQuickAdd } from "@/lib/quickadd";
 import { cn, plural } from "@/lib/utils";
@@ -68,6 +69,8 @@ function CreateTaskForm() {
     toLocal(setTime(new Date(), { hours: 17, minutes: 0 }) < new Date() ? setTime(addDays(new Date(), 1), { hours: 17, minutes: 0 }) : setTime(new Date(), { hours: 17, minutes: 0 })),
   );
   const [priority, setPriority] = React.useState<Priority>(defaults?.priority ?? "normal");
+  // review can be skipped only for low-priority work, by the owner or managers the owner allows (spec §10)
+  const canSkipReview = !s.settings.approvalByDefault || approvalOptional(s, meId, priority);
   const [interval, setIntervalMin] = React.useState(defaults?.reminder?.intervalMin ?? s.settings.defaultReminder.intervalMin);
   const [workingOnly, setWorkingOnly] = React.useState((defaults?.reminder?.window ?? "working") === "working");
   const [dailyCap, setDailyCap] = React.useState(defaults?.reminder?.dailyCap ?? s.settings.defaultReminder.dailyCap);
@@ -86,7 +89,9 @@ function CreateTaskForm() {
   const [projectId, setProjectId] = React.useState(defaults?.projectId ?? "");
   const [estimate, setEstimate] = React.useState(String(defaults?.estimateHours ?? 1));
   const [startAt, setStartAt] = React.useState("");
-  const [repeat, setRepeat] = React.useState<RepeatRule | null>(() => (defaults?.repeat ?? (defaults?.recurrence ? (ruleOf({ recurrence: defaults.recurrence, dueAt: new Date().toISOString() }) ?? null) : null)));
+  const [repeat, setRepeat] = React.useState<RepeatRule | null>(
+    () => defaults?.repeat ?? (defaults?.recurrence ? (ruleOf({ recurrence: defaults.recurrence, dueAt: new Date().toISOString() }) ?? null) : null),
+  );
   const [touched, setTouched] = React.useState(false);
   const [mode, setMode] = React.useState<"one" | "many" | "unit">("one");
   const [many, setMany] = React.useState<string[]>([]);
@@ -241,7 +246,7 @@ function CreateTaskForm() {
       startAt: startDate ? startDate.toISOString() : undefined,
       estimateHours: Number(estimate) || 1,
       projectId: projectId || undefined,
-      requiresApproval: approval,
+      requiresApproval: approval || !canSkipReview,
       requiresProof: proof,
       requiresResult: result,
       reminder: {
@@ -557,55 +562,60 @@ function CreateTaskForm() {
           </Field>
         </div>
 
-        {/* reminder rule */}
-        <div className="rounded-[var(--radius-md)] border border-line p-4">
-          <p className="text-[13px] font-medium">Remind {selected ? selected.name.split(" ")[0] : "them"} every</p>
-          <div className="mt-2.5 flex flex-wrap gap-1.5">
-            {INTERVALS.map((i) => (
-              <button
-                key={i.v}
-                type="button"
-                onClick={() => setIntervalMin(i.v)}
-                className={cn(
-                  "h-8 rounded-full border px-3 text-[13px] transition-colors",
-                  interval === i.v ? "border-ink bg-ink text-white" : "border-line text-muted hover:border-ink/40 hover:text-text",
-                )}
-              >
-                {i.l}
-              </button>
-            ))}
-          </div>
-          <label className="mt-3.5 flex items-center justify-between gap-3 text-[13.5px]">
-            <span>
-              Only during working hours
-              <span className="block text-[12px] text-muted">Their own hours, skipping days off, holidays and leave</span>
-            </span>
-            <Switch checked={workingOnly} onCheckedChange={setWorkingOnly} />
-          </label>
-          <details className="mt-3 border-t border-line pt-3">
-            <summary className="cursor-pointer text-[13px] font-medium text-ink">More reminder options: custom time, daily limit, where they go</summary>
-            <div className="mt-3">
-              <ReminderFields
-                idPrefix="new-rem"
-                value={{ intervalMin: interval, window: workingOnly ? "working" : "always", dailyCap, quietAfterAckMin: quietAfter, channels }}
-                onChange={(r) => {
-                  setIntervalMin(r.intervalMin);
-                  setWorkingOnly(r.window === "working");
-                  setDailyCap(r.dailyCap);
-                  setQuietAfter(r.quietAfterAckMin);
-                  setChannels(r.channels);
-                }}
-              />
+        {/* reminder rule: managers set it; an employee's own task follows the company's rule (spec §17) */}
+        {s.role === "employee" ? (
+          <p className="rounded-[var(--radius-md)] border border-line px-4 py-3 text-[13px] text-muted">Reminders follow your company&apos;s usual rule for this kind of task.</p>
+        ) : (
+          <div className="rounded-[var(--radius-md)] border border-line p-4">
+            <p className="text-[13px] font-medium">Remind {selected ? selected.name.split(" ")[0] : "them"} every</p>
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              {INTERVALS.map((i) => (
+                <button
+                  key={i.v}
+                  type="button"
+                  onClick={() => setIntervalMin(i.v)}
+                  className={cn(
+                    "h-8 rounded-full border px-3 text-[13px] transition-colors",
+                    interval === i.v ? "border-ink bg-ink text-white" : "border-line text-muted hover:border-ink/40 hover:text-text",
+                  )}
+                >
+                  {i.l}
+                </button>
+              ))}
             </div>
-          </details>
-        </div>
+            <label className="mt-3.5 flex items-center justify-between gap-3 text-[13.5px]">
+              <span>
+                Only during working hours
+                <span className="block text-[12px] text-muted">Their own hours, skipping days off, holidays and leave</span>
+              </span>
+              <Switch checked={workingOnly} onCheckedChange={setWorkingOnly} />
+            </label>
+            <details className="mt-3 border-t border-line pt-3">
+              <summary className="cursor-pointer text-[13px] font-medium text-ink">More reminder options: custom time, daily limit, where they go</summary>
+              <div className="mt-3">
+                <ReminderFields
+                  idPrefix="new-rem"
+                  value={{ intervalMin: interval, window: workingOnly ? "working" : "always", dailyCap, quietAfterAckMin: quietAfter, channels }}
+                  onChange={(r) => {
+                    setIntervalMin(r.intervalMin);
+                    setWorkingOnly(r.window === "working");
+                    setDailyCap(r.dailyCap);
+                    setQuietAfter(r.quietAfterAckMin);
+                    setChannels(r.channels);
+                  }}
+                />
+              </div>
+            </details>
+          </div>
+        )}
 
         <div className="grid gap-2 sm:grid-cols-3">
           <Toggle
             icon={CheckCircle2}
             label="Needs approval"
-            sub="A reviewer closes it"
-            checked={approval}
+            sub={canSkipReview ? "A reviewer closes it" : priority === "low" ? "Always reviewed: ask the owner to allow skipping" : "Always reviewed at this priority"}
+            checked={approval || !canSkipReview}
+            disabled={!canSkipReview}
             onChange={(v) => {
               approvalTouched.current = true;
               setApproval(v);
@@ -783,14 +793,32 @@ function Chip({ children }: { children: React.ReactNode }) {
   return <span className="rounded-full bg-surface px-2 py-0.5 font-medium text-ink ring-1 ring-ink/15">{children}</span>;
 }
 
-function Toggle({ icon: Icon, label, sub, checked, onChange }: { icon: React.ElementType; label: string; sub: string; checked: boolean; onChange: (v: boolean) => void }) {
+function Toggle({
+  icon: Icon,
+  label,
+  sub,
+  checked,
+  onChange,
+  disabled,
+}: {
+  icon: React.ElementType;
+  label: string;
+  sub: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       role="switch"
       aria-checked={checked}
+      disabled={disabled}
       onClick={() => onChange(!checked)}
-      className={cn("flex items-start gap-2.5 rounded-[var(--radius-md)] border p-3 text-left transition-colors", checked ? "border-ink bg-ink-tint" : "border-line hover:border-ink/30")}
+      className={cn(
+        "flex items-start gap-2.5 rounded-[var(--radius-md)] border p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-70",
+        checked ? "border-ink bg-ink-tint" : "border-line hover:border-ink/30",
+      )}
     >
       <Icon className={cn("mt-0.5 size-4 shrink-0", checked ? "text-ink" : "text-faint")} />
       <span>

@@ -93,7 +93,7 @@ export function ChannelDetail({ channel, org, onBack }: { channel: ChannelSpace;
               </Button>
             )}
             {isMember && channel.kind !== "task_feed" && <MuteButton channel={channel} />}
-            {runs && channel.kind !== "task_feed" && <ChannelMenu channel={channel} />}
+            {runs && <ChannelMenu channel={channel} />}
           </div>
         </div>
         <p className="mt-4 flex items-start gap-2 border-t border-line pt-3.5 text-[13px] leading-snug text-muted">

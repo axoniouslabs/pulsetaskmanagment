@@ -30,6 +30,10 @@ export interface Totals {
   waitHours: number;
   workHours: number;
   blockedHours: number;
+  reworkHours: number;
+  reviewsDone: number;
+  reviewGivenWeighted: number; // sum of reviewGivenHours × reviewsDone
+  blockingHours: number;
   days: number;
 }
 
@@ -41,8 +45,13 @@ export interface Rates {
   rework: number | null;
   escalations: number;
   volume: number; // weighted volume: estimated hours of work assigned
-  /** average hours from assignment to approval, for approved work */
+  /** average hours from assignment to submission for approved work, not counting time blocked by others or waiting for review */
   cycle: number | null;
+  /** as a reviewer: average hours work waited for their decision */
+  reviewSpeed: number | null;
+  reviewsDone: number;
+  /** hours other people spent blocked waiting on them */
+  blocking: number;
   /** actual hours as a share of the estimate (100 = spot on, above 100 = took longer) */
   accuracy: number | null;
 }
@@ -65,6 +74,10 @@ export const emptyTotals = (): Totals => ({
   waitHours: 0,
   workHours: 0,
   blockedHours: 0,
+  reworkHours: 0,
+  reviewsDone: 0,
+  reviewGivenWeighted: 0,
+  blockingHours: 0,
   days: 0,
 });
 
@@ -86,6 +99,10 @@ export function sumRows(rows: DailyStat[]): Totals {
     t.waitHours += r.waitHours ?? 0;
     t.workHours += r.workHours ?? 0;
     t.blockedHours += r.blockedHours ?? 0;
+    t.reworkHours += r.reworkHours ?? 0;
+    t.reviewsDone += r.reviewsDone ?? 0;
+    t.reviewGivenWeighted += (r.reviewGivenHours ?? 0) * (r.reviewsDone ?? 0);
+    t.blockingHours += r.blockingHours ?? 0;
     t.days += 1;
   }
   return t;
@@ -108,8 +125,11 @@ export function ratesOf(t: Totals): Rates {
     rework: ratio(t.rejections, t.submissions),
     escalations: t.escalations,
     volume: t.estHours,
-    // waiting to start + working + blocked, per approved task, plus the average wait for review
-    cycle: t.approved ? (t.waitHours + t.workHours + t.blockedHours) / t.approved + (t.submissions ? t.reviewWeighted / t.submissions : 0) : null,
+    // their own part only: waiting to start, working and reworking. Time blocked counts against the blocker, review waits against the reviewer (spec §10, §15)
+    cycle: t.approved ? (t.waitHours + t.workHours + t.reworkHours) / t.approved : null,
+    reviewSpeed: t.reviewsDone ? t.reviewGivenWeighted / t.reviewsDone : null,
+    reviewsDone: t.reviewsDone,
+    blocking: t.blockingHours,
     accuracy: t.estHours > 0 && t.actualHours > 0 ? (t.actualHours / t.estHours) * 100 : null,
   };
 }
@@ -231,7 +251,7 @@ export function judge(def: MetricDef, cur: number | null, prev: number | null) {
 export function timeSplit(t: Totals) {
   const tasks = Math.max(1, t.approved);
   const waiting = t.waitHours / tasks;
-  const working = t.workHours / tasks;
+  const working = (t.workHours + t.reworkHours) / tasks;
   const review = t.submissions ? t.reviewWeighted / Math.max(1, t.submissions) : 0;
   const blocked = t.blockedHours / tasks;
   const parts = [

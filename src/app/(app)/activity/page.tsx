@@ -20,7 +20,28 @@ const PAGE = 50;
 export default function ActivityPage() {
   const now = useNow(60000);
   const { role, meId, people, tasks, allPeople, allTasks } = useScope();
-  const activity = useApp((s) => s.activity);
+  const recent = useApp((s) => s.activity);
+  const retentionMonths = useApp((s) => s.settings.retentionMonths);
+  // older history, fetched a page at a time from the server
+  const [older, setOlder] = React.useState<Activity[]>([]);
+  const [more, setMore] = React.useState(true);
+  const [loadingOlder, setLoadingOlder] = React.useState(false);
+  const activity = React.useMemo(() => {
+    const seen = new Set(recent.map((a) => a.id));
+    return [...recent, ...older.filter((a) => !seen.has(a.id))];
+  }, [recent, older]);
+  const loadOlder = async () => {
+    const oldest = activity.reduce((m, a) => (a.at < m ? a.at : m), new Date().toISOString());
+    setLoadingOlder(true);
+    const r = await fetch(`/api/history?before=${encodeURIComponent(oldest)}`, { cache: "no-store" })
+      .then((x) => (x.ok ? x.json() : null))
+      .catch(() => null);
+    setLoadingOlder(false);
+    if (!r) return;
+    setOlder((o) => [...o, ...(r.items as Activity[])]);
+    setMore(!!r.more);
+    setRange("all");
+  };
 
   const [range, setRange] = React.useState<DateRange>("week");
   const [person, setPerson] = React.useState("all");
@@ -34,7 +55,7 @@ export default function ActivityPage() {
   /* only what this viewer may see */
   const scoped = React.useMemo(() => {
     if (role === "owner") return activity;
-    if (role === "employee") return activity.filter((a) => a.actorId === meId || (a.taskId && taskById.get(a.taskId)?.assigneeId === meId));
+    if (role === "employee") return activity.filter((a) => a.actorId === meId || a.aboutId === meId || (a.taskId && taskById.get(a.taskId)?.assigneeId === meId));
     const ids = new Set(people.map((p) => p.id));
     const taskIds = new Set(tasks.map((t) => t.id));
     return activity.filter((a) => a.actorId === meId || ids.has(a.actorId) || (a.taskId && taskIds.has(a.taskId)));
@@ -51,7 +72,8 @@ export default function ActivityPage() {
       if (t < from || t >= to) return false;
       if (person !== "all" && a.actorId !== person && !(a.taskId && taskById.get(a.taskId)?.assigneeId === person)) return false;
       if (q) {
-        const hay = `${a.text} ${a.actorId === "system" ? "Pulse" : personById.get(a.actorId)?.name ?? ""} ${a.taskId ? taskById.get(a.taskId)?.title ?? "" : ""} ${KIND_LABEL[a.kind]}`.toLowerCase();
+        const hay =
+          `${a.text} ${a.actorId === "system" ? "Pulse" : (personById.get(a.actorId)?.name ?? "")} ${a.taskId ? (taskById.get(a.taskId)?.title ?? "") : ""} ${KIND_LABEL[a.kind]}`.toLowerCase();
         if (!hay.includes(q)) return false;
       }
       return true;
@@ -90,10 +112,12 @@ export default function ActivityPage() {
     return { reminders: n("reminder_sent"), acks: n("acknowledged"), escalations: n("escalated"), approved: n("approved"), total: t.length };
   }, [scoped]);
 
-  const reset = <T,>(set: (v: T) => void) => (v: T) => {
-    set(v);
-    setVisible(PAGE);
-  };
+  const reset =
+    <T,>(set: (v: T) => void) =>
+    (v: T) => {
+      set(v);
+      setVisible(PAGE);
+    };
   const toggleGroup = (g: EventGroup) => {
     setGroups((gs) => (gs.includes(g) ? gs.filter((x) => x !== g) : [...gs, g]));
     setVisible(PAGE);
@@ -117,9 +141,9 @@ export default function ActivityPage() {
       ["When", "Who", "Event", "Task", "Details"],
       filtered.map((a) => [
         format(new Date(a.at), "yyyy-MM-dd HH:mm"),
-        a.actorId === "system" ? "Pulse" : personById.get(a.actorId)?.name ?? "Someone",
+        a.actorId === "system" ? "Pulse" : (personById.get(a.actorId)?.name ?? "Someone"),
         KIND_LABEL[a.kind],
-        a.taskId ? taskById.get(a.taskId)?.title ?? "" : "",
+        a.taskId ? (taskById.get(a.taskId)?.title ?? "") : "",
         a.text,
       ]),
     );
@@ -137,9 +161,7 @@ export default function ActivityPage() {
           <span className="flex items-start gap-1.5">
             <Lock className="mt-[3px] size-3.5 shrink-0 text-ink" />
             <span>
-              {isEmployee
-                ? "Everything that happened on your tasks, and everything you did. "
-                : ""}
+              {isEmployee ? "Everything that happened on your tasks, and everything you did. " : ""}
               Every event is recorded here. Nobody can edit or delete it, including the owner.
             </span>
           </span>
@@ -158,8 +180,7 @@ export default function ActivityPage() {
           "nothing recorded yet."
         ) : (
           <>
-            <span className="tabular text-text">{plural(todayStats.reminders, "reminder")}</span> sent,{" "}
-            <span className="tabular text-text">{todayStats.acks}</span> acknowledged,{" "}
+            <span className="tabular text-text">{plural(todayStats.reminders, "reminder")}</span> sent, <span className="tabular text-text">{todayStats.acks}</span> acknowledged,{" "}
             <span className={cn("tabular", todayStats.escalations ? "font-medium text-heat-2" : "text-text")}>{plural(todayStats.escalations, "escalation")}</span>
             {todayStats.approved ? (
               <>
@@ -201,7 +222,12 @@ export default function ActivityPage() {
               <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-faint" />
               <Input value={query} onChange={(e) => reset(setQuery)(e.target.value)} placeholder="Search events or tasks" className="h-9 pl-9 pr-8" aria-label="Search the log" />
               {query && (
-                <button type="button" onClick={() => reset(setQuery)("")} className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-faint hover:text-text" aria-label="Clear search">
+                <button
+                  type="button"
+                  onClick={() => reset(setQuery)("")}
+                  className="absolute right-1 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded text-faint hover:text-text"
+                  aria-label="Clear search"
+                >
                   <X className="size-3.5" />
                 </button>
               )}
@@ -283,7 +309,18 @@ export default function ActivityPage() {
               <Button onClick={() => setVisible((v) => v + PAGE)}>Show {Math.min(PAGE, filtered.length - visible)} more</Button>
             </div>
           )}
-          {visible >= filtered.length && filtered.length > PAGE && <p className="pt-4 text-center text-[13px] text-faint">That&apos;s everything for these filters.</p>}
+          {visible >= filtered.length && (
+            <div className="flex flex-col items-center gap-2 pt-4">
+              {more ? (
+                <Button onClick={loadOlder} disabled={loadingOlder}>
+                  {loadingOlder ? "Loading…" : "Load older history"}
+                </Button>
+              ) : (
+                <p className="text-center text-[13px] text-faint">That&apos;s the whole record.</p>
+              )}
+              <p className="text-center text-[12.5px] text-faint">The log is kept {retentionMonths} months and nobody can edit it.</p>
+            </div>
+          )}
         </div>
       )}
     </div>

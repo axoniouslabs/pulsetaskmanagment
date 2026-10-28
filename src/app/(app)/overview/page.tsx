@@ -36,10 +36,12 @@ export default function OverviewPage() {
         .filter((r) => r.tasks.length > 0),
     [people, tasks, state, today],
   );
+  // level 4 sits at the very top of the owner's screen (spec §15)
+  const unresponsive = React.useMemo(() => a.overdue.filter((t) => t.escalationLevel >= 4), [a.overdue]);
   // overdue work, one group per person, the person with the most first (spec §11)
   const overdueBy = React.useMemo(() => {
     const by = new Map<string, Task[]>();
-    for (const t of a.overdue) by.set(t.assigneeId, [...(by.get(t.assigneeId) ?? []), t]);
+    for (const t of a.overdue) if (t.escalationLevel < 4) by.set(t.assigneeId, [...(by.get(t.assigneeId) ?? []), t]);
     return [...by.entries()].sort((x, y) => y[1].length - x[1].length).map(([id, list]) => ({ person: allPeople.find((p) => p.id === id), tasks: list }));
   }, [a.overdue, allPeople]);
   const open = tasks.filter(isOpenWork);
@@ -126,8 +128,20 @@ export default function OverviewPage() {
         )}
 
         <div className="mt-8 space-y-8">
-          {a.overdue.length > 0 && (
-            <Block title="Overdue" count={a.overdue.length} tone={4} note={overdueBy.length > 1 ? `Grouped by person, most overdue work first.` : undefined}>
+          {unresponsive.length > 0 && (
+            <Block
+              title="No response, past the deadline"
+              count={unresponsive.length}
+              tone={4}
+              note="Level 4: well past the deadline and nothing from them since. You, their head and their lead have been told."
+            >
+              {unresponsive.map((t) => (
+                <TaskRow key={t.id} task={t} reason={reasonFor(t, "overdue")} showStatus={false} showActions />
+              ))}
+            </Block>
+          )}
+          {a.overdue.length > unresponsive.length && (
+            <Block title="Overdue" count={a.overdue.length - unresponsive.length} tone={4} note={overdueBy.length > 1 ? `Grouped by person, most overdue work first.` : undefined}>
               {overdueBy.map(({ person, tasks: list }) => (
                 <React.Fragment key={person?.id ?? "unknown"}>
                   {overdueBy.length > 1 && (

@@ -86,13 +86,16 @@ export function attention(s: AppState, tasks: Task[], people: Person[], now = ne
 export function committedHours(tasks: Task[], personId: string, day = new Date()) {
   const end = new Date(day);
   end.setHours(23, 59, 59, 999);
-  return tasks
-    .filter((t) => t.assigneeId === personId && isOpenWork(t) && new Date(t.startAt ?? t.createdAt) <= end && new Date(t.dueAt) >= new Date(day.toDateString()))
-    .reduce((sum, t) => {
-      const days = Math.max(1, Math.ceil((new Date(t.dueAt).getTime() - Date.now()) / 86400000));
-      const remaining = Math.max(0.25, t.estimateHours - t.loggedMinutes / 60);
-      return sum + remaining / days;
-    }, 0);
+  return (
+    tasks
+      // overdue work is still owed, all of it today
+      .filter((t) => t.assigneeId === personId && isOpenWork(t) && new Date(t.startAt ?? t.createdAt) <= end)
+      .reduce((sum, t) => {
+        const days = Math.max(1, Math.ceil((new Date(t.dueAt).getTime() - day.getTime()) / 86400000));
+        const remaining = Math.max(0.25, t.estimateHours - t.loggedMinutes / 60);
+        return sum + remaining / days;
+      }, 0)
+  );
 }
 
 export const byId = <T extends { id: string }>(list: T[]) => Object.fromEntries(list.map((x) => [x.id, x])) as Record<string, T>;

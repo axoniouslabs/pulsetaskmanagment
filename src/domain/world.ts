@@ -136,6 +136,17 @@ export function membersOf(w: Pick<World, "people" | "teams" | "groups">, unitTyp
   return [];
 }
 
+/**
+ * May this task skip review? Only low-priority work, and only when the owner
+ * sets it or has allowed managers to (spec §3, §10). A company or department
+ * default of "no approval" is itself the owner's or head's decision.
+ */
+export function approvalOptional(w: Pick<World, "settings" | "people">, actorId: string, priority: string) {
+  const role = w.people.find((p) => p.id === actorId)?.role;
+  if (priority !== "low") return false;
+  return role === "owner" || (role === "manager" && !!w.settings.lowPriorityNoApproval);
+}
+
 /** who is in a channel: its invited list when private, otherwise whoever is in its unit (no list to maintain) */
 export function channelMembersOf(w: Pick<World, "people" | "teams" | "groups">, ch: Pick<ChannelSpace, "kind" | "unitType" | "unitId" | "memberIds" | "createdById">): string[] {
   if (ch.kind === "private") return Array.from(new Set([...(ch.memberIds ?? []), ...(ch.createdById ? [ch.createdById] : [])])).filter((id) => w.people.some((p) => p.id === id && p.active !== false));

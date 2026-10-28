@@ -181,6 +181,13 @@ export default function SettingsPage() {
             >
               <Switch id="approval-default" checked={settings.approvalByDefault} onCheckedChange={(v) => save({ approvalByDefault: v })} />
             </SettingRow>
+            <SettingRow
+              htmlFor="approval-bypass"
+              label="Managers may skip review on low-priority work"
+              hint="Off: only you can mark a task as needing no review, and only when it's low priority. Normal, high and urgent work is always reviewed."
+            >
+              <Switch id="approval-bypass" checked={!!settings.lowPriorityNoApproval} onCheckedChange={(v) => save({ lowPriorityNoApproval: v })} />
+            </SettingRow>
           </SettingsSection>
 
           <SettingsSection id="digests" title="Reports & digests" description="Summaries sent to everyone, on working days only.">

@@ -27,7 +27,7 @@ import type {
   TaskTemplate,
   WorkSchedule,
 } from "@/lib/types";
-import { backupFor, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
+import { approvalOptional, backupFor, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
 import { endOfWorkingDay, isAway, localDate, localNowFor, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
 
 export interface NewTaskInput {
@@ -146,6 +146,12 @@ export type Command =
   | { type: "escalateReview"; taskId: string; note: string }
   | { type: "addLink"; taskId: string; url: string; title?: string }
   | { type: "addTimeEntry"; taskId: string; minutes: number; date: string; note: string }
+  /** a manager fixes a time entry; 0 minutes strikes it out. The original stays on record */
+  | { type: "correctTimeEntry"; taskId: string; entryId: string; minutes: number; reason: string }
+  /** a manager fixes a day's check-in or check-out (times are HH:mm in the person's time zone; "" clears) */
+  | { type: "correctAttendance"; personId: string; date: string; checkIn?: string; checkOut?: string; reason: string }
+  /** a manager records leave for someone (sick, annual, casual), approved as it's entered */
+  | { type: "recordLeave"; personId: string; from: string; to: string; leaveType: "sick" | "annual" | "casual"; note: string }
   | { type: "editComment"; taskId: string; commentId: string; body: string }
   | { type: "routeTask"; taskId: string; toId: string }
   | { type: "startBreak" }
@@ -199,6 +205,8 @@ export type Command =
   | { type: "setAvailability"; personId: string; note: string; until?: string }
   | { type: "purgeContact"; personId: string }
   | { type: "setTeamMember"; teamId: string; personId: string; member: boolean }
+  | { type: "archiveTeam"; teamId: string }
+  | { type: "archiveDepartment"; departmentId: string }
   | { type: "setDayOrder"; ids: string[] }
   | { type: "setSavedViews"; views: StoredView[] };
 
@@ -232,6 +240,15 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
   const tz = w.settings.timezone || "Asia/Karachi";
   const fmt = (iso: string | Date, pattern: string) => format(new TZDate(new Date(iso), tz), pattern);
   const first = (id: string) => w.people.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
+  const actorRole = w.people.find((p) => p.id === me)?.role;
+  /** review can be skipped only where the rules allow it; an employee never skips it */
+  const approvalFor = (asked: boolean | undefined, byDefault: boolean, priority: string) => {
+    if (asked === undefined || asked) return asked ?? byDefault;
+    if (!byDefault) return false;
+    if (approvalOptional(w, me, priority)) return false;
+    if (actorRole === "employee") return true;
+    return fail(w.settings.lowPriorityNoApproval || actorRole === "owner" ? "Only low-priority work can skip review." : "Only the owner can let work skip review. Ask them, or keep approval on.");
+  };
   /** people named in a post: @everyone or @channel, a group's name, or a person's first or full name */
   const mentioned = (text: string, members: string[]) => {
     const out = new Set<string>();
@@ -270,7 +287,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       });
   };
 
-  const log = (kind: ActivityKind, text: string, taskId?: string, actorId?: string) =>
+  const log = (kind: ActivityKind, text: string, taskId?: string, actorId?: string, aboutId?: string) =>
     acts.push({
       id: ctx.uid("act"),
       at: nowIso,
@@ -278,6 +295,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       kind,
       text,
       taskId,
+      ...(aboutId ? { aboutId } : {}),
     });
   const note = (recipientId: string, kind: NotificationKind, title: string, body: string, taskId?: string, opts: { self?: boolean } = {}) => {
     if (recipientId === me && !opts.self) return;
@@ -321,7 +339,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     for (const d of w.tasks) {
       if (!d.dependsOn?.includes(done.id) || ["approved", "cancelled", "draft"].includes(d.status)) continue;
       const stillWaiting = d.dependsOn.some((id) => id !== done.id && !["approved", "cancelled"].includes(w.tasks.find((x) => x.id === id)?.status ?? "approved"));
-      if (!stillWaiting) note(d.assigneeId, "unblocked", "You can start now", `"${done.title}" is done, so ${d.title} is ready.`, d.id);
+      if (!stillWaiting) note(d.assigneeId, "unblocked", "You can start now", `"${done.title}" is ${done.status === "cancelled" ? "cancelled" : "done"}, so ${d.title} is ready.`, d.id);
     }
   };
 
@@ -414,10 +432,11 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         startAt: input.startAt,
         dueAt: input.dueAt,
         estimateHours: input.estimateHours ?? 1,
-        requiresApproval: input.requiresApproval ?? depRules?.approvalByDefault ?? w.settings.approvalByDefault,
+        requiresApproval: approvalFor(input.requiresApproval, depRules?.approvalByDefault ?? w.settings.approvalByDefault, input.priority),
         requiresProof: input.requiresProof ?? false,
         requiresResult: input.requiresResult ?? false,
-        reminder: { ...w.settings.defaultReminder, ...depRules?.defaultReminder, ...input.reminder },
+        // reminder rules are set by managers; an employee's own task follows the defaults (spec §17)
+        reminder: { ...w.settings.defaultReminder, ...depRules?.defaultReminder, ...(actorRole === "employee" ? {} : input.reminder) },
         remindersSent: 0,
         remindersIgnored: 0,
         escalationLevel: 0,
@@ -494,7 +513,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (p.projectId !== undefined) t.projectId = p.projectId || undefined;
       if (p.tags) t.tags = p.tags;
       if (p.startAt !== undefined) t.startAt = p.startAt || undefined;
-      if (p.requiresApproval !== undefined) t.requiresApproval = p.requiresApproval;
+      if (p.requiresApproval !== undefined) t.requiresApproval = approvalFor(p.requiresApproval, true, p.priority ?? t.priority);
       if (p.requiresProof !== undefined) t.requiresProof = p.requiresProof;
       if (p.requiresResult !== undefined) t.requiresResult = p.requiresResult;
       if (p.reminder) {
@@ -664,7 +683,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
         escalationLevel: 0,
         remindersIgnored: 0,
       });
-      log("blocked", `Blocked: ${reason}`, t.id);
+      // the time blocked counts against whoever it's waiting on, not the assignee (spec §15)
+      log("blocked", `Blocked: ${reason}`, t.id, undefined, owner);
       for (const r of Array.from(new Set([t.reviewerId, owner]))) {
         note(r, "blocked", `${first(t.assigneeId)} is blocked${r === owner ? " and waiting on you" : ""}`, `${t.title}: ${reason}`, t.id);
       }
@@ -767,6 +787,8 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (w.timers[t.assigneeId]?.taskId === t.id) stopTimerFor(t.assigneeId);
       log("cancelled", `Cancelled: ${reason}`, t.id);
       note(t.assigneeId, "deadline", "A task was cancelled", `${t.title}: ${reason}`, t.id);
+      // anything that was waiting for it can go ahead
+      releaseDependents(t);
       break;
     }
 
@@ -946,7 +968,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       const up = headOf(w, me) ?? ownerOf(w);
       if (!up || up === me) fail("There's nobody above you to pass this to. Approve it or send it back.");
       set(t, { reviewerId: up!, escalationLevel: Math.max(t.escalationLevel, 2) as HeatLevel });
-      log("escalated", `${first(me)} passed the review up to ${first(up!)}: ${why}`, t.id);
+      log("escalated", `${first(me)} passed the review up to ${first(up!)}: ${why}`, t.id, undefined, me);
       note(up!, "escalation", `${first(me)} needs you to review this`, `${t.title}: ${why}`, t.id);
       note(t.assigneeId, "deadline", `Your work went to ${first(up!)} for review`, why, t.id);
       break;
@@ -998,6 +1020,65 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       break;
     }
 
+    case "correctTimeEntry": {
+      const t = task(cmd.taskId);
+      const e = t.timeEntries?.find((x) => x.id === cmd.entryId) ?? fail("That time entry no longer exists.");
+      const reason = cmd.reason.trim() || fail("Say why it's being changed. It's kept with the entry.");
+      const minutes = Math.round(cmd.minutes);
+      if (!Number.isFinite(minutes) || minutes < 0 || minutes > 16 * 60) fail("Enter between 0 and 16 hours.");
+      if (minutes === e.minutes) fail("That's the same as before.");
+      const label = (m: number) => (m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`);
+      e.corrected = { fromMinutes: e.corrected?.fromMinutes ?? e.minutes, byId: me, at: nowIso, reason };
+      t.loggedMinutes = Math.max(0, t.loggedMinutes - e.minutes + minutes);
+      log(
+        "timer",
+        minutes ? `Corrected ${first(e.personId)}'s time from ${label(e.minutes)} to ${label(minutes)}: ${reason}` : `Struck out ${first(e.personId)}'s ${label(e.minutes)} entry: ${reason}`,
+        t.id,
+      );
+      e.minutes = minutes;
+      if (e.personId !== me) note(e.personId, "deadline", `${first(me)} corrected your time`, `${t.title}: ${reason}`, t.id);
+      break;
+    }
+    case "correctAttendance": {
+      const p = w.people.find((x) => x.id === cmd.personId) ?? fail("That person no longer exists.");
+      const reason = cmd.reason.trim() || fail("Say why it's being changed. It's kept with the day.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cmd.date) || cmd.date > localDate(now, tz)) fail("Pick a day that has already started.");
+      const sc = scheduleFor(w, p.id);
+      const at = (hm?: string) => (hm ? new TZDate(`${cmd.date}T${hm}:00`, sc.timezone).toISOString() : undefined);
+      let rec = w.attendance.find((a) => a.personId === p.id && a.date === cmd.date);
+      if (!rec) {
+        rec = { personId: p.id, date: cmd.date, breakMin: 0, status: "present" };
+        w.attendance.push(rec);
+      }
+      const before = `${rec.checkIn ? fmt(rec.checkIn, "h:mm a") : "no check-in"}${rec.checkOut ? ` to ${fmt(rec.checkOut, "h:mm a")}` : ""}`;
+      if (cmd.checkIn !== undefined) rec.checkIn = at(cmd.checkIn);
+      if (cmd.checkOut !== undefined) rec.checkOut = at(cmd.checkOut);
+      if (rec.checkIn && rec.checkOut && rec.checkOut <= rec.checkIn) fail("Check-out must be after check-in.");
+      if (rec.checkIn) {
+        const late = new Date(rec.checkIn).getTime() - new Date(at(sc.workStart)!).getTime() > 15 * 60000;
+        if (rec.status === "absent" || rec.status === "present" || rec.status === "late") rec.status = late ? "late" : "present";
+      } else if (rec.status === "present" || rec.status === "late") rec.status = "absent";
+      rec.corrected = { byId: me, at: nowIso, reason };
+      const after = `${rec.checkIn ? fmt(rec.checkIn, "h:mm a") : "no check-in"}${rec.checkOut ? ` to ${fmt(rec.checkOut, "h:mm a")}` : ""}`;
+      log("check_in", `Corrected ${first(p.id)}'s attendance for ${cmd.date}: ${before} → ${after} (${reason})`);
+      note(p.id, "deadline", `${first(me)} corrected your attendance`, `${cmd.date}: ${after}. ${reason}`);
+      break;
+    }
+    case "recordLeave": {
+      const p = w.people.find((x) => x.id === cmd.personId && x.active !== false) ?? fail("That person is no longer in the company.");
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(cmd.from) || !/^\d{4}-\d{2}-\d{2}$/.test(cmd.to) || cmd.to < cmd.from) fail("Pick the first and last day of the leave.");
+      if (w.leaves.some((l) => l.personId === p.id && l.status !== "declined" && l.from <= cmd.to && l.to >= cmd.from)) fail(`${first(p.id)} already has leave on some of those days.`);
+      w.leaves.push({ id: ctx.uid("lv"), personId: p.id, from: cmd.from, to: cmd.to, type: cmd.leaveType, status: "approved", note: cmd.note.trim() || undefined });
+      const today = localDate(now, tz);
+      if (cmd.from <= today && cmd.to >= today) p.onLeave = true;
+      const cover = backupFor(w, p.id);
+      log(
+        "reminders_paused",
+        `Recorded ${first(p.id)}'s ${cmd.leaveType} leave, ${cmd.from}${cmd.to !== cmd.from ? ` to ${cmd.to}` : ""}. Reminders pause and new work goes to ${cover ? first(cover) : "their lead"}.`,
+      );
+      note(p.id, "deadline", `${first(me)} recorded your leave`, `${cmd.leaveType} leave, ${cmd.from}${cmd.to !== cmd.from ? ` to ${cmd.to}` : ""}. Reminders pause on those days.`, undefined);
+      break;
+    }
     case "editComment": {
       const t = task(cmd.taskId);
       const c = t.comments.find((x) => x.id === cmd.commentId) ?? fail("That comment no longer exists.");
@@ -1228,8 +1309,13 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
 
     /* ---------------- organisation & settings ---------------- */
     case "updateSettings": {
+      // every change is on the record with what it was before (spec §12, audit trail)
+      const show = (v: unknown) => (v === undefined ? "unset" : typeof v === "string" && v.startsWith("data:") ? "an image" : JSON.stringify(v));
+      const diffs = (Object.keys(cmd.patch) as (keyof typeof cmd.patch)[])
+        .filter((k) => JSON.stringify(w.settings[k]) !== JSON.stringify(cmd.patch[k]))
+        .map((k) => `${k}: ${show(w.settings[k])} → ${show(cmd.patch[k])}`);
       w.settings = { ...w.settings, ...cmd.patch };
-      log("created", `Changed settings: ${Object.keys(cmd.patch).join(", ")}`);
+      if (diffs.length) log("security", `Changed company settings. ${diffs.join("; ")}`.slice(0, 1800));
       break;
     }
     case "addHoliday": {
@@ -1260,7 +1346,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (head.role === "employee") head.role = "manager";
       head.departmentId = id;
       head.teamId = "";
-      unitChannels("department", id, name, "", ["open", "task_feed"]);
+      unitChannels("department", id, name, "", ["announcement", "open", "task_feed"]);
       log("created", `Created the ${name} department`);
       break;
     }
@@ -1542,6 +1628,29 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       log("security", `Wiped ${first(p.id)}'s personal contact details. Their work history stays.`);
       break;
     }
+    case "archiveTeam": {
+      const team = w.teams.find((t) => t.id === cmd.teamId) ?? fail("That team no longer exists.");
+      const inIt = w.people.filter((p) => p.active !== false && (p.teamId === team.id || p.secondaryTeamIds?.includes(team.id)) && p.id !== team.leadId);
+      if (inIt.length) fail(`${inIt.length === 1 ? `${first(inIt[0].id)} is` : `${inIt.length} people are`} still in ${team.name}. Move them to another team first.`);
+      const lead = w.people.find((p) => p.id === team.leadId);
+      if (lead && lead.teamId === team.id) lead.teamId = "";
+      team.archivedAt = nowIso;
+      for (const ch of w.channels) if (ch.unitType === "team" && ch.unitId === team.id) ch.archivedAt = nowIso;
+      log("created", `Wound up the ${team.name} team. Its channel and history stay readable.`);
+      break;
+    }
+    case "archiveDepartment": {
+      const d = w.departments.find((x) => x.id === cmd.departmentId) ?? fail("That department no longer exists.");
+      if (w.teams.some((t) => t.departmentId === d.id && !t.archivedAt)) fail(`${d.name} still has teams. Wind those up or move them first.`);
+      const inIt = w.people.filter((p) => p.active !== false && p.departmentId === d.id && p.id !== d.headId);
+      if (inIt.length) fail(`${inIt.length === 1 ? `${first(inIt[0].id)} is` : `${inIt.length} people are`} still in ${d.name}. Move them first.`);
+      const head = w.people.find((p) => p.id === d.headId);
+      if (head && head.departmentId === d.id) head.departmentId = "";
+      d.archivedAt = nowIso;
+      for (const ch of w.channels) if (ch.unitType === "department" && ch.unitId === d.id) ch.archivedAt = nowIso;
+      log("created", `Wound up the ${d.name} department. Its channels and history stay readable.`);
+      break;
+    }
     case "setTeamMember": {
       const team = w.teams.find((t) => t.id === cmd.teamId) ?? fail("That team no longer exists.");
       const p = w.people.find((x) => x.id === cmd.personId && x.active !== false) ?? fail("That person is no longer in the company.");
@@ -1598,6 +1707,31 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
     if (!a.taskId || a.actorId === "system") continue;
     const t = w.tasks.find((x) => x.id === a.taskId);
     if (t?.idleFlaggedAt) t.idleFlaggedAt = undefined;
+  }
+  // watchers see what happens to the task, without being responsible for it (spec §6)
+  const WATCHED: Partial<Record<ActivityKind, NotificationKind>> = {
+    submitted: "submitted",
+    approved: "approved",
+    rejected: "rejected",
+    blocked: "blocked",
+    unblocked: "unblocked",
+    deadline_changed: "deadline",
+    reassigned: "assigned",
+    cancelled: "deadline",
+    commented: "mention",
+  };
+  const told = new Set<string>();
+  for (const a of acts) {
+    const kind = a.taskId ? WATCHED[a.kind] : undefined;
+    const t = kind && w.tasks.find((x) => x.id === a.taskId);
+    if (!t || !kind) continue;
+    for (const id of t.watcherIds ?? []) {
+      const key = `${id}:${t.id}`;
+      // once per command, and not for people already told about this task just now
+      if (id === me || told.has(key) || notes.some((n) => n.recipientId === id && n.taskId === t.id)) continue;
+      told.add(key);
+      note(id, kind, `${t.title}`, `${first(a.actorId === "system" ? t.assigneeId : a.actorId)}: ${a.text}`.slice(0, 240), t.id);
+    }
   }
   w.activity = [...acts.reverse(), ...w.activity];
   w.notifications = [...notes, ...w.notifications];

@@ -146,7 +146,7 @@ describe("escalation ladder", () => {
         .filter((n) => n.kind === "escalation")
         .map((n) => n.recipientId)
         .sort(),
-    ).toEqual(["p_hina", "p_kamran", "p_usman"]);
+    ).toEqual(["p_hina", "p_kamran", "p_owner", "p_usman"]); // the owner hears at level 3 (spec §16)
   });
 
   it("silence a day past the deadline goes to the owner (level 4)", () => {

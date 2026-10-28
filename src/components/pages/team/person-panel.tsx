@@ -13,6 +13,7 @@ import { ago, cn, minutesToLabel, pct, plural } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { StaffActions } from "./staff-dialogs";
 import { WorkPattern } from "./work-pattern";
+import { PersonTimeTools } from "./time-tools";
 import { AvailabilityEditor, AvailabilityNote } from "@/components/app/availability";
 import { NotificationMatrix } from "@/components/pages/settings/notifications";
 import { Bar, Sheet, SheetClose } from "@/components/ui/primitives";
@@ -128,10 +129,11 @@ function PersonDetail({ person: p }: { person: Person }) {
               </p>
             </div>
             <Button size="sm" variant={p.onLeave ? "primary" : "secondary"} onClick={toggleLeave}>
-              {p.onLeave ? "Back from leave" : "Mark on leave"}
+              {p.onLeave ? "Back from leave" : "Away today"}
             </Button>
           </section>
         )}
+        {canManage && p.active !== false && <PersonTimeTools person={p} />}
 
         {(p.id === meId || canManage) && p.active !== false && <AvailabilityEditor person={p} self={p.id === meId} />}
 

@@ -191,10 +191,20 @@ export async function updatePerson(orgId: string, actorId: string, personId: str
         .set({ assigneeId: actorId })
         .where(and(open, eq(S.tasks.assigneeId, personId)))
         .returning({ id: S.tasks.id });
-      await tx
+      const reviews = await tx
         .update(S.tasks)
         .set({ reviewerId: actorId })
-        .where(and(open, eq(S.tasks.reviewerId, personId)));
+        .where(and(open, eq(S.tasks.reviewerId, personId)))
+        .returning({ id: S.tasks.id });
+      // no state change is silent: each task's own history records the hand-over (spec §4)
+      const [by] = await tx.select({ name: S.people.name }).from(S.people).where(eq(S.people.id, actorId));
+      const who = p.name.split(" ")[0];
+      const to = by?.name.split(" ")[0] ?? "the owner";
+      const at = new Date();
+      for (const t of handed)
+        await tx.insert(S.activity).values({ id: newId("act"), orgId, at, actorId, kind: "reassigned", taskId: t.id, text: `Handed over from ${who} to ${to}: ${who} was deactivated` });
+      for (const t of reviews)
+        await tx.insert(S.activity).values({ id: newId("act"), orgId, at, actorId, kind: "reassigned", taskId: t.id, text: `Review moved from ${who} to ${to}: ${who} was deactivated` });
       await tx
         .update(S.questions)
         .set({ toId: actorId })
@@ -204,7 +214,12 @@ export async function updatePerson(orgId: string, actorId: string, personId: str
     } else if (patch.active === true && !p.active) {
       await tx.insert(S.activity).values(log(orgId, actorId, `Reactivated ${p.name}`));
     } else if (Object.keys(set).length) {
-      await tx.insert(S.activity).values(log(orgId, actorId, `Updated ${p.name}'s details`));
+      // the record shows what changed, from what to what (spec §12)
+      const was = p as unknown as Record<string, unknown>;
+      const changes = Object.entries(set)
+        .filter(([k, v]) => k !== "initials" && was[k] !== v)
+        .map(([k, v]) => `${k}: ${JSON.stringify(was[k])} → ${JSON.stringify(v)}`);
+      await tx.insert(S.activity).values({ ...log(orgId, actorId, `Updated ${p.name}'s details${changes.length ? `. ${changes.join("; ")}` : ""}`), kind: "security" });
     }
   });
 }

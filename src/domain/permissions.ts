@@ -31,7 +31,10 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
   const managerOf = (taskId: string, what: string): Decision => {
     const t = task(taskId);
     if (!t) return deny("That task no longer exists.");
-    return isOwner || manages(t.assigneeId) || t.createdById === actorId ? allow : deny(`You can't ${what} for someone outside your team.`);
+    // an employee's own tasks are still their manager's to cancel, re-date or re-rule (spec §17: request only)
+    return isOwner || manages(t.assigneeId) || (t.createdById === actorId && me.role !== "employee")
+      ? allow
+      : deny(me.role === "employee" ? `Ask your manager to ${what}. You can request a new deadline from the task.` : `You can't ${what} for someone outside your team.`);
   };
 
   /** runs the unit behind a channel: the head of its department (or of the team's department), the team's lead, the group's owner */
@@ -85,6 +88,12 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       if (cmd.type === "editGroup" && cmd.memberIds && !cmd.memberIds.every((id) => person(id))) return deny("Pick group members who are still in the company.");
       return allow;
     }
+    case "archiveTeam": {
+      const team = w.teams.find((t) => t.id === cmd.teamId);
+      return team && headsDept(team.departmentId) ? allow : deny("Only the owner or the head of its department can wind up a team.");
+    }
+    case "archiveDepartment":
+      return isOwner ? allow : deny("Only the owner can wind up a department.");
     case "setAvailability":
       return cmd.personId === actorId || manages(cmd.personId) ? allow : deny("Only they, their manager or the owner can set their availability.");
     case "purgeContact":
@@ -149,6 +158,19 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       if (!t) return deny("That task no longer exists.");
       return t.assigneeId === actorId || manages(t.assigneeId) ? allow : deny("Only the assignee or their manager can add time to this task.");
     }
+    case "correctTimeEntry": {
+      const t = task(cmd.taskId);
+      if (!t) return deny("That task no longer exists.");
+      const e = t.timeEntries?.find((x) => x.id === cmd.entryId);
+      if (!e) return deny("That time entry no longer exists.");
+      // nobody corrects their own hours; their manager or the owner does (spec §17)
+      return e.personId !== actorId && manages(e.personId) ? allow : deny("Only their manager or the owner can correct someone's time.");
+    }
+    case "correctAttendance":
+    case "recordLeave":
+      return cmd.personId !== actorId && manages(cmd.personId)
+        ? allow
+        : deny(cmd.type === "recordLeave" ? "Ask your manager for leave from Time & attendance." : "Only their manager or the owner can correct attendance.");
     case "editComment": {
       const t = task(cmd.taskId);
       if (!t) return deny("That task no longer exists.");
@@ -191,6 +213,9 @@ export function authorize(w: World, actorId: string, cmd: Command): Decision {
       return tpl.createdById === actorId || isOwner ? allow : deny("Only the person who made this template can delete it.");
     }
     case "reassign": {
+      // delegation: a lead or head hands their own task down to someone they manage, and stays as a watcher (spec §6)
+      const own = task(cmd.taskId);
+      if (own && own.assigneeId === actorId && me.role === "manager" && manages(cmd.toId) && person(cmd.toId)) return allow;
       const allowed = managerOf(cmd.taskId, "hand over tasks");
       if (!allowed.ok) return allowed;
       if (!person(cmd.toId)) return deny("Pick someone who is still in the company.");

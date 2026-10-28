@@ -28,11 +28,7 @@ function summarise(r: PersonRow, team: Rates, ackBase: number | null) {
   const strong = (r.rates.completion ?? 0) >= (team.completion ?? 0) && (r.rates.onTime ?? 0) >= (team.onTime ?? 0);
   const weak = (r.rates.onTime ?? 100) < 70 || t.escalations >= 4;
   out.push(
-    strong
-      ? "Overall, above the team average on both completion and punctuality."
-      : weak
-        ? "Overall, deadlines and responsiveness are the areas to discuss."
-        : "Overall, close to the team average.",
+    strong ? "Overall, above the team average on both completion and punctuality." : weak ? "Overall, deadlines and responsiveness are the areas to discuss." : "Overall, close to the team average.",
   );
   return out;
 }
@@ -112,7 +108,10 @@ export function AppraisalDialog({
             ))}
           </div>
           <p className="mt-3 text-[12.5px] text-muted">
-            Typical cycle per task: about {hoursLabel(timeSplit(row.totals).total)} from assignment to approval. Blocked time counts against the blocker, not {row.person.name.split(" ")[0]}.
+            Their own part of each task: about {hoursLabel(row.rates.cycle ?? 0)} from assignment to submission, rework included. Time blocked by others ({hoursLabel(row.totals.blockedHours)} in
+            total) and waiting for review count against the blocker and the reviewer, not {row.person.name.split(" ")[0]}.
+            {row.rates.reviewsDone ? ` As a reviewer: ${row.rates.reviewsDone} decisions, work waited about ${hoursLabel(row.rates.reviewSpeed ?? 0)} for each.` : ""}
+            {row.rates.blocking ? ` Others spent ${hoursLabel(row.rates.blocking)} blocked waiting on ${row.person.name.split(" ")[0]}.` : ""}
           </p>
 
           <div className="mt-6 flex justify-end gap-2 print:hidden">

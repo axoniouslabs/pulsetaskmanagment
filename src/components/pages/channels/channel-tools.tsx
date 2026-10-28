@@ -52,7 +52,8 @@ export function ChannelMenu({ channel }: { channel: ChannelSpace }) {
           </MenuItem>
           {channel.unitType !== "org" || channel.kind === "private" ? (
             <MenuItem onSelect={archive}>
-              {channel.archivedAt ? <ArchiveRestore /> : <Archive />} {channel.archivedAt ? "Restore channel" : "Archive channel"}
+              {channel.archivedAt ? <ArchiveRestore /> : <Archive />}{" "}
+              {channel.kind === "task_feed" ? (channel.archivedAt ? "Turn the task feed back on" : "Turn off the task feed") : channel.archivedAt ? "Restore channel" : "Archive channel"}
             </MenuItem>
           ) : null}
         </MenuContent>

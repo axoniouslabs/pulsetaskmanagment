@@ -87,6 +87,8 @@ function DepartmentPanel({
   meId: string;
 }) {
   const heads = isOwner || d.headId === meId;
+  const act = useApp((s) => s.act);
+  const windUp = (cmd: Parameters<typeof act>[0], done: string) => act(cmd).ok && toast.success(done, { description: "Its channels and history stay readable." });
   const rules = departmentRulesSummary(d);
   const head = people.find((p) => p.id === d.headId);
   const members = people.filter((p) => p.departmentId === d.id);
@@ -119,6 +121,11 @@ function DepartmentPanel({
             {isOwner && (
               <Button size="sm" variant="ghost" onClick={onChangeHead}>
                 <UserRound /> Change head
+              </Button>
+            )}
+            {isOwner && teams.length === 0 && members.length <= 1 && (
+              <Button size="sm" variant="ghost" onClick={() => windUp({ type: "archiveDepartment", departmentId: d.id }, `${d.name} wound up`)}>
+                <Archive /> Wind up
               </Button>
             )}
             <Button size="sm" onClick={onAddTeam}>
@@ -234,6 +241,11 @@ function TeamRow({
               {heads && (
                 <Button size="sm" variant="ghost" onClick={onChangeLead}>
                   <UserRound /> Change lead
+                </Button>
+              )}
+              {heads && also.length === 0 && members.every((m) => m.id === team.leadId) && (
+                <Button size="sm" variant="ghost" onClick={() => act({ type: "archiveTeam", teamId: team.id }).ok && toast.success(`${team.name} wound up`)}>
+                  <Archive /> Wind up team
                 </Button>
               )}
             </li>

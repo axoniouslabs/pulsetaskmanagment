@@ -177,6 +177,7 @@ const settingsPatch = z
     retentionMonths: z.number().int().min(12).max(120),
     idleDays: z.number().int().min(1).max(60),
     autoArchiveDays: z.number().int().min(1).max(365),
+    lowPriorityNoApproval: z.boolean(),
     // a small image, resized in the browser before it is sent
     logoUrl: z.union([
       z.literal(""),
@@ -283,6 +284,16 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("escalateReview"), taskId: id, note: text(500) }),
   z.object({ type: z.literal("addLink"), taskId: id, url: text(1000), title: text(200).optional() }),
   z.object({ type: z.literal("addTimeEntry"), taskId: id, minutes: z.number().int().min(1).max(960), date: day, note: text(500) }),
+  z.object({ type: z.literal("correctTimeEntry"), taskId: id, entryId: id, minutes: z.number().int().min(0).max(960), reason: text(300) }),
+  z.object({
+    type: z.literal("correctAttendance"),
+    personId: id,
+    date: day,
+    checkIn: z.union([z.literal(""), z.string().regex(/^\d{2}:\d{2}$/)]).optional(),
+    checkOut: z.union([z.literal(""), z.string().regex(/^\d{2}:\d{2}$/)]).optional(),
+    reason: text(300),
+  }),
+  z.object({ type: z.literal("recordLeave"), personId: id, from: day, to: day, leaveType: z.enum(["sick", "annual", "casual"]), note: text(300) }),
   z.object({ type: z.literal("editComment"), taskId: id, commentId: id, body: text(4000) }),
   z.object({ type: z.literal("routeTask"), taskId: id, toId: id }),
   z.object({ type: z.literal("startBreak") }),
@@ -373,7 +384,10 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("archiveGroup"), groupId: id, archived: z.boolean() }),
   z.object({
     type: z.literal("addChannel"),
-    id: z.string().regex(/^ch_[a-z0-9]{6,30}$/).optional(),
+    id: z
+      .string()
+      .regex(/^ch_[a-z0-9]{6,30}$/)
+      .optional(),
     name: text(80),
     kind: z.enum(["open", "announcement", "private"]),
     unitType: z.enum(["org", "department", "team", "group"]),
@@ -388,6 +402,8 @@ const schema = z.discriminatedUnion("type", [
   z.object({ type: z.literal("replyNotice"), id, body: text(2000) }),
   z.object({ type: z.literal("setAvailability"), personId: id, note: text(120), until: iso.optional() }),
   z.object({ type: z.literal("purgeContact"), personId: id }),
+  z.object({ type: z.literal("archiveTeam"), teamId: id }),
+  z.object({ type: z.literal("archiveDepartment"), departmentId: id }),
   z.object({ type: z.literal("setTeamMember"), teamId: id, personId: id, member: z.boolean() }),
   z.object({
     type: z.literal("setSavedViews"),

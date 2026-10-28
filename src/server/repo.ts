@@ -43,6 +43,8 @@ const DATE_FIELDS: Record<string, string[]> = {
   attendance: ["checkIn", "checkOut"],
   groups: ["archivedAt"],
   channels: ["archivedAt"],
+  departments: ["archivedAt"],
+  teams: ["archivedAt"],
   devices: ["lastSeen"],
 };
 
@@ -144,8 +146,9 @@ export async function loadWorld(c: Conn, orgId: string, opts: LoadOptions = {}):
     if (r.savedViews?.length) w.savedViews[r.id] = r.savedViews;
     return p;
   });
-  w.departments = deps.map((r) => fromRow(r, ["orgId"]));
-  w.teams = teams.map((r) => fromRow(r, ["orgId"]));
+  // wound-up departments and teams leave the structure; their channels and history stay
+  w.departments = deps.filter((r) => !r.archivedAt).map((r) => fromRow(r, ["orgId"]));
+  w.teams = teams.filter((r) => !r.archivedAt).map((r) => fromRow(r, ["orgId"]));
   // archived groups stay, so their channel and history remain readable
   w.groups = groups.map((r) => fromRow(r, ["orgId"]));
   w.projects = projects.map((r) => fromRow(r, ["orgId"]));
@@ -347,6 +350,7 @@ export async function persist(tx: Tx, before: World, after: World) {
       breakMin: a.breakMin,
       breaks: a.breaks ?? [],
       status: a.status,
+      corrected: a.corrected ?? null,
     };
     await tx
       .insert(S.attendance)
@@ -359,6 +363,7 @@ export async function persist(tx: Tx, before: World, after: World) {
           breakMin: row.breakMin,
           breaks: row.breaks,
           status: row.status,
+          corrected: row.corrected,
         },
       });
   }

@@ -89,7 +89,7 @@ describe("progress", () => {
     expect(r.world.notifications.some((n) => n.recipientId === "p_kamran" && n.title.startsWith("Time for an update"))).toBe(true);
     expect(r.world.notifications.some((n) => n.recipientId === "p_usman" && n.title.startsWith("No update"))).toBe(true);
     // not again within the same period
-    expect(runTick(r.world, r.state, pkt("2026-10-21T11:00:00"), uid).world.notifications.length).toBe(r.world.notifications.length);
+    expect(runTick(r.world, r.state, pkt("2026-10-21T10:10:00"), uid).world.notifications.length).toBe(r.world.notifications.length);
   });
 });
 

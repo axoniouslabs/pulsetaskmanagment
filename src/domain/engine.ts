@@ -16,8 +16,8 @@
  */
 import { addDays, differenceInMinutes } from "date-fns";
 import type { Activity, ActivityKind, AppNotification, HeatLevel, NotificationKind, Task } from "@/lib/types";
-import { channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
-import { isAway, isWorkDay, isWorkingTimeFor, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes, zonedInstant } from "./time";
+import { backupFor, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, type World } from "./world";
+import { isAway, isWorkDay, isWorkingTimeFor, localDate, localNow, overdueFrom, scheduleFor, timerCutoff, toMinutes, zonedInstant } from "./time";
 import { describeRule, nextDue, ruleOf } from "./repeat";
 
 export interface EngineState {
@@ -91,7 +91,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   const rollupDates: string[] = [];
 
   const first = (id: string) => w.people.find((p) => p.id === id)?.name.split(" ")[0] ?? "Someone";
-  const log = (kind: ActivityKind, text: string, taskId?: string) =>
+  const log = (kind: ActivityKind, text: string, taskId?: string, aboutId?: string) =>
     acts.push({
       id: uid("act"),
       at: nowIso,
@@ -99,6 +99,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       kind,
       text,
       taskId,
+      ...(aboutId ? { aboutId } : {}),
     });
   const note = (recipientId: string | undefined, kind: NotificationKind, title: string, body: string, taskId?: string) => {
     if (!recipientId) return undefined;
@@ -162,20 +163,35 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   }
   rollupDates.push(l.date);
 
+  /* ---------- 1b. self-check: if the engine itself stopped running, the owner is told when it comes back (spec §19) ---------- */
+  if (state.lastTickAt) {
+    const gapMin = Math.round((now.getTime() - new Date(state.lastTickAt).getTime()) / 60000);
+    const sc = scheduleFor(w, ownerOf(w));
+    const lo = localNow(now, sc.timezone);
+    const inHours = sc.workDays.includes(lo.dow) && lo.minutes >= toMinutes(sc.workStart) && lo.minutes < toMinutes(sc.workEnd);
+    const waiting = w.tasks.filter((t) => ["assigned", "acknowledged", "in_progress"].includes(t.status)).length;
+    if (gapMin >= 15 && inHours && waiting) {
+      const owner = ownerOf(w);
+      const msg = `Reminders were not running for ${gapMin >= 120 ? `${Math.round(gapMin / 60)} hours` : `${gapMin} minutes`}, so nobody was chased in that time. They are running again. If this keeps happening, check the scheduler that calls Pulse every minute.`;
+      log("reminders_paused", `The reminder engine was stopped for ${gapMin} minutes and has restarted`);
+      if (owner) note(owner, "escalation", "Reminders stopped for a while", msg);
+    }
+  }
+
   /* ---------- 2. tasks ---------- */
   /** the escalation thresholds for a task: tighter for urgent work (spec §15) */
   const ladder = (t: Task) => (t.priority === "urgent" ? (s.urgentEscalation ?? { l1Ignored: 2, l2Ignored: 3, l3Ignored: 5, l4HoursPastDue: 12 }) : s.escalation);
   const escalate = (t: Task, level: HeatLevel, why: string, opts: { overdue?: boolean; unit?: boolean } = {}) => {
     if (level <= t.escalationLevel) return;
     t.escalationLevel = level;
-    log("escalated", `Escalated to level ${level}: ${why}`, t.id);
+    log("escalated", `Escalated to level ${level}: ${why}`, t.id, opts.unit ? undefined : t.assigneeId);
     const who = first(t.assigneeId);
     // work offered to a unit: escalation goes to whoever runs the unit, then up
     const unitHead = opts.unit && t.groupClaim?.unitType && t.groupClaim.unitId ? unitHeadOf(w, t.groupClaim.unitType, t.groupClaim.unitId) : undefined;
     const lead = unitHead ?? leadOf(w, t.assigneeId);
     const head = unitHead ? (headOf(w, unitHead) ?? ownerOf(w)) : headOf(w, t.assigneeId);
     const owner = ownerOf(w);
-    const audience = level === 4 ? [owner, head, lead] : level === 3 ? [lead, head, opts.overdue ? owner : (head ?? owner)] : level === 2 ? [lead ?? head ?? owner] : [];
+    const audience = level === 4 ? [owner, head, lead] : level === 3 ? [lead, head, owner] : level === 2 ? [lead ?? head ?? owner] : [];
     const title = opts.unit
       ? `Nobody in ${t.groupClaim?.unitName ?? "the team"} has claimed it: ${t.title}`
       : level === 4
@@ -195,6 +211,17 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   };
   // every reminder that doesn't go out, and why, is in the history once a day (spec §7)
   const skipped = { ...(next.skipLogged?.date === l.date ? next.skipLogged : { date: l.date, keys: [] as string[] }) };
+  /** did the assignee say or do anything on the task after this moment? */
+  const respondedSince = (t: Task, iso: string) =>
+    (!!t.progressAt && t.progressAt > iso) ||
+    (!!t.statusChangedAt && t.statusChangedAt > iso) ||
+    t.comments.some((c) => c.authorId === t.assigneeId && c.at > iso) ||
+    w.deadlineRequests.some((d) => d.taskId === t.id && d.byId === t.assigneeId && d.at > iso);
+  const waitingOnOther = (t: Task) =>
+    (t.dependsOn ?? []).some((id) => {
+      const d = w.tasks.find((x) => x.id === id);
+      return !!d && d.status !== "approved" && d.status !== "cancelled";
+    });
   const skip = (t: Task, reason: string, text: string) => {
     const key = `${t.id}:${reason}`;
     if (skipped.keys.includes(key)) return;
@@ -205,6 +232,11 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
   for (const t of w.tasks) {
     if (t.status === "draft" || t.status === "approved" || t.status === "cancelled") continue;
     if (t.startAt && new Date(t.startAt) > now) continue;
+    // waiting on another task: nothing to chase the assignee about until it's done (spec §6)
+    if (waitingOnOther(t)) {
+      if (t.status === "assigned" || t.status === "acknowledged") skip(t, "waiting", "it is waiting for another task to be finished");
+      continue;
+    }
     // working hours can change: keep the moment it turns overdue current
     const od = overdueFrom(w, t.assigneeId, t.dueAt);
     if (t.overdueAt !== od) t.overdueAt = od;
@@ -255,7 +287,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         if (t.remindersIgnored >= ladder(t).l2Ignored) escalate(t, 2, `nobody claimed it after ${t.remindersSent} reminders`, { unit: true });
         for (const id of members)
           note(id, "reminder", `Still unclaimed: ${t.title}`, `Offered to ${t.groupClaim.unitName}. The first to claim it owns it.${overdue ? " It is past its deadline." : ""}`, t.id);
-        log("reminder_sent", `Reminded ${members.length} people in ${t.groupClaim.unitName} that nobody has claimed this yet`, t.id);
+        log("reminder_sent", `Reminded ${members.length} people in ${t.groupClaim.unitName} that nobody has claimed this yet`, t.id, "unit");
         continue;
       }
       if (!(windowOpen && !away && !snoozed && intervalOk && underCap)) {
@@ -292,7 +324,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         overdue ? `This is past its deadline. Tap Acknowledge so ${reviewer} knows you've seen it.` : `Tap Acknowledge so ${reviewer} knows you've seen it.`,
         t.id,
       );
-      log("reminder_sent", `Reminder ${count} sent to ${first(t.assigneeId)}${hasHealthyDevice(t.assigneeId) ? "" : " (no working device: in-app only, not counted as ignored)"}`, t.id);
+      log("reminder_sent", `Reminder ${count} sent to ${first(t.assigneeId)}${hasHealthyDevice(t.assigneeId) ? "" : " (no working device: in-app only, not counted as ignored)"}`, t.id, t.assigneeId);
 
       const ig = t.remindersIgnored;
       const e = ladder(t);
@@ -305,10 +337,11 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     if (t.status === "acknowledged" || t.status === "in_progress") {
       if (away || !(t.reminder.window === "always" || working)) continue;
       if (overdue) {
-        if (overdueMin >= ladder(t).l4HoursPastDue * 60) escalate(t, 4, "a full day past the deadline", { overdue: true });
+        // level 4 is for silence: past the deadline and no word from them since (spec §15)
+        if (overdueMin >= ladder(t).l4HoursPastDue * 60 && !respondedSince(t, t.overdueAt ?? t.dueAt)) escalate(t, 4, "past the deadline with no response since", { overdue: true });
         else if (t.escalationLevel < 3) {
           t.escalationLevel = 3;
-          log("escalated", "Past the deadline", t.id);
+          log("escalated", "Past the deadline", t.id, t.assigneeId);
           // the reviewer (or lead), the department head and the owner hear that it's late
           const late = [t.reviewerId !== t.assigneeId ? t.reviewerId : leadOf(w, t.assigneeId), headOf(w, t.assigneeId), ownerOf(w)];
           for (const r of Array.from(new Set(late.filter((x): x is string => !!x && x !== t.assigneeId)))) {
@@ -321,14 +354,14 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
           t.remindersToday = (t.remindersToday ?? 0) + 1;
           t.lastReminderAt = nowIso;
           note(t.assigneeId, "reminder", `Overdue: ${t.title}`, "Submit it, or ask for more time so your reviewer knows the new plan.", t.id);
-          log("reminder_sent", `Overdue reminder sent to ${first(t.assigneeId)}`, t.id);
+          log("reminder_sent", `Overdue reminder sent to ${first(t.assigneeId)}`, t.id, t.assigneeId);
         }
       } else if (-overdueMin <= DUE_SOON_MIN && (!t.lastReminderAt || new Date(t.lastReminderAt) < new Date(new Date(t.dueAt).getTime() - DUE_SOON_MIN * 60000))) {
         t.lastReminderAt = nowIso;
         t.remindersSent += 1;
         t.remindersToday = (t.remindersToday ?? 0) + 1;
         note(t.assigneeId, "reminder", `Due within the hour: ${t.title}`, "Submit it on time, or ask for more time now.", t.id);
-        log("reminder_sent", `Due-soon reminder sent to ${first(t.assigneeId)}`, t.id);
+        log("reminder_sent", `Due-soon reminder sent to ${first(t.assigneeId)}`, t.id, t.assigneeId);
       } else if (t.status === "acknowledged" && t.acknowledgedAt) {
         // seen but not started: a gentler nudge at twice the interval, after the quiet period, never counted as ignored
         if (-overdueMin <= NOT_STARTED_SOON_MIN) escalate(t, 2, "due within 2 hours and not started");
@@ -341,7 +374,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
           t.remindersSent += 1;
           t.remindersToday = (t.remindersToday ?? 0) + 1;
           note(t.assigneeId, "reminder", `Not started yet: ${t.title}`, "Tap Start when you begin, or Blocked if something is in the way.", t.id);
-          log("reminder_sent", `Gentle reminder sent to ${first(t.assigneeId)} (seen, not started)`, t.id);
+          log("reminder_sent", `Gentle reminder sent to ${first(t.assigneeId)} (seen, not started)`, t.id, t.assigneeId);
         }
       }
       continue;
@@ -353,7 +386,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       if (minsSince(since) >= BLOCKED_NUDGE_MIN) {
         t.lastReminderAt = nowIso;
         note(t.blockedOwnerId, "blocked", `${first(t.assigneeId)} is still waiting on you`, `${t.title}: ${t.blockedReason ?? "blocked"}`, t.id);
-        log("reminder_sent", `Reminded ${first(t.blockedOwnerId)} that ${first(t.assigneeId)} is still blocked`, t.id);
+        log("reminder_sent", `Reminded ${first(t.blockedOwnerId)} that ${first(t.assigneeId)} is still blocked`, t.id, t.blockedOwnerId);
       }
       continue;
     }
@@ -370,19 +403,19 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         t.escalationLevel = 4;
         if (owner && owner !== t.reviewerId)
           note(owner, "escalation", `${first(t.reviewerId)} has not reviewed ${first(t.assigneeId)}'s work for ${ago}`, `${t.title}. Flagged as unresponsive.`, t.id);
-        log("escalated", `Review unanswered for ${ago}: ${first(t.reviewerId)} flagged to the owner as unresponsive`, t.id);
+        log("escalated", `Review unanswered for ${ago}: ${first(t.reviewerId)} flagged to the owner as unresponsive`, t.id, t.reviewerId);
       } else if (waitH >= sla * 2 && t.escalationLevel < 3) {
         t.escalationLevel = 3;
         for (const r of Array.from(new Set([up, owner].filter((x): x is string => !!x && x !== t.reviewerId))))
           note(r, "escalation", `${first(t.assigneeId)}'s work has waited ${ago} for review`, `${t.title} is waiting on ${first(t.reviewerId)}.`, t.id);
         note(t.reviewerId, "submitted", `Still waiting for your review: ${t.title}`, `${ago} now. Your head and the owner have been told.`, t.id);
-        log("escalated", `Review overdue: waiting ${ago} on ${first(t.reviewerId)}`, t.id);
+        log("escalated", `Review overdue: waiting ${ago} on ${first(t.reviewerId)}`, t.id, t.reviewerId);
       } else if (waitH >= sla && t.escalationLevel < 2) {
         // unreviewed for the SLA: the reviewer and the owner hear (spec §16)
         t.escalationLevel = 2;
         note(t.reviewerId, "submitted", `${first(t.assigneeId)}'s work is waiting for you`, `${t.title} has waited ${ago}. Approve it or send it back.`, t.id);
         if (owner && owner !== t.reviewerId) note(owner, "escalation", `Unreviewed for ${ago}: ${t.title}`, `Submitted by ${first(t.assigneeId)}, waiting on ${first(t.reviewerId)}.`, t.id);
-        log("reminder_sent", `Reminded ${first(t.reviewerId)} to review (${ago} waiting)`, t.id);
+        log("reminder_sent", `Reminded ${first(t.reviewerId)} to review (${ago} waiting)`, t.id, t.reviewerId);
       }
     }
   }
@@ -427,7 +460,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
       );
       if (now.getTime() - touched < idleDays * 24 * 3600000) continue;
       t.idleFlaggedAt = nowIso;
-      log("escalated", `Idle: in progress with no activity for ${idleDays} days`, t.id);
+      log("escalated", `Idle: in progress with no activity for ${idleDays} days`, t.id, "idle");
       note(t.assigneeId, "reminder", `Still working on this? ${t.title}`, `Nothing has happened on it for ${idleDays} days. Add an update, submit it, or mark it blocked.`, t.id);
       const up = t.reviewerId !== t.assigneeId ? t.reviewerId : (leadOf(w, t.assigneeId) ?? headOf(w, t.assigneeId));
       if (up) note(up, "escalation", `${first(t.assigneeId)}'s task has gone quiet`, `${t.title} has been in progress with no activity for ${idleDays} days.`, t.id);
@@ -450,7 +483,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
           `It asks for an update every ${t.updateEveryDays === 1 ? "day" : `${t.updateEveryDays} days`}. Set how far along it is, with one line on where it stands.`,
           t.id,
         );
-        log("reminder_sent", `Asked ${first(t.assigneeId)} for a progress update (last one ${days} ${days === 1 ? "day" : "days"} ago)`, t.id);
+        log("reminder_sent", `Asked ${first(t.assigneeId)} for a progress update (last one ${days} ${days === 1 ? "day" : "days"} ago)`, t.id, "update");
         // two missed updates in a row: the reviewer hears
         if (sinceUpdate >= every * 2 && t.reviewerId !== t.assigneeId)
           note(
@@ -579,6 +612,14 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
     if (w.people.find((p) => p.id === t.assigneeId)?.active === false) {
       const owner = ownerOf(w);
       if (owner) copy.assigneeId = owner;
+    } else if (isAway(w, t.assigneeId, localDate(due, tz)) || isAway(w, t.assigneeId, l.date)) {
+      // away on the day it's due (or now): the copy goes to their backup, as new work would (spec §6)
+      const cover = backupFor(w, t.assigneeId);
+      if (cover && cover !== t.assigneeId) {
+        copy.assigneeId = cover;
+        copy.watcherIds = Array.from(new Set([...(copy.watcherIds ?? []), t.assigneeId]));
+        log("reassigned", `${first(t.assigneeId)} is away, so this went to ${first(cover)}`, id);
+      }
     }
     if (w.people.find((p) => p.id === copy.reviewerId)?.active === false) copy.reviewerId = ownerOf(w) ?? copy.reviewerId;
     t.recurrenceNextId = id;
@@ -614,7 +655,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         if (pl.minutes < toMinutes(s.digestMorning)) continue;
         morningFor[p.id] = pl.date;
         if (pl.minutes > toMinutes(s.digestMorning) + DIGEST_GRACE_MIN) continue;
-        const mine = open.filter((t) => t.assigneeId === p.id && t.status !== "blocked" && !(t.startAt && new Date(t.startAt) > endOfDay));
+        const mine = open.filter((t) => t.assigneeId === p.id && t.status !== "blocked" && !waitingOnOther(t) && !(t.startAt && new Date(t.startAt) > endOfDay));
         const late = mine.filter((t) => new Date(t.dueAt) <= now).length;
         const reviews = w.tasks.filter((t) => t.status === "submitted" && t.reviewerId === p.id).length;
         // the day, in order: overdue first, then by deadline, urgent before normal
@@ -675,9 +716,12 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         );
         const teamTasks = w.tasks.filter((t) => team.has(t.assigneeId));
         const approved = teamTasks.filter((t) => t.status === "approved" && t.approvedAt && new Date(t.approvedAt) >= weekAgo);
+        const assignedWeek = teamTasks.filter((t) => t.status !== "draft" && new Date(t.createdAt) >= weekAgo).length;
         const onTime = approved.filter((t) => t.approvedAt! <= t.dueAt).length;
-        const escalated = lastWeek.filter((a) => a.kind === "escalated" && teamTasks.some((t) => t.id === a.taskId)).length;
-        const reminders = lastWeek.filter((a) => a.kind === "reminder_sent" && teamTasks.some((t) => t.id === a.taskId)).length;
+        // counted against the people they were about, like the reports
+        const ofTeam = (a: Activity) => (a.aboutId ? team.has(a.aboutId) : teamTasks.some((t) => t.id === a.taskId));
+        const escalated = lastWeek.filter((a) => a.kind === "escalated" && ofTeam(a)).length;
+        const reminders = lastWeek.filter((a) => a.kind === "reminder_sent" && ofTeam(a)).length;
         const lateNow = teamTasks.filter((t) => OPEN.includes(t.status) && new Date(t.dueAt) <= now).length;
         if (!approved.length && !escalated && !reminders && !lateNow) continue;
         // average time to acknowledge new work, and who needed the most chasing
@@ -687,7 +731,8 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         for (const a of lastWeek) {
           if (a.kind !== "escalated" || !a.taskId) continue;
           const t = teamTasks.find((x) => x.id === a.taskId);
-          if (t) escalationsBy.set(t.assigneeId, (escalationsBy.get(t.assigneeId) ?? 0) + 1);
+          const who = a.aboutId && team.has(a.aboutId) ? a.aboutId : a.aboutId ? undefined : t?.assigneeId;
+          if (who) escalationsBy.set(who, (escalationsBy.get(who) ?? 0) + 1);
         }
         const chronic = Array.from(escalationsBy.entries())
           .filter(([, n]) => n >= 3)
@@ -699,7 +744,7 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
           p.id,
           "digest",
           "Last week in one line",
-          `${approved.length} approved (${approved.length ? Math.round((onTime / approved.length) * 100) : 0}% on time), ${reminders} reminders sent, ${escalated} escalations. ${lateNow} ${lateNow === 1 ? "task is" : "tasks are"} overdue right now.${ackText}${chronic.length ? ` Escalated most: ${chronic.join(", ")}.` : ""}`,
+          `${approved.length} approved of ${assignedWeek} assigned (${assignedWeek ? Math.min(100, Math.round((approved.length / assignedWeek) * 100)) : 0}% completion, ${approved.length ? Math.round((onTime / approved.length) * 100) : 0}% on time), ${reminders} reminders sent, ${escalated} escalations. ${lateNow} ${lateNow === 1 ? "task is" : "tasks are"} overdue right now.${ackText}${chronic.length ? ` Escalated most: ${chronic.join(", ")}.` : ""}`,
         );
         if (n) digestIds.push(n.id);
       }
@@ -785,7 +830,13 @@ export function runTick(world: World, state: EngineState, now: Date, uid: (p: st
         const unseen = open.filter((t) => team.has(t.assigneeId) && t.status === "assigned").length;
         const blocked = open.filter((t) => team.has(t.assigneeId) && t.status === "blocked").length;
         const escalatedToday = open.filter((t) => team.has(t.assigneeId) && t.escalationLevel >= 2).length;
-        const n = note(p.id, "digest", "End of day summary", `${done} done today, ${late} overdue, ${escalatedToday} escalated, ${unseen} not acknowledged yet, ${blocked} blocked.`);
+        const awaiting = w.tasks.filter((t) => t.status === "submitted" && (team.has(t.assigneeId) || t.reviewerId === p.id)).length;
+        const n = note(
+          p.id,
+          "digest",
+          "End of day summary",
+          `${done} done today, ${late} overdue, ${escalatedToday} escalated, ${blocked} blocked, ${awaiting} awaiting review, ${unseen} not acknowledged yet.`,
+        );
         if (n) digestIds.push(n.id);
       }
     }

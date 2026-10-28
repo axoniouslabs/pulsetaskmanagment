@@ -44,7 +44,7 @@ import {
 import { toast } from "sonner";
 import { useApp, useMeId } from "@/lib/store";
 import type { Activity, ActivityKind, Task } from "@/lib/types";
-import { heatOf, isOverdue } from "@/lib/selectors";
+import { committedHours, heatOf, isOverdue } from "@/lib/selectors";
 import { ago, cn, dueLabel, formatWhen, minutesToLabel } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Checkbox, Input, Segmented, Select, Sheet, SheetClose, Textarea, Bar } from "@/components/ui/primitives";
@@ -833,6 +833,10 @@ function TimeLog({ task }: { task: Task }) {
   const [day, setDay] = React.useState(() => format(new Date(), "yyyy-MM-dd"));
   const [why, setWhy] = React.useState("");
   const [error, setError] = React.useState<string | null>(null);
+  const [fixing, setFixing] = React.useState<string | null>(null);
+  const [fixH, setFixH] = React.useState("");
+  const [fixM, setFixM] = React.useState("");
+  const [fixWhy, setFixWhy] = React.useState("");
   const entries = [...(task.timeEntries ?? [])].sort((a, b) => b.from.localeCompare(a.from));
   const canAdd = (r.isAssignee || r.canManage) && !["draft", "cancelled"].includes(task.status);
   if (!entries.length && !canAdd) return null;
@@ -909,6 +913,45 @@ function TimeLog({ task }: { task: Task }) {
                     · {e.manual ? format(new Date(e.from), "EEE d MMM") : `${format(new Date(e.from), "EEE d MMM, h:mm a")}${e.to ? ` to ${format(new Date(e.to), "h:mm a")}` : ""}`}
                   </span>
                 </p>
+                {e.corrected && (
+                  <p className="mt-0.5 text-[12.5px] text-muted">
+                    <span className="mr-1.5 rounded-[4px] bg-info-tint px-1.5 text-[11px] font-medium text-info">Corrected</span>
+                    was {minutesToLabel(e.corrected.fromMinutes)}, changed by {people.find((p) => p.id === e.corrected!.byId)?.name.split(" ")[0] ?? "a manager"}: {e.corrected.reason}
+                  </p>
+                )}
+                {fixing === e.id && (
+                  <form
+                    className="mt-2 flex flex-wrap items-end gap-2"
+                    onSubmit={(ev) => {
+                      ev.preventDefault();
+                      const m = Math.round((Number(fixH) || 0) * 60 + (Number(fixM) || 0));
+                      const res = act({ type: "correctTimeEntry", taskId: task.id, entryId: e.id, minutes: m, reason: fixWhy });
+                      if (res.ok) {
+                        toast.success(m ? "Time corrected" : "Entry struck out", { description: "The original stays on record." });
+                        setFixing(null);
+                      }
+                    }}
+                  >
+                    <label className="text-[12px] text-muted">
+                      Hours
+                      <Input type="number" min={0} max={16} value={fixH} onChange={(ev) => setFixH(ev.target.value)} className="mt-1 h-9 w-20" />
+                    </label>
+                    <label className="text-[12px] text-muted">
+                      Minutes
+                      <Input type="number" min={0} max={59} value={fixM} onChange={(ev) => setFixM(ev.target.value)} className="mt-1 h-9 w-20" />
+                    </label>
+                    <label className="min-w-40 flex-1 text-[12px] text-muted">
+                      Why
+                      <Input value={fixWhy} onChange={(ev) => setFixWhy(ev.target.value)} placeholder="Timer left running over lunch" className="mt-1 h-9" />
+                    </label>
+                    <Button size="sm" variant="primary" type="submit" disabled={!fixWhy.trim()}>
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" type="button" onClick={() => setFixing(null)}>
+                      Cancel
+                    </Button>
+                  </form>
+                )}
                 {(e.manual || e.autoStopped || e.note) && (
                   <p className="mt-0.5 text-[12.5px] text-muted">
                     {e.manual && <span className="mr-1.5 rounded-[4px] bg-heat-1-tint px-1.5 text-[11px] font-medium text-heat-1">Manual</span>}
@@ -918,7 +961,25 @@ function TimeLog({ task }: { task: Task }) {
                   </p>
                 )}
               </div>
-              <span className="tabular shrink-0 font-medium text-text">{minutesToLabel(e.minutes)}</span>
+              <span className="flex shrink-0 flex-col items-end gap-1">
+                <span className={cn("tabular font-medium text-text", e.minutes === 0 && "text-faint line-through")}>
+                  {minutesToLabel(e.corrected && e.minutes === 0 ? e.corrected.fromMinutes : e.minutes)}
+                </span>
+                {r.canManage && e.personId !== r.meId && fixing !== e.id && (
+                  <button
+                    type="button"
+                    className="text-[12px] font-medium text-ink hover:underline"
+                    onClick={() => {
+                      setFixing(e.id);
+                      setFixH(String(Math.floor(e.minutes / 60)));
+                      setFixM(String(e.minutes % 60));
+                      setFixWhy("");
+                    }}
+                  >
+                    Correct
+                  </button>
+                )}
+              </span>
             </li>
           ))}
         </ul>
@@ -934,6 +995,8 @@ function RouteBanner({ task }: { task: Task }) {
   const people = useApp((s) => s.people);
   const teams = useApp((s) => s.teams);
   const groups = useApp((s) => s.groups);
+  const allTasks = useApp((s) => s.tasks);
+  const [now] = React.useState(() => new Date());
   const [to, setTo] = React.useState("");
   const pool = task.pool;
   if (!pool || pool.mode !== "route" || pool.routedAt || !["assigned", "acknowledged"].includes(task.status)) return null;
@@ -956,7 +1019,7 @@ function RouteBanner({ task }: { task: Task }) {
           {members.map((p) => (
             <option key={p.id} value={p.id}>
               {p.name}
-              {p.onLeave ? " (on leave)" : ""}
+              {p.onLeave ? " (on leave)" : `, ${Math.round(committedHours(allTasks, p.id, now) * 10) / 10} of ${p.capacityHours}h today`}
             </option>
           ))}
         </Select>
@@ -1057,7 +1120,17 @@ export function ActivityLine({ a, showTask }: { a: Activity; showTask?: boolean 
 
 function History({ taskId }: { taskId: string }) {
   const all = useApp((s) => s.activity);
-  const items = React.useMemo(() => all.filter((a) => a.taskId === taskId), [all, taskId]);
+  const createdAt = useApp((s) => s.tasks.find((t) => t.id === taskId)?.createdAt);
+  // older than what the app keeps loaded: fetched from the server on request
+  const [older, setOlder] = React.useState<Activity[] | null>(null);
+  const items = React.useMemo(() => {
+    const recent = all.filter((a) => a.taskId === taskId);
+    const seen = new Set(recent.map((a) => a.id));
+    return [...recent, ...(older ?? []).filter((a) => !seen.has(a.id))].sort((a, b) => b.at.localeCompare(a.at));
+  }, [all, taskId, older]);
+  const oldest = items.length ? items[items.length - 1].at : new Date().toISOString();
+  // the first entry is the task being created; if it isn't here, there is older history to fetch
+  const incomplete = older === null && !!createdAt && !items.some((a) => a.kind === "created" || a.kind === "assigned") && oldest > createdAt;
   return (
     <div>
       <p className="mb-3 flex items-center gap-1.5 text-[12.5px] text-muted">
@@ -1079,6 +1152,20 @@ function History({ taskId }: { taskId: string }) {
           ),
         )}
       </ol>
+      {incomplete && (
+        <button
+          type="button"
+          className="mt-3 text-[13px] font-medium text-ink hover:underline"
+          onClick={async () => {
+            const r = await fetch(`/api/history?task=${encodeURIComponent(taskId)}&before=${encodeURIComponent(oldest)}`, { cache: "no-store" })
+              .then((x) => (x.ok ? x.json() : null))
+              .catch(() => null);
+            setOlder(r?.items ?? []);
+          }}
+        >
+          Show the earlier history
+        </button>
+      )}
     </div>
   );
 }
