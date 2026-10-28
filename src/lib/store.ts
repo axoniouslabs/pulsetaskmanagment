@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { DEFAULT_REMINDER } from "./seed";
 import type { Leave, OrgSettings, Role } from "./types";
 import { channelMembersOf, emptyWorld, membersOf, WORLD_KEYS, type World } from "@/domain/world";
+import { QUEUEABLE, isNetworkError, outbox, readSnapshot, saveSnapshot, setOutbox } from "./offline";
 import { tryCommand, type Command, type CommandResult, type NewTaskInput } from "@/domain/commands";
 
 export type { NewTaskInput };
@@ -91,6 +92,10 @@ interface Actions {
 
 export interface AppState extends World, Actions {
   status: "loading" | "ready" | "error" | "locked";
+  /** showing the copy kept on this device: when it was saved (null when live) */
+  staleSince: string | null;
+  /** changes made offline, waiting to be sent */
+  outboxCount: number;
   /** set when the company's access is paused: why, and who to contact */
   locked: { company: string; message: string } | null;
   /** this sign-in also runs the Pulse admin panel */
@@ -149,6 +154,11 @@ function send(cmd: Command) {
   pending++;
   queue = queue
     .then(async () => {
+      // anything already waiting goes first, so the server sees changes in the order they were made
+      if (outbox().length) {
+        if (QUEUEABLE.has(cmd.type)) return keepForLater(cmd);
+        await flushOutbox();
+      }
       const res = await fetch("/api/command", {
         method: "POST",
         headers: { "content-type": "application/json" },
@@ -169,16 +179,63 @@ function send(cmd: Command) {
         localVersion++;
       }
     })
-    .catch(() => {
+    .catch((e) => {
+      if (isNetworkError(e) && QUEUEABLE.has(cmd.type)) return keepForLater(cmd);
       toast.error("You're offline", {
-        description: "That change wasn't saved. Check your connection and try again.",
+        description: "That change wasn't saved. It can't wait for the connection; try again when you're back online.",
       });
       localVersion++;
     })
     .finally(() => {
       pending--;
-      scheduleRefetch();
+      if (!outbox().length) scheduleRefetch();
     });
+}
+
+/** offline: keep the change on this device and show it as done; it's sent when the connection is back */
+function keepForLater(cmd: Command) {
+  const personId = useApp.getState().viewer?.personId ?? "";
+  const items = [...outbox(), { cmd, at: new Date().toISOString(), personId }];
+  setOutbox(items);
+  useApp.setState({ outboxCount: items.length });
+  toast("Saved on this phone", { id: "outbox", description: `You're offline. ${items.length === 1 ? "It's" : `${items.length} changes are`} sent as soon as you're back online.` });
+}
+
+let flushing: Promise<void> | null = null;
+/** send what was done offline, oldest first; a change that can no longer apply is kept as a comment on the task */
+export function flushOutbox(): Promise<void> {
+  if (flushing) return flushing;
+  flushing = (async () => {
+    let preserved = 0;
+    let sent = 0;
+    for (;;) {
+      const [item, ...rest] = outbox();
+      if (!item) break;
+      let res: Response;
+      try {
+        res = await fetch("/api/command", { method: "POST", headers: { "content-type": "application/json", "x-pulse-offline-at": item.at }, body: JSON.stringify(item.cmd) });
+      } catch {
+        break; // still offline: try again later
+      }
+      if (res.status === 401) return goToLogin();
+      const body = (await res.json().catch(() => ({}))) as { preserved?: boolean };
+      if (body.preserved) preserved++;
+      else if (res.ok) sent++;
+      setOutbox(rest);
+      useApp.setState({ outboxCount: rest.length });
+    }
+    if (sent || preserved) {
+      toast.success(`Back online: ${sent} offline ${sent === 1 ? "change" : "changes"} saved`, {
+        id: "outbox",
+        description: preserved ? `${preserved} couldn't apply any more (the task had changed), so ${preserved === 1 ? "it was" : "they were"} added as a comment on the task instead.` : undefined,
+      });
+      localVersion++;
+      void useApp.getState().load();
+    }
+  })().finally(() => {
+    flushing = null;
+  });
+  return flushing;
 }
 
 const worldOf = (s: AppState): World => {
@@ -229,6 +286,8 @@ export const useApp = create<AppState>()((set, get) => {
   return {
     ...emptyWorld(),
     status: "loading",
+    staleSince: null,
+    outboxCount: 0,
     viewer: null,
     role: "employee",
     userIds: NOBODY,
@@ -270,7 +329,8 @@ export const useApp = create<AppState>()((set, get) => {
           });
         }
         if (!res.ok) throw new Error(String(res.status));
-        const data = (await res.json()) as {
+        const raw = await res.text();
+        const data = JSON.parse(raw) as {
           viewer: Viewer & { name: string };
           world: World;
           serverTime: string;
@@ -283,7 +343,9 @@ export const useApp = create<AppState>()((set, get) => {
         // a change made while this was loading wins; the next refetch brings both together
         if (pending > 0 || localVersion !== startedAt) return scheduleRefetch();
         const { personId, role } = data.viewer;
+        void saveSnapshot(personId, data);
         set({
+          staleSince: null,
           ...data.world,
           viewer: { personId, role },
           role,
@@ -297,7 +359,27 @@ export const useApp = create<AppState>()((set, get) => {
           serverOffsetMs: new Date(data.serverTime).getTime() - Date.now(),
           status: "ready",
         });
-      } catch {
+      } catch (e) {
+        // no connection: open the copy kept on this device, clearly marked as not live
+        if (isNetworkError(e) || get().status !== "ready") {
+          const kept = await readSnapshot<{ viewer: Viewer & { name: string }; world: World; serverTime: string; pushPublicKey: string | null; engineLastTickAt: string | null }>();
+          if (kept && (!get().viewer || get().viewer?.personId === kept.personId)) {
+            if (get().status !== "ready") {
+              const { personId, role } = kept.data.viewer;
+              set({
+                ...kept.data.world,
+                viewer: { personId, role },
+                role,
+                userIds: { owner: personId, manager: personId, employee: personId },
+                engineLastTickAt: kept.data.engineLastTickAt,
+                pushPublicKey: kept.data.pushPublicKey,
+                status: "ready",
+              });
+            }
+            set({ staleSince: get().staleSince ?? kept.savedAt, outboxCount: outbox().length });
+            return;
+          }
+        }
         if (get().status === "loading") set({ status: "error" });
       }
     },

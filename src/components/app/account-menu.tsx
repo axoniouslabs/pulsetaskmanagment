@@ -5,11 +5,13 @@ import { Building2, Check, ChevronsUpDown, LogOut, Monitor, Moon, Settings, Sun 
 import { setThemePref, useThemePref, type ThemePref } from "@/lib/theme";
 import { useApp, useMe } from "@/lib/store";
 import { authClient } from "@/lib/auth-client";
+import { forgetDevice } from "@/lib/offline";
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from "@/components/ui/primitives";
 import { Avatar } from "./avatar";
 import { ROLE_LABEL } from "./nav";
 
 export async function signOut() {
+  await forgetDevice();
   await authClient.signOut().catch(() => {});
   window.location.replace("/login");
 }
@@ -68,12 +70,20 @@ export function AccountMenu({ compact }: { compact?: boolean }) {
         </MenuItem>
         <MenuSeparator />
         <p className="px-2.5 pb-1 pt-1.5 text-[12px] text-faint">Appearance</p>
-        {([
-          ["system", "Match this device", Monitor],
-          ["light", "Light", Sun],
-          ["dark", "Dark", Moon],
-        ] as [ThemePref, string, typeof Sun][]).map(([v, label, Icon]) => (
-          <MenuItem key={v} onSelect={(e) => { e.preventDefault(); setThemePref(v); }}>
+        {(
+          [
+            ["system", "Match this device", Monitor],
+            ["light", "Light", Sun],
+            ["dark", "Dark", Moon],
+          ] as [ThemePref, string, typeof Sun][]
+        ).map(([v, label, Icon]) => (
+          <MenuItem
+            key={v}
+            onSelect={(e) => {
+              e.preventDefault();
+              setThemePref(v);
+            }}
+          >
             <Icon /> {label}
             {theme === v && <Check className="ml-auto !text-ink" />}
           </MenuItem>

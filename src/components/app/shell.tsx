@@ -5,7 +5,12 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Toaster } from "sonner";
 import { Lock, Menu as MenuIcon, Plus, Search, X } from "lucide-react";
-import { useApp, useMeId, channelMembersOf } from "@/lib/store";
+import { useApp, useMeId, channelMembersOf, flushOutbox } from "@/lib/store";
+import { outbox } from "@/lib/offline";
+import { scheduleFor } from "@/domain/time";
+import { toast } from "sonner";
+import { CloudOff } from "lucide-react";
+import { format as formatDate, isToday as isTodayDate } from "date-fns";
 import { cn } from "@/lib/utils";
 import { isOpenWork } from "@/lib/selectors";
 import { Button } from "@/components/ui/button";
@@ -29,7 +34,9 @@ import { GLIDE } from "@/lib/motion";
 function useLiveData() {
   const status = useApp((s) => s.status);
   React.useEffect(() => {
-    const load = () => void useApp.getState().load();
+    // anything done offline is sent first, then the screen is refreshed
+    const load = () => void (outbox().length ? flushOutbox() : useApp.getState().load());
+    useApp.setState({ outboxCount: outbox().length });
     load();
     const tick = setInterval(() => {
       if (document.visibilityState === "visible") load();
@@ -101,6 +108,9 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopBar />
+            <StaleBanner />
+            <TimeZoneNotice />
+            <AppBadge />
             <main className="mx-auto w-full max-w-[1240px] flex-1 px-4 pb-28 pt-4 sm:px-6 lg:px-10 lg:pb-16 lg:pt-6">
               <EngineAlarm />
               {/* each page settles in; keyed so a new page gets its own entrance */}
@@ -379,3 +389,105 @@ function BottomNav() {
 
 /* re-export for pages */
 export { isOpenWork };
+
+/** offline: say plainly that what's on screen is a saved copy, and what is waiting to be sent */
+function StaleBanner() {
+  const since = useApp((s) => s.staleSince);
+  const waiting = useApp((s) => s.outboxCount);
+  if (!since && !waiting) return null;
+  const when = since ? new Date(since) : null;
+  return (
+    <div role="status" className="mx-auto mt-2 flex w-full max-w-[1240px] items-start gap-2.5 px-4 sm:px-6 lg:px-10">
+      <p className="flex w-full items-start gap-2 rounded-[var(--radius-md)] border border-heat-1/30 bg-heat-1-tint px-3.5 py-2.5 text-[13px] leading-snug text-text">
+        <CloudOff className="mt-px size-4 shrink-0 text-heat-1" />
+        <span>
+          {when ? (
+            <>
+              <span className="font-semibold">You&apos;re offline.</span> This is what Pulse had at {isTodayDate(when) ? formatDate(when, "h:mm a") : formatDate(when, "EEE d MMM, h:mm a")}; it may be
+              out of date.{" "}
+            </>
+          ) : (
+            <span className="font-semibold">Sending your offline changes. </span>
+          )}
+          {waiting > 0
+            ? `${waiting} ${waiting === 1 ? "change is" : "changes are"} saved on this device and will be sent when you're back online.`
+            : "Acknowledge, start, stop, snooze and comments still work and are sent when you're back online."}
+        </span>
+      </p>
+    </div>
+  );
+}
+
+/** the count on the installed app's icon: unread notifications (spec §18, tray / home-screen badge) */
+function AppBadge() {
+  const meId = useMeId();
+  const unread = useApp((s) => s.notifications.filter((n) => n.recipientId === meId && !n.read).length);
+  React.useEffect(() => {
+    const nav = navigator as Navigator & { setAppBadge?: (n?: number) => Promise<void>; clearAppBadge?: () => Promise<void> };
+    if (!nav.setAppBadge) return;
+    (unread ? nav.setAppBadge(unread) : (nav.clearAppBadge?.() ?? nav.setAppBadge(0))).catch(() => undefined);
+  }, [unread]);
+  return null;
+}
+
+/**
+ * Times on screen follow this device's clock; deadlines, reminders and working
+ * hours follow the person's time zone. When the two differ (travel, remote work),
+ * say so once and offer to switch.
+ */
+function TimeZoneNotice() {
+  const meId = useMeId();
+  const effective = useApp((s) => (s.viewer ? scheduleFor(s, s.viewer.personId).timezone : ""));
+  const company = useApp((s) => s.settings.timezone);
+  const act = useApp((s) => s.act);
+  const [device] = React.useState(() => (typeof Intl !== "undefined" ? Intl.DateTimeFormat().resolvedOptions().timeZone : ""));
+  const key = `pulse:tz-ok:${device}:${effective}`;
+  const [hidden, setHidden] = React.useState(() => {
+    try {
+      return localStorage.getItem(key) === "1";
+    } catch {
+      return false;
+    }
+  });
+  const sameClock = (a: string, b: string) => {
+    if (!a || !b || a === b) return true;
+    const at = (tz: string) => new Intl.DateTimeFormat("en-GB", { timeZone: tz, hour: "2-digit", minute: "2-digit", hour12: false }).format(new Date());
+    try {
+      return at(a) === at(b);
+    } catch {
+      return true;
+    }
+  };
+  if (!meId || hidden || sameClock(device, effective)) return null;
+  const dismiss = () => {
+    try {
+      localStorage.setItem(key, "1");
+    } catch {
+      /* fine: it shows again next time */
+    }
+    setHidden(true);
+  };
+  const useDevice = () => {
+    const me = useApp.getState().people.find((p) => p.id === meId);
+    if (act({ type: "setPersonSchedule", personId: meId, schedule: { ...(me?.schedule ?? {}), timezone: device } }).ok) {
+      toast.success(`Your hours now follow ${device.replace(/_/g, " ")}`);
+      dismiss();
+    }
+  };
+  return (
+    <div role="status" className="mx-auto mt-2 flex w-full max-w-[1240px] px-4 sm:px-6 lg:px-10">
+      <div className="flex w-full flex-wrap items-center gap-x-3 gap-y-2 rounded-[var(--radius-md)] border border-line bg-surface px-3.5 py-2.5 text-[13px] text-text">
+        <span className="min-w-0 flex-1">
+          This device is on {device.replace(/_/g, " ")} time. Your deadlines and working hours follow {effective.replace(/_/g, " ")}
+          {effective === company ? " (company time)" : ""}. Times on screen are shown in this device&apos;s time.
+        </span>
+        <Button size="sm" variant="secondary" onClick={useDevice}>
+          Work on {device.split("/").pop()?.replace(/_/g, " ")} time
+        </Button>
+        <Button size="sm" variant="ghost" onClick={dismiss}>
+          Keep as is
+        </Button>
+      </div>
+    </div>
+  );
+}

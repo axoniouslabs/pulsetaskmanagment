@@ -1,5 +1,5 @@
 /* Pulse service worker: offline shell + notification actions */
-const VERSION = "pulse-v4";
+const VERSION = "pulse-v5";
 const SHELL = ["/", "/today", "/overview", "/tasks", "/manifest.webmanifest", "/icon-192.png", "/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -15,7 +15,7 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(
     caches
       .keys()
-      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION).map((k) => caches.delete(k))))
+      .then((keys) => Promise.all(keys.filter((k) => k !== VERSION && k !== "pulse-data").map((k) => caches.delete(k))))
       .then(() => self.clients.claim()),
   );
 });
@@ -89,6 +89,8 @@ self.addEventListener("push", (event) => {
         actions: Array.isArray(data.actions) ? data.actions : [],
       }),
       data.silent ? Promise.resolve() : report(data.token, "receipt"),
+      // a mark on the app icon until the app is opened and sets the exact count
+      !data.silent && self.navigator.setAppBadge ? self.navigator.setAppBadge().catch(() => undefined) : Promise.resolve(),
       // tell open windows to refresh their data
       self.clients.matchAll({ type: "window" }).then((cs) => cs.forEach((c) => c.postMessage({ type: "pulse-refresh" }))),
     ]),
