@@ -33,6 +33,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useApp, useMeId } from "@/lib/store";
 import type { Task } from "@/lib/types";
 import { committedHours, scopePeople } from "@/lib/selectors";
+import { needsReview } from "@/domain/world";
 import { cn } from "@/lib/utils";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { uploadToTask, ACCEPT } from "@/lib/upload";
@@ -52,7 +53,7 @@ export function duplicateDefaults(task: Task) {
     priority: task.priority,
     estimateHours: task.estimateHours,
     projectId: task.projectId,
-    requiresApproval: task.requiresApproval,
+    requiresApproval: needsReview(task),
     requiresProof: task.requiresProof,
     requiresResult: task.requiresResult,
     reminder: task.reminder,
@@ -285,7 +286,7 @@ export function TaskActions({ task, size = "md", compact, className }: { task: T
       buttons = (
         <>
           <Button size={size} variant="ok" onClick={() => setDialog("submit")}>
-            <CircleCheckBig /> {task.requiresApproval ? "Submit for review" : "Mark done"}
+            <CircleCheckBig /> {needsReview(task) ? "Submit for review" : "Mark done"}
           </Button>
           {timing ? (
             <Button
@@ -515,8 +516,8 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
       case "submit":
         return (
           <DialogContent
-            title={task.requiresApproval ? "Submit for review" : "Mark as done"}
-            description={task.requiresApproval ? `${reviewer?.name.split(" ")[0]} will review it. Reminders for this task stop now.` : "This is a routine task, so it closes straight away."}
+            title={needsReview(task) ? "Submit for review" : "Mark as done"}
+            description={needsReview(task) ? `${reviewer?.name.split(" ")[0]} will review it. Reminders for this task stop now.` : "This is a routine task, so it closes straight away."}
           >
             {task.requiresProof && (
               <div
@@ -559,7 +560,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
             </Field>
             {error && <p className="mt-3 text-[13px] text-heat-3">{error}</p>}
             {footer(
-              task.requiresApproval ? "Submit for review" : "Mark done",
+              needsReview(task) ? "Submit for review" : "Mark done",
               () => {
                 const res = a.dispatch({
                   type: "submit",
@@ -567,7 +568,7 @@ function DialogBody({ task, kind, onClose }: { task: Task; kind: Exclude<DialogK
                   note: text.trim(),
                 });
                 if (!res.ok) return setError(res.error);
-                done(task.requiresApproval ? "Submitted for review" : "Marked done", task.requiresApproval ? `${reviewer?.name.split(" ")[0] ?? "The reviewer"} has been told.` : undefined);
+                done(needsReview(task) ? "Submitted for review" : "Marked done", needsReview(task) ? `${reviewer?.name.split(" ")[0] ?? "The reviewer"} has been told.` : undefined);
               },
               {
                 variant: "ok",

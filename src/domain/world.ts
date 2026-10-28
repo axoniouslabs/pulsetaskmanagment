@@ -136,6 +136,9 @@ export function membersOf(w: Pick<World, "people" | "teams" | "groups">, unitTyp
   return [];
 }
 
+/** does finished work go to someone for review? Not when the only reviewer would be the person who did it (the owner's own work) */
+export const needsReview = (t: { requiresApproval: boolean; reviewerId: string; assigneeId: string }) => t.requiresApproval && t.reviewerId !== t.assigneeId;
+
 /**
  * May this task skip review? Only low-priority work, and only when the owner
  * sets it or has allowed managers to (spec §3, §10). A company or department

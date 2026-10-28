@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { needsReview } from "@/domain/world";
 import { uploadToTask, uploadVoiceNote, startRecording, ACCEPT } from "@/lib/upload";
 import { AttachmentThumb } from "./attachment-thumb";
 import { format } from "date-fns";
@@ -154,7 +155,7 @@ function TaskDetail({ task }: { task: Task }) {
           <Fact label="Reviewer">
             <span className="flex items-center gap-2">
               {reviewer && <Avatar person={reviewer} size="sm" />}
-              <span className="truncate">{task.requiresApproval ? reviewer?.name : "Auto-approve"}</span>
+              <span className="truncate">{needsReview(task) ? reviewer?.name : "Auto-approve"}</span>
             </span>
           </Fact>
           <Fact label="Due">

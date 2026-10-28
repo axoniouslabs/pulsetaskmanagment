@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { needsReview } from "@/domain/world";
 import { format, isToday } from "date-fns";
 import { toast } from "sonner";
 import { DndContext, closestCenter, PointerSensor, TouchSensor, KeyboardSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
@@ -366,7 +367,7 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
         {task.status === "in_progress" && (
           <>
             <Button size="lg" className="border border-white/25 bg-white/10 text-white hover:bg-white/15" onClick={() => setSubmitOpen(true)}>
-              <CircleCheckBig /> {task.requiresApproval ? "Submit" : "Mark done"}
+              <CircleCheckBig /> {needsReview(task) ? "Submit" : "Mark done"}
             </Button>
             <SubmitBridge task={task} open={submitOpen} onClose={() => setSubmitOpen(false)} />
           </>
@@ -376,7 +377,7 @@ function FocusActions({ task, running }: { task: Task; running: boolean }) {
   return (
     <div className="flex flex-wrap gap-2">
       <Button size="lg" className="bg-[#4ade80] text-ink hover:brightness-105" onClick={() => setSubmitOpen(true)}>
-        <CircleCheckBig /> {task.requiresApproval ? "Submit for review" : "Mark done"}
+        <CircleCheckBig /> {needsReview(task) ? "Submit for review" : "Mark done"}
       </Button>
       <Button
         size="lg"

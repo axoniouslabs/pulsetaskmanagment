@@ -27,7 +27,7 @@ import type {
   TaskTemplate,
   WorkSchedule,
 } from "@/lib/types";
-import { approvalOptional, backupFor, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
+import { approvalOptional, backupFor, needsReview, channelMembersOf, headOf, leadOf, membersOf, ownerOf, unitHeadOf, unitName, workersOf, type World } from "./world";
 import { endOfWorkingDay, isAway, localDate, localNowFor, overdueFrom, scheduleFor, timerCutoff, toMinutes } from "./time";
 
 export interface NewTaskInput {
@@ -716,7 +716,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
       if (t.requiresResult && !cmd.note.trim()) fail("This task asks for a short result report. Write what the outcome was, then submit.");
       if (w.timers[t.assigneeId]?.taskId === t.id) stopTimerFor(t.assigneeId);
       const noteText = cmd.note.trim();
-      if (!t.requiresApproval) {
+      if (!needsReview(t)) {
         set(t, {
           status: "approved",
           submittedAt: nowIso,
@@ -726,7 +726,7 @@ export function applyCommand(world: World, cmd: Command, ctx: Ctx): World {
           escalationLevel: 0,
         });
         log("submitted", noteText ? `Submitted: ${noteText}` : "Submitted", t.id);
-        log("approved", "Auto-approved (routine task)", t.id, "system");
+        log("approved", t.requiresApproval ? "Closed: nobody above them to review it" : "Auto-approved (routine task)", t.id, "system");
         releaseDependents(t);
       } else {
         set(t, {

@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { needsReview } from "@/domain/world";
 import { toast } from "sonner";
 import {
   DndContext,
@@ -32,11 +33,7 @@ import { LIFECYCLE } from "./filters";
 /* which drops are allowed, and what they do                          */
 /* ------------------------------------------------------------------ */
 
-type Plan =
-  | { type: "none" }
-  | { type: "run"; run: () => void }
-  | { type: "dialog"; kind: Exclude<DialogKind, null> }
-  | { type: "deny"; title: string; body?: string };
+type Plan = { type: "none" } | { type: "run"; run: () => void } | { type: "dialog"; kind: Exclude<DialogKind, null> } | { type: "deny"; title: string; body?: string };
 
 interface MoveContext {
   role: Role;
@@ -119,7 +116,7 @@ export function planMove(t: Task, to: TaskStatus, ctx: MoveContext): Plan {
         };
       }
       if (from === "in_progress" && isAssignee) {
-        if (!t.requiresApproval) return { type: "dialog", kind: "submit" };
+        if (!needsReview(t)) return { type: "dialog", kind: "submit" };
         return { type: "deny", title: "Submit it for review first", body: `${reviewer} approves it, then it moves to Done.` };
       }
       return { type: "deny", title: "Only approved work moves to Done", body: "Tasks reach Done after they are submitted and reviewed." };
@@ -195,12 +192,7 @@ export function BoardView({
         </p>
       )}
       <DndContext sensors={sensors} collisionDetection={collision} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}>
-        <div
-          className={cn(
-            "thin-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-3 sm:mx-0 sm:px-0",
-            !activeId && "snap-x snap-mandatory scroll-px-4 sm:snap-none",
-          )}
-        >
+        <div className={cn("thin-scrollbar -mx-4 flex gap-3 overflow-x-auto px-4 pb-3 sm:mx-0 sm:px-0", !activeId && "snap-x snap-mandatory scroll-px-4 sm:snap-none")}>
           {LIFECYCLE.map((status) => {
             const items = tasks.filter((t) => t.status === status);
             const plan = active ? planMove(active, status, ctx) : null;
@@ -225,13 +217,9 @@ export function BoardView({
             );
           })}
         </div>
-        <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }}>
-          {active ? <CardBody task={active} showAssignee={role !== "employee"} lifted /> : null}
-        </DragOverlay>
+        <DragOverlay dropAnimation={{ duration: 180, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)" }}>{active ? <CardBody task={active} showAssignee={role !== "employee"} lifted /> : null}</DragOverlay>
       </DndContext>
-      <p className="mt-2 hidden text-[12.5px] text-faint sm:block">
-        Drag a card to move it. Pulse only allows moves the person is allowed to make, and logs each one.
-      </p>
+      <p className="mt-2 hidden text-[12.5px] text-faint sm:block">Drag a card to move it. Pulse only allows moves the person is allowed to make, and logs each one.</p>
       <p className="mt-1 text-[12.5px] text-faint sm:hidden">Press and hold a card to move it. Swipe to see more columns.</p>
       {pending && pendingTask && <TaskDialogs task={pendingTask} kind={pending.kind} onClose={() => setPending(null)} />}
     </div>
@@ -245,10 +233,7 @@ function Column({ status, count, state, children }: { status: TaskStatus; count:
   return (
     <section
       aria-label={`${STATUS_LABEL[status]}, ${plural(count, "task")}`}
-      className={cn(
-        "flex w-[84%] max-w-[320px] shrink-0 snap-start flex-col sm:w-[264px] xl:w-auto xl:min-w-[168px] xl:max-w-none xl:flex-1",
-        state === "invalid" && "opacity-45",
-      )}
+      className={cn("flex w-[84%] max-w-[320px] shrink-0 snap-start flex-col sm:w-[264px] xl:w-auto xl:min-w-[168px] xl:max-w-none xl:flex-1", state === "invalid" && "opacity-45")}
     >
       <header className="mb-2 flex items-center gap-2 px-1">
         <StatusIcon status={status} className="size-4" />

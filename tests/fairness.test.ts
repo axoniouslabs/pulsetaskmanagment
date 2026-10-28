@@ -129,3 +129,13 @@ describe("level 4 is for silence", () => {
     expect(r.world.tasks.find((t) => t.id === "talking")!.escalationLevel).toBe(3);
   });
 });
+
+describe("the owner's own work", () => {
+  it("closes when they finish it: there's nobody above them to review it", () => {
+    let w = makeWorld();
+    w = run(w, "p_owner", { type: "createTask", id: "own", input: { title: "Renew trade licence", assigneeId: "p_owner", priority: "high", dueAt: pkt("2026-10-22T17:00:00").toISOString() } });
+    w = run(w, "p_owner", { type: "start", taskId: "own" });
+    w = run(w, "p_owner", { type: "submit", taskId: "own", note: "Renewed" });
+    expect(w.tasks.find((t) => t.id === "own")!.status).toBe("approved");
+  });
+});
