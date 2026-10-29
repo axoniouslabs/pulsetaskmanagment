@@ -34,7 +34,10 @@ export function AdminChrome({ children }: { children: React.ReactNode }) {
                   <LiveNavLinks />
                 </React.Suspense>
               </nav>
-              <Link href="/overview" className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[13.5px] font-medium text-muted transition-colors hover:bg-sunken hover:text-text">
+              <Link
+                href="/overview"
+                className="ml-auto inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2.5 py-1.5 text-[13.5px] font-medium text-muted transition-colors hover:bg-sunken hover:text-text"
+              >
                 My company <ArrowUpRight className="size-3.5" />
               </Link>
             </div>
@@ -44,9 +47,7 @@ export function AdminChrome({ children }: { children: React.ReactNode }) {
               </React.Suspense>
             </nav>
           </header>
-          <main className="mx-auto w-full max-w-[1180px] px-4 pb-20 pt-6 sm:px-6 lg:pt-8">
-            {children}
-          </main>
+          <main className="mx-auto w-full max-w-[1180px] px-4 pb-20 pt-6 sm:px-6 lg:pt-8">{children}</main>
         </div>
         <Toaster
           position="top-right"

@@ -328,6 +328,12 @@ export function LoginForm({ demo, accounts }: { demo: boolean; accounts: DemoAcc
                     Join your company
                   </Link>
                 </p>
+                <p className="text-center text-[13px] text-muted">
+                  New to Pulse?{" "}
+                  <Link href="/signup" className="font-medium text-ink hover:underline">
+                    Start a 3-day free trial
+                  </Link>
+                </p>
               </form>
             </>
           )}

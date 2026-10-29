@@ -7,6 +7,7 @@ import { Toaster } from "sonner";
 import { Lock, Menu as MenuIcon, Plus, Search, X } from "lucide-react";
 import { useApp, useMeId, channelMembersOf, flushOutbox } from "@/lib/store";
 import { outbox } from "@/lib/offline";
+import { trialDaysLeft } from "@/lib/access";
 import { scheduleFor } from "@/domain/time";
 import { toast } from "sonner";
 import { CloudOff } from "lucide-react";
@@ -108,6 +109,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           <Sidebar />
           <div className="flex min-w-0 flex-1 flex-col">
             <TopBar />
+            <TrialBanner />
             <StaleBanner />
             <TimeZoneNotice />
             <AppBadge />
@@ -488,6 +490,42 @@ function TimeZoneNotice() {
           Keep as is
         </Button>
       </div>
+    </div>
+  );
+}
+
+/** a company on its free trial: days left for the owner; after it ends, everyone sees why nothing can change */
+function TrialBanner() {
+  const trial = useApp((s) => s.trial);
+  const role = useApp((s) => s.role);
+  const [now] = React.useState(() => new Date());
+  if (!trial || (!trial.ended && role !== "owner")) return null;
+  const left = trialDaysLeft(trial.endsAt, now);
+  const contact = /^\+?[\d\s-]{8,}$/.test(trial.contact) ? (
+    <a href={`https://wa.me/${trial.contact.replace(/\D/g, "")}`} className="font-semibold underline" target="_blank" rel="noopener noreferrer">
+      {trial.contact}
+    </a>
+  ) : /@/.test(trial.contact) ? (
+    <a href={`mailto:${trial.contact}`} className="font-semibold underline">
+      {trial.contact}
+    </a>
+  ) : (
+    <span className="font-semibold">{trial.contact}</span>
+  );
+  return (
+    <div role="status" className="mx-auto mt-2 flex w-full max-w-[1240px] px-4 sm:px-6 lg:px-10">
+      <p className={cn("w-full rounded-[var(--radius-md)] border px-3.5 py-2.5 text-[13px] leading-snug text-text", trial.ended ? "border-heat-3/30 bg-heat-3-tint" : "border-ink/15 bg-ink-tint/60")}>
+        {trial.ended ? (
+          <>
+            <span className="font-semibold">Your free trial has ended.</span> Everything is saved and you can still look through it, but nothing can be changed and reminders have stopped.{" "}
+            {role === "owner" ? <>To keep using Pulse, contact {contact}.</> : "Your company's owner can turn it back on."}
+          </>
+        ) : (
+          <>
+            <span className="font-semibold">Free trial: {left <= 1 ? "last day" : `${left} days left`}.</span> Everything is included. To keep Pulse after the trial, contact {contact}.
+          </>
+        )}
+      </p>
     </div>
   );
 }

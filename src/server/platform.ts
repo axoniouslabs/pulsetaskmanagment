@@ -4,7 +4,7 @@ import { headers } from "next/headers";
 import { eq } from "drizzle-orm";
 import { auth } from "./auth";
 import { db, schema as S } from "./db";
-import { accessOf, PAUSED_MESSAGE } from "@/lib/access";
+import { accessOf, PAUSED_MESSAGE, TRIAL_ENDED_MESSAGE } from "@/lib/access";
 
 /**
  * Pulse hosts many companies. The Pulse administrator adds them at /admin and can
@@ -13,16 +13,24 @@ import { accessOf, PAUSED_MESSAGE } from "@/lib/access";
 
 export class PausedError extends Error {}
 
-/** the company's name and whether it's paused */
+/** the company's name, whether it can use Pulse, and when its trial ends */
 export async function loadAccess(orgId: string) {
-  const [org] = await db.select({ status: S.organizations.status, name: S.organizations.name }).from(S.organizations).where(eq(S.organizations.id, orgId));
-  return org ? { company: org.name, state: accessOf(org) } : null;
+  const [org] = await db.select({ status: S.organizations.status, name: S.organizations.name, trialEndsAt: S.organizations.trialEndsAt }).from(S.organizations).where(eq(S.organizations.id, orgId));
+  return org ? { company: org.name, state: accessOf(org), trialEndsAt: org.trialEndsAt?.toISOString() ?? null } : null;
 }
 
-/** throws when the company is paused */
+/** throws when the company can't change anything: paused, or its trial is over */
 export async function assertNotPaused(orgId: string) {
   const a = await loadAccess(orgId);
   if (a?.state === "paused") throw new PausedError(PAUSED_MESSAGE);
+  if (a?.state === "trial_ended") throw new PausedError(TRIAL_ENDED_MESSAGE);
+}
+
+/** who a trial company should contact to continue: PULSE_SALES_CONTACT, else the Pulse administrator's email */
+export async function salesContact() {
+  if (process.env.PULSE_SALES_CONTACT) return process.env.PULSE_SALES_CONTACT;
+  const [a] = await db.select({ email: S.user.email }).from(S.user).where(eq(S.user.platformAdmin, true)).limit(1);
+  return a?.email ?? "the Pulse team";
 }
 
 /** the signed-in Pulse administrator, or null */

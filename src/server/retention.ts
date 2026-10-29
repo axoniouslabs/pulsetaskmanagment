@@ -17,8 +17,14 @@ export async function purgeOld(orgId: string, months: number, now = new Date()) 
   return db.transaction(async (tx) => {
     // the activity trigger lets this transaction, and only rows past the minimum, through
     await tx.execute(sql`select set_config('pulse.retention_purge', 'on', true)`);
-    const act = await tx.delete(S.activity).where(and(eq(S.activity.orgId, orgId), lt(S.activity.at, cutoff))).returning({ id: S.activity.id });
-    const notes = await tx.delete(S.notifications).where(and(eq(S.notifications.orgId, orgId), lt(S.notifications.at, cutoff))).returning({ id: S.notifications.id });
+    const act = await tx
+      .delete(S.activity)
+      .where(and(eq(S.activity.orgId, orgId), lt(S.activity.at, cutoff)))
+      .returning({ id: S.activity.id });
+    const notes = await tx
+      .delete(S.notifications)
+      .where(and(eq(S.notifications.orgId, orgId), lt(S.notifications.at, cutoff)))
+      .returning({ id: S.notifications.id });
     await tx.delete(S.attendance).where(and(eq(S.attendance.orgId, orgId), lt(S.attendance.date, day)));
     await tx.delete(S.dailyStats).where(and(eq(S.dailyStats.orgId, orgId), lt(S.dailyStats.date, day)));
     const old = await tx

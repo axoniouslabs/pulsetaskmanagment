@@ -5,7 +5,7 @@ import { loadEngineState, loadWorld, scopeWorld } from "@/server/repo";
 import { headers } from "next/headers";
 import { auth } from "@/server/auth";
 import { getViewer, json } from "@/server/session";
-import { loadAccess } from "@/server/platform";
+import { loadAccess, salesContact } from "@/server/platform";
 import { PAUSED_MESSAGE } from "@/lib/access";
 
 /** Everything the signed-in person is allowed to see, in the shape the screens use. */
@@ -42,5 +42,7 @@ export async function GET() {
     demoMode: demoEnabled() && viewer.orgId === "org_crescent",
     platformAdmin: !!account?.platformAdmin,
     pushPublicKey: process.env.NEXT_PUBLIC_VAPID_PUBLIC_KEY || null,
+    // a company on its free trial: when it ends, and who to talk to about keeping Pulse
+    trial: access?.trialEndsAt ? { endsAt: access.trialEndsAt, ended: access.state === "trial_ended", contact: await salesContact() } : null,
   });
 }

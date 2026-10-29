@@ -61,12 +61,14 @@ export async function tickOrg(orgId: string, now = new Date()) {
 
 /** Run the engine for every organisation. Errors in one never stop the others. */
 export async function tickAll(now = new Date()) {
-  const orgs = await db.select({ id: schema.organizations.id, status: schema.organizations.status }).from(schema.organizations);
+  const orgs = await db.select({ id: schema.organizations.id, status: schema.organizations.status, trialEndsAt: schema.organizations.trialEndsAt }).from(schema.organizations);
   const results: Record<string, { notifications: number } | { error: string } | { paused: string }> = {};
   for (const o of orgs) {
     // no reminders for a paused company
-    if (accessOf(o) === "paused") {
-      results[o.id] = { paused: "paused" };
+    // no reminders for a paused company, or one whose trial is over
+    const state = accessOf(o);
+    if (state === "paused" || state === "trial_ended") {
+      results[o.id] = { paused: state };
       continue;
     }
     try {

@@ -6,7 +6,7 @@ import { loadWorld, lockOrg, persist } from "./repo";
 import { deliverPush, silenceOtherDevices } from "./push";
 import { newId } from "./ids";
 import { loadAccess } from "./platform";
-import { PAUSED_MESSAGE } from "@/lib/access";
+import { ALLOWED_AFTER_TRIAL, PAUSED_MESSAGE, TRIAL_ENDED_MESSAGE } from "@/lib/access";
 
 export type RunResult = { ok: true } | { ok: false; status: number; error: string };
 
@@ -16,7 +16,10 @@ export type RunResult = { ok: true } | { ok: false; status: number; error: strin
  * Push goes out after the data is safely stored.
  */
 export async function runCommand(actor: { orgId: string; personId: string }, cmd: Command): Promise<RunResult> {
-  if ((await loadAccess(actor.orgId))?.state === "paused") return { ok: false, status: 423, error: PAUSED_MESSAGE };
+  const access = await loadAccess(actor.orgId);
+  if (access?.state === "paused") return { ok: false, status: 423, error: PAUSED_MESSAGE };
+  // after the trial everything stays readable; only personal settings can change
+  if (access?.state === "trial_ended" && !ALLOWED_AFTER_TRIAL.has(cmd.type)) return { ok: false, status: 402, error: TRIAL_ENDED_MESSAGE };
   try {
     const { newNotificationIds } = await db.transaction(async (tx) => {
       await lockOrg(tx, actor.orgId);

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { DEFAULT_REMINDER } from "./seed";
 import type { Leave, OrgSettings, Role } from "./types";
 import { channelMembersOf, emptyWorld, membersOf, WORLD_KEYS, type World } from "@/domain/world";
+import { ALLOWED_AFTER_TRIAL, TRIAL_ENDED_MESSAGE } from "./access";
 import { QUEUEABLE, isNetworkError, outbox, readSnapshot, saveSnapshot, setOutbox } from "./offline";
 import { tryCommand, type Command, type CommandResult, type NewTaskInput } from "@/domain/commands";
 
@@ -96,6 +97,8 @@ export interface AppState extends World, Actions {
   staleSince: string | null;
   /** changes made offline, waiting to be sent */
   outboxCount: number;
+  /** a company on its free trial: when it ends, and who to contact to keep Pulse */
+  trial: { endsAt: string; ended: boolean; contact: string } | null;
   /** set when the company's access is paused: why, and who to contact */
   locked: { company: string; message: string } | null;
   /** this sign-in also runs the Pulse admin panel */
@@ -271,6 +274,8 @@ export const useApp = create<AppState>()((set, get) => {
       uid: newId,
     });
     if (!result.ok) return result;
+    // after the trial everything stays readable; only personal settings change
+    if (s.trial?.ended && !ALLOWED_AFTER_TRIAL.has(cmd.type)) return { ok: false, error: TRIAL_ENDED_MESSAGE };
     localVersion++;
     set(world);
     send(cmd);
@@ -288,6 +293,7 @@ export const useApp = create<AppState>()((set, get) => {
     status: "loading",
     staleSince: null,
     outboxCount: 0,
+    trial: null,
     viewer: null,
     role: "employee",
     userIds: NOBODY,
@@ -339,6 +345,7 @@ export const useApp = create<AppState>()((set, get) => {
           companyCreatedAt?: string | null;
           platformAdmin?: boolean;
           pushPublicKey: string | null;
+          trial?: { endsAt: string; ended: boolean; contact: string } | null;
         };
         // a change made while this was loading wins; the next refetch brings both together
         if (pending > 0 || localVersion !== startedAt) return scheduleRefetch();
@@ -356,6 +363,7 @@ export const useApp = create<AppState>()((set, get) => {
           platformAdmin: !!data.platformAdmin,
           locked: null,
           pushPublicKey: data.pushPublicKey,
+          trial: data.trial ?? null,
           serverOffsetMs: new Date(data.serverTime).getTime() - Date.now(),
           status: "ready",
         });

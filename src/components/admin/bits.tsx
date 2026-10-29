@@ -2,17 +2,18 @@ import { cn } from "@/lib/utils";
 import type { AccessState } from "@/lib/access";
 
 /** one calm pill: working normally, or paused by you */
-export function StatusBadge({ access, className }: { access: AccessState; className?: string }) {
+export function StatusBadge({ access, className, trialEndsAt }: { access: AccessState; className?: string; trialEndsAt?: string | null }) {
+  const left = trialEndsAt ? Math.max(0, Math.ceil((new Date(trialEndsAt).getTime() - Date.parse(new Date().toISOString())) / 864e5)) : 0;
   return (
     <span
       className={cn(
         "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[12.5px] font-medium",
-        access === "paused" ? "bg-sunken text-muted" : "bg-ok-tint text-ok",
+        access === "paused" ? "bg-sunken text-muted" : access === "trial" ? "bg-info-tint text-info" : access === "trial_ended" ? "bg-heat-1-tint text-heat-1" : "bg-ok-tint text-ok",
         className,
       )}
     >
       <span aria-hidden className="size-1.5 rounded-full bg-current opacity-80" />
-      {access === "paused" ? "Paused" : "Active"}
+      {access === "paused" ? "Paused" : access === "trial" ? `Trial, ${left <= 1 ? "last day" : `${left} days left`}` : access === "trial_ended" ? "Trial ended" : "Paid"}
     </span>
   );
 }

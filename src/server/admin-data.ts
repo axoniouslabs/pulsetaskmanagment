@@ -11,6 +11,10 @@ export interface CompanyRow {
   name: string;
   createdAt: string;
   access: AccessState;
+  /** when the free trial ends (null: paid or set up by you) */
+  trialEndsAt: string | null;
+  /** signed up on its own from the website */
+  selfSignup: boolean;
   contactPhone: string;
   notes: string;
   owner: { name: string; email: string } | null;
@@ -29,11 +33,7 @@ export async function listCompanies(now = new Date()): Promise<CompanyRow[]> {
   const d30 = subDays(now, 30);
   const [orgs, owners, users, tasks, actors, reminders, last] = await Promise.all([
     db.select().from(S.organizations).orderBy(asc(S.organizations.name)),
-    db
-      .select({ orgId: S.people.orgId, name: S.people.name, email: S.people.email })
-      .from(S.people)
-      .where(eq(S.people.role, "owner"))
-      .orderBy(asc(S.people.createdAt)),
+    db.select({ orgId: S.people.orgId, name: S.people.name, email: S.people.email }).from(S.people).where(eq(S.people.role, "owner")).orderBy(asc(S.people.createdAt)),
     db
       .select({ orgId: S.people.orgId, n: sql<number>`count(*)::int` })
       .from(S.people)
@@ -70,7 +70,9 @@ export async function listCompanies(now = new Date()): Promise<CompanyRow[]> {
       id: o.id,
       name: o.name,
       createdAt: o.createdAt.toISOString(),
-      access: accessOf(o),
+      access: accessOf(o, now),
+      trialEndsAt: o.trialEndsAt?.toISOString() ?? null,
+      selfSignup: !!o.trialEndsAt || !!o.signupDomain,
       contactPhone: o.contactPhone,
       notes: o.notes,
       owner: owner.get(o.id) ?? null,

@@ -77,9 +77,14 @@ export async function deliverPush(notificationIds: string[]) {
   const recipientIds = Array.from(new Set(items.map((n) => n.recipientId)));
   const taskIds = Array.from(new Set(items.map((n) => n.taskId).filter((x): x is string => !!x)));
   const [devs, people, tasks] = await Promise.all([
-    db.select().from(S.devices).where(and(inArray(S.devices.personId, recipientIds), isNotNull(S.devices.endpoint), eq(S.devices.healthy, true))),
+    db
+      .select()
+      .from(S.devices)
+      .where(and(inArray(S.devices.personId, recipientIds), isNotNull(S.devices.endpoint), eq(S.devices.healthy, true))),
     db.select({ id: S.people.id, prefs: S.people.prefs, name: S.people.name }).from(S.people).where(inArray(S.people.id, recipientIds)),
-    taskIds.length ? db.select({ id: S.tasks.id, status: S.tasks.status, reminder: S.tasks.reminder, assigneeId: S.tasks.assigneeId }).from(S.tasks).where(inArray(S.tasks.id, taskIds)) : Promise.resolve([]),
+    taskIds.length
+      ? db.select({ id: S.tasks.id, status: S.tasks.status, reminder: S.tasks.reminder, assigneeId: S.tasks.assigneeId }).from(S.tasks).where(inArray(S.tasks.id, taskIds))
+      : Promise.resolve([]),
   ]);
   const prefsOf = new Map(people.map((p) => [p.id, p.prefs ?? {}]));
   const taskOf = new Map(tasks.map((t) => [t.id, t as { id: string; status: string; reminder: ReminderRule; assigneeId: string }]));
@@ -132,7 +137,17 @@ export async function deliverPush(notificationIds: string[]) {
         await db.update(S.notifications).set({ failedAt: new Date() }).where(eq(S.notifications.id, n.id));
         if (n.kind === "reminder" && n.taskId) {
           const who = people.find((p) => p.id === n.recipientId)?.name.split(" ")[0] ?? "the assignee";
-          await db.insert(S.activity).values({ id: newId("act"), orgId: n.orgId, at: new Date(), actorId: "system", kind: "reminder_failed", taskId: n.taskId, text: `Couldn't reach ${who}'s phone or PC (tried twice). Shown in the app only.` });
+          await db
+            .insert(S.activity)
+            .values({
+              id: newId("act"),
+              orgId: n.orgId,
+              at: new Date(),
+              actorId: "system",
+              kind: "reminder_failed",
+              taskId: n.taskId,
+              text: `Couldn't reach ${who}'s phone or PC (tried twice). Shown in the app only.`,
+            });
         }
       }
     }),
@@ -145,7 +160,10 @@ export async function deliverPush(notificationIds: string[]) {
  */
 export async function silenceOtherDevices(personId: string, taskId: string, what: string) {
   if (!pushConfigured()) return;
-  const targets = await db.select().from(S.devices).where(and(eq(S.devices.personId, personId), isNotNull(S.devices.endpoint), eq(S.devices.healthy, true)));
+  const targets = await db
+    .select()
+    .from(S.devices)
+    .where(and(eq(S.devices.personId, personId), isNotNull(S.devices.endpoint), eq(S.devices.healthy, true)));
   const payload = JSON.stringify({ title: what, body: "Handled on another device.", taskId, tag: `task-${taskId}`, silent: true, actions: [] });
   await Promise.all(targets.map((d) => send(d, payload, false).catch(() => undefined)));
 }

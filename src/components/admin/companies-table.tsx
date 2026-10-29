@@ -10,7 +10,7 @@ import { ago } from "@/lib/admin-shared";
 import type { CompanyRow } from "@/server/admin-data";
 import { PageTitle, StatusBadge } from "./bits";
 
-type Filter = "all" | "active" | "paused";
+type Filter = "all" | "active" | "trial" | "paused";
 
 export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number }) {
   const [q, setQ] = React.useState("");
@@ -19,6 +19,7 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
     const text = `${c.name} ${c.owner?.name ?? ""} ${c.owner?.email ?? ""} ${c.contactPhone}`.toLowerCase();
     if (q && !text.includes(q.trim().toLowerCase())) return false;
     if (filter === "active") return c.access === "active";
+    if (filter === "trial") return c.access === "trial" || c.access === "trial_ended";
     if (filter === "paused") return c.access === "paused";
     return true;
   });
@@ -47,7 +48,8 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
           onChange={setFilter}
           options={[
             { value: "all", label: `All ${rows.length}` },
-            { value: "active", label: "Active" },
+            { value: "active", label: "Paid" },
+            { value: "trial", label: `Trials ${rows.filter((c) => c.access === "trial" || c.access === "trial_ended").length}` },
             { value: "paused", label: "Paused" },
           ]}
         />
@@ -55,7 +57,11 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
 
       {shown.length === 0 ? (
         <Panel>
-          <EmptyState icon={Building2} title={rows.length ? "No company matches" : "No companies yet"} body={rows.length ? "Try another search or filter." : "Add your first client company and send them their login."} />
+          <EmptyState
+            icon={Building2}
+            title={rows.length ? "No company matches" : "No companies yet"}
+            body={rows.length ? "Try another search or filter." : "Add your first client company and send them their login."}
+          />
         </Panel>
       ) : (
         <Panel className="overflow-hidden">
@@ -84,7 +90,7 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
                   <td className="px-3 py-3 tabular text-text">{c.users}</td>
                   <td className="px-3 py-3 tabular text-text">{c.activeThisWeek}</td>
                   <td className="px-3 py-3">
-                    <StatusBadge access={c.access} />
+                    <StatusBadge access={c.access} trialEndsAt={c.trialEndsAt} />
                   </td>
                   <td className="px-3 py-3 text-muted">{ago(c.lastActivityAt, now)}</td>
                   <td className="px-3 py-3 text-right tabular text-text">{c.tasks30}</td>
@@ -105,7 +111,7 @@ export function CompaniesTable({ rows, now }: { rows: CompanyRow[]; now: number 
                       <p className="truncate text-[14.5px] font-medium text-text">{c.name}</p>
                       <p className="truncate text-[12.5px] text-faint">{c.owner?.name ?? "No owner"}</p>
                     </div>
-                    <StatusBadge access={c.access} />
+                    <StatusBadge access={c.access} trialEndsAt={c.trialEndsAt} />
                   </div>
                   <div className="mt-3 flex items-end justify-between gap-4 text-[12.5px] text-muted">
                     <span>

@@ -27,7 +27,7 @@ export async function companyCount() {
 }
 
 /** One organisation with its owner, their sign-in, and a notices channel. */
-export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boolean } = {}) {
+export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boolean; trialDays?: number; signupDomain?: string } = {}) {
   const company = input.company.trim();
   const ownerName = input.ownerName.trim().replace(/\s+/g, " ");
   const ownerEmail = input.ownerEmail.trim().toLowerCase();
@@ -54,7 +54,12 @@ export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boo
       if ((row?.n ?? 0) > 0) throw new CompanyError("Pulse is already set up here. Sign in instead.");
     }
     const [taken] = await tx.select({ id: S.user.id }).from(S.user).where(eq(S.user.email, ownerEmail));
-    if (taken) throw new CompanyError(`${ownerEmail} already has a Pulse account.`);
+    if (taken) throw new CompanyError(`${ownerEmail} already has a Pulse account. Sign in instead.`);
+    // one free trial per company: a work domain that already had one can't start another
+    if (opts.signupDomain) {
+      const [used] = await tx.select({ id: S.organizations.id }).from(S.organizations).where(eq(S.organizations.signupDomain, opts.signupDomain));
+      if (used) throw new CompanyError(`A company using ${opts.signupDomain} has already started a free trial. Ask your owner to invite you, or contact us.`);
+    }
 
     await tx.insert(S.organizations).values({
       id: orgId,
@@ -62,6 +67,8 @@ export async function createCompany(input: NewCompany, opts: { onlyIfEmpty?: boo
       timezone,
       settings,
       contactPhone: input.contactPhone?.trim() ?? "",
+      trialEndsAt: opts.trialDays ? new Date(Date.now() + opts.trialDays * 864e5) : null,
+      signupDomain: opts.signupDomain ?? null,
     });
     await tx.insert(S.user).values({ id: userId, name: ownerName, email: ownerEmail, emailVerified: true, platformAdmin: !!input.platformAdmin });
     await tx.insert(S.account).values({ id: newId("a"), accountId: userId, providerId: "credential", userId, password: hash });

@@ -127,6 +127,10 @@ export const organizations = pgTable("organizations", {
   /** the Pulse administrator's own records about this company */
   contactPhone: text().notNull().default(""),
   notes: text().notNull().default(""),
+  /** set for a company that signed up on its own: when its free trial ends (null = paid / set up by the administrator) */
+  trialEndsAt: ts(),
+  /** the email domain it signed up with, so one company gets one trial */
+  signupDomain: text(),
   /** retired: from the short-lived subscription system; kept so no data is dropped, never read */
   planId: text(),
   expiresAt: ts(),

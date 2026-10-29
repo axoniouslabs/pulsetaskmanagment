@@ -100,3 +100,25 @@ export async function resetOwnerPassword(orgId: string): Promise<Result<{ email:
   });
   return { ok: true, email: owner.email, password };
 }
+
+/** more days of free trial; counted from now if it had already ended */
+export async function extendTrial(orgId: string, days: number): Promise<Result> {
+  await admin();
+  const [o] = await db.select({ trialEndsAt: S.organizations.trialEndsAt }).from(S.organizations).where(eq(S.organizations.id, orgId));
+  if (!o) return fail("That company no longer exists.");
+  if (!o.trialEndsAt) return fail("This company is already paid.");
+  const from = Math.max(Date.now(), o.trialEndsAt.getTime());
+  const add = Math.min(30, Math.max(1, Math.round(days)));
+  await db
+    .update(S.organizations)
+    .set({ trialEndsAt: new Date(from + add * 864e5) })
+    .where(eq(S.organizations.id, orgId));
+  return { ok: true };
+}
+
+/** they've paid: the trial ends and Pulse keeps working with no limit */
+export async function activateCompany(orgId: string): Promise<Result> {
+  await admin();
+  const done = await db.update(S.organizations).set({ trialEndsAt: null, status: "active" }).where(eq(S.organizations.id, orgId)).returning({ id: S.organizations.id });
+  return done.length ? { ok: true } : fail("That company no longer exists.");
+}

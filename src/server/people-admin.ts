@@ -1,6 +1,7 @@
 import "server-only";
 import { randomInt } from "node:crypto";
-import { and, eq, isNull, ne, notInArray, or } from "drizzle-orm";
+import { and, eq, isNull, ne, notInArray, or, sql } from "drizzle-orm";
+import { TRIAL_MAX_PEOPLE } from "@/lib/access";
 import { hashPassword } from "better-auth/crypto";
 import { z } from "zod";
 import { db, schema as S } from "./db";
@@ -53,6 +54,15 @@ type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export async function insertPerson(tx: Tx, orgId: string, actorId: string, input: z.infer<typeof personInput>, opts: { hash: string; mustChangePassword: boolean; via: string }) {
   const [taken] = await tx.select({ id: S.user.id }).from(S.user).where(eq(S.user.email, input.email));
   if (taken) throw new AdminError("Someone already signs in with that email.");
+  // a trial has room for a real try, not a whole firm
+  const [org] = await tx.select({ trialEndsAt: S.organizations.trialEndsAt }).from(S.organizations).where(eq(S.organizations.id, orgId));
+  if (org?.trialEndsAt) {
+    const [n] = await tx
+      .select({ n: sql<number>`count(*)::int` })
+      .from(S.people)
+      .where(and(eq(S.people.orgId, orgId), eq(S.people.active, true)));
+    if ((n?.n ?? 0) >= TRIAL_MAX_PEOPLE) throw new AdminError(`During the free trial a company can have up to ${TRIAL_MAX_PEOPLE} people. Contact us to add more.`);
+  }
   const team = input.teamId
     ? (
         await tx

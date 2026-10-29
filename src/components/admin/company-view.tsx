@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Check, Copy, KeyRound, Loader2, Pause, Play } from "lucide-react";
+import { ArrowLeft, BadgeCheck, Check, Clock, Copy, KeyRound, Loader2, Pause, Play } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, Field, Input, Textarea } from "@/components/ui/primitives";
@@ -11,7 +11,7 @@ import { Panel, SectionHeading } from "@/components/app/page-header";
 import { ago, shortDate } from "@/lib/admin-shared";
 import { cn } from "@/lib/utils";
 import type { CompanyRow } from "@/server/admin-data";
-import { resetOwnerPassword, saveCompanyDetails, setCompanyPaused } from "@/app/admin/actions";
+import { activateCompany, extendTrial, resetOwnerPassword, saveCompanyDetails, setCompanyPaused } from "@/app/admin/actions";
 import { StatusBadge } from "./bits";
 
 type Person = { id: string; name: string; title: string; role: string; active: boolean; email: string };
@@ -39,7 +39,7 @@ export function CompanyView({ company: c, people, weeks, now, ownCompany }: Prop
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
             <h1 className="font-display text-[28px] font-semibold leading-tight tracking-[-0.02em] text-text sm:text-[32px]">{c.name}</h1>
-            <StatusBadge access={c.access} />
+            <StatusBadge access={c.access} trialEndsAt={c.trialEndsAt} />
             {ownCompany && <span className="rounded-full bg-ink-tint px-2.5 py-0.5 text-[12.5px] font-medium text-ink">Your company</span>}
           </div>
           <p className="mt-1.5 text-[14px] text-muted">
@@ -48,6 +48,7 @@ export function CompanyView({ company: c, people, weeks, now, ownCompany }: Prop
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
+          {c.trialEndsAt && <TrialActions c={c} onDone={refresh} />}
           {!ownCompany && (
             <Button variant="secondary" onClick={() => setDialog("password")} disabled={!c.owner}>
               <KeyRound /> Reset owner&apos;s password
@@ -72,7 +73,16 @@ export function CompanyView({ company: c, people, weeks, now, ownCompany }: Prop
       </div>
 
       <Dialog open={dialog === "pause"} onOpenChange={(o) => !o && setDialog(null)}>
-        {dialog === "pause" && <PauseConfirm c={c} paused={paused} onDone={(saved) => { setDialog(null); if (saved) refresh(); }} />}
+        {dialog === "pause" && (
+          <PauseConfirm
+            c={c}
+            paused={paused}
+            onDone={(saved) => {
+              setDialog(null);
+              if (saved) refresh();
+            }}
+          />
+        )}
       </Dialog>
       <Dialog open={dialog === "password"} onOpenChange={(o) => !o && setDialog(null)}>
         {dialog === "password" && <PasswordReset c={c} onDone={() => setDialog(null)} />}
@@ -237,7 +247,10 @@ function PasswordReset({ c, onDone }: { c: CompanyRow; onDone: () => void }) {
   }
   if (result)
     return (
-      <DialogContent title="New temporary password" description={`Send it to ${c.owner?.name.split(" ")[0] ?? "the owner"}. It's shown only now; Pulse asks them to choose their own after signing in.`}>
+      <DialogContent
+        title="New temporary password"
+        description={`Send it to ${c.owner?.name.split(" ")[0] ?? "the owner"}. It's shown only now; Pulse asks them to choose their own after signing in.`}
+      >
         <div className="rounded-[var(--radius-md)] bg-sunken p-4">
           <p className="text-[13px] text-muted">{result.email}</p>
           <p className="mt-1 font-mono text-[18px] font-semibold tracking-wide text-text">{result.password}</p>
@@ -259,7 +272,10 @@ function PasswordReset({ c, onDone }: { c: CompanyRow; onDone: () => void }) {
       </DialogContent>
     );
   return (
-    <DialogContent title={`Reset ${c.owner?.name.split(" ")[0] ?? "the owner"}'s password?`} description="Their current password stops working and they're signed out everywhere. You'll get a temporary password to send them.">
+    <DialogContent
+      title={`Reset ${c.owner?.name.split(" ")[0] ?? "the owner"}'s password?`}
+      description="Their current password stops working and they're signed out everywhere. You'll get a temporary password to send them."
+    >
       <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
         <Button variant="ghost" onClick={onDone}>
           Cancel
@@ -269,5 +285,28 @@ function PasswordReset({ c, onDone }: { c: CompanyRow; onDone: () => void }) {
         </Button>
       </div>
     </DialogContent>
+  );
+}
+
+/** a trial company: give it more days, or turn it into a paying customer once they've paid you */
+function TrialActions({ c, onDone }: { c: CompanyRow; onDone: () => void }) {
+  const [busy, setBusy] = React.useState<string | null>(null);
+  const go = async (key: string, run: () => Promise<{ ok: boolean; error?: string }>, done: string) => {
+    setBusy(key);
+    const r = await run().catch(() => ({ ok: false, error: "Couldn't reach Pulse. Try again." }));
+    setBusy(null);
+    if (!r.ok) return toast.error(r.error ?? "That didn't work.");
+    toast.success(done);
+    onDone();
+  };
+  return (
+    <>
+      <Button variant="secondary" disabled={!!busy} onClick={() => go("extend", () => extendTrial(c.id, 3), `${c.name}: 3 more days of trial`)}>
+        {busy === "extend" ? <Loader2 className="animate-spin" /> : <Clock />} Add 3 trial days
+      </Button>
+      <Button variant="primary" disabled={!!busy} onClick={() => go("activate", () => activateCompany(c.id), `${c.name} is now a paying company`)}>
+        {busy === "activate" ? <Loader2 className="animate-spin" /> : <BadgeCheck />} Mark as paid
+      </Button>
+    </>
   );
 }

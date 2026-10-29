@@ -93,16 +93,14 @@ export async function createInvite(orgId: string, actorId: string, raw: unknown)
     expiresAt: new Date(Date.now() + DAYS * 864e5),
   };
   await db.insert(S.invites).values(inv);
-  await db
-    .insert(S.activity)
-    .values({
-      id: newId("act"),
-      orgId,
-      at: new Date(),
-      actorId,
-      kind: "security",
-      text: `Created an invite${input.email ? ` for ${input.email}` : ""} (${input.role === "manager" ? "manager" : "employee"})`,
-    });
+  await db.insert(S.activity).values({
+    id: newId("act"),
+    orgId,
+    at: new Date(),
+    actorId,
+    kind: "security",
+    text: `Created an invite${input.email ? ` for ${input.email}` : ""} (${input.role === "manager" ? "manager" : "employee"})`,
+  });
   const link = `${appUrl()}/join/${inv.code}`;
   let emailed = false;
   if (input.email) {
